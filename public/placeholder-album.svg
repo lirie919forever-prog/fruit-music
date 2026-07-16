@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+  <rect width="300" height="300" fill="#1a1a2e"/>
+  <circle cx="150" cy="130" r="50" fill="none" stroke="#ffffff15" stroke-width="2"/>
+  <circle cx="150" cy="130" r="16" fill="#ffffff10"/>
+  <polygon points="145,115 145,145 170,130" fill="#ffffff20"/>
+  <text x="150" y="220" text-anchor="middle" fill="#ffffff30" font-family="system-ui, sans-serif" font-size="11">Music</text>
+</svg>
