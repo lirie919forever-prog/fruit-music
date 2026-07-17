@@ -178,4 +178,79 @@ describe('player queue', () => {
     usePlayerStore.getState().toggleMute();
     expect(usePlayerStore.getState().volume).toBeCloseTo(0.23);
   });
+
+  it('plays a selected queue entry and clears stale timing state', () => {
+    usePlayerStore.getState().setQueue([song('a'), song('b')]);
+    usePlayerStore.setState({
+      activeSongId: 'a',
+      isPlaying: true,
+      progress: 42,
+      duration: 120,
+      error: 'stale failure',
+      transportCommand: { sequence: 1, type: 'seek', position: 42 },
+    });
+
+    usePlayerStore.getState().playQueueIndex(1);
+
+    expect(usePlayerStore.getState()).toMatchObject({
+      queueIndex: 1,
+      currentSong: expect.objectContaining({ id: 'b' }),
+      activeSongId: null,
+      isPlaying: false,
+      playbackIntent: true,
+      progress: 0,
+      duration: 0,
+      status: 'loading',
+      error: null,
+      transportCommand: null,
+      currentView: 'now-playing',
+    });
+  });
+
+  it('does not restart a replacement track when playback was paused', () => {
+    usePlayerStore.getState().setQueue([song('a'), song('b')]);
+    usePlayerStore.getState().setPlaybackIntent(false);
+    usePlayerStore.getState().removeFromQueue(0);
+
+    expect(usePlayerStore.getState()).toMatchObject({
+      queueIndex: 0,
+      currentSong: expect.objectContaining({ id: 'b' }),
+      playbackIntent: false,
+      status: 'paused',
+    });
+  });
+
+  it('exposes terminal failures and makes retry an explicit loading state', () => {
+    usePlayerStore.getState().playSong(song('a'));
+    usePlayerStore.getState().setStatus('error', 'The stream failed.');
+    expect(usePlayerStore.getState()).toMatchObject({
+      status: 'error',
+      error: 'The stream failed.',
+      isPlaying: false,
+      playbackIntent: false,
+    });
+
+    usePlayerStore.getState().togglePlay();
+    expect(usePlayerStore.getState()).toMatchObject({
+      status: 'loading',
+      error: null,
+      playbackIntent: true,
+    });
+  });
+
+  it('does not mutate queue state for an invalid queue entry index', () => {
+    usePlayerStore.getState().setQueue([song('a')]);
+    const before = usePlayerStore.getState();
+
+    usePlayerStore.getState().playQueueIndex(-1);
+    usePlayerStore.getState().playQueueIndex(1);
+    usePlayerStore.getState().playQueueIndex(0.5);
+
+    expect(usePlayerStore.getState()).toMatchObject({
+      queueIndex: before.queueIndex,
+      currentSong: before.currentSong,
+      playbackIntent: before.playbackIntent,
+      status: before.status,
+    });
+  });
 });

@@ -106,7 +106,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     const song = currentSong;
     const loadToken = loadIdRef.current;
     retryCountRef.current = 0;
-    setStatus('loading');
+    const shouldPlay = usePlayerStore.getState().playbackIntent;
+    setStatus(shouldPlay ? 'loading' : 'paused');
 
     const isCurrent = () => loadIdRef.current === loadToken
       && usePlayerStore.getState().currentSong?.id === song.id;
@@ -131,7 +132,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setStatus('loading');
 
       api.getStreamUrl(song).then((streamUrl) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || !usePlayerStore.getState().playbackIntent) return;
         if (!streamUrl) {
           fail('No verified audio stream is available for this track.');
           return;
@@ -164,6 +165,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           },
           onplay: () => {
             if (!isCurrent() || howlRef.current !== howl) return;
+            if (!usePlayerStore.getState().playbackIntent) {
+              howl.pause();
+              return;
+            }
             setEnginePlaying(song.id, true);
             startProgress();
           },
