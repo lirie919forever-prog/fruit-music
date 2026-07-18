@@ -5,6 +5,7 @@ import { VolumeSlider } from '@/components/ui/VolumeSlider';
 import { useAudio } from '@/components/player/AudioProvider';
 import { BsShuffle, BsRepeat, BsRepeat1 } from 'react-icons/bs';
 import { HiQueueList } from 'react-icons/hi2';
+import { CoverArt } from '@/components/ui/CoverArt';
 
 function formatTime(seconds: number): string {
   if (!seconds || Number.isNaN(seconds)) return '0:00';
@@ -34,7 +35,7 @@ function ControlButton({
       disabled={disabled}
       aria-label={label}
       aria-pressed={pressed}
-      className="flex h-9 w-9 items-center justify-center rounded-full border border-transparent text-[var(--salt-mist)] transition-colors duration-150 hover:border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--salt-white)] disabled:cursor-not-allowed disabled:opacity-35"
+      className="flex h-9 w-9 items-center justify-center rounded-full border border-transparent text-[var(--salt-mist)] transition-[color,background,border-color,transform] duration-150 hover:scale-105 hover:border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:scale-100"
       style={{ color: active ? 'var(--salt-primary)' : undefined }}
     >
       {children}
@@ -122,7 +123,7 @@ export function NowPlayingBar() {
   return (
     <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50">
       <div
-        className="pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-[var(--glass-border)] bg-[rgba(2,8,16,0.78)] px-3 backdrop-blur-3xl shadow-[0_-12px_40px_rgba(2,8,16,0.42)] md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
+        className="pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-[var(--glass-border)] bg-[rgba(255,255,255,0.82)] px-3 backdrop-blur-3xl shadow-[0_-14px_44px_rgba(47,117,155,0.14)] md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
         style={{ minHeight: 'calc(72px + env(safe-area-inset-bottom))', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div
@@ -137,15 +138,15 @@ export function NowPlayingBar() {
         <div className="flex min-w-0 items-center gap-3">
           {currentSong ? (
             <>
-              <img
+              <CoverArt
                 src={currentSong.coverArt}
                 alt={currentSong.album}
-                className="h-12 w-12 shrink-0 rounded-xl object-cover shadow-[0_12px_28px_rgba(2,8,16,0.35)]"
+                className="h-12 w-12 shrink-0 rounded-2xl border border-white object-cover shadow-[0_9px_24px_rgba(45,112,149,0.2)]"
               />
               <div className="min-w-0">
                 <button
                   onClick={() => setCurrentView('now-playing')}
-                  className="block max-w-[180px] truncate text-left text-sm font-semibold text-white"
+                  className="block max-w-[180px] truncate text-left text-sm font-semibold text-[var(--salt-white)] hover:text-[var(--salt-primary)]"
                 >
                   {currentSong.title}
                 </button>
@@ -156,7 +157,7 @@ export function NowPlayingBar() {
             </>
           ) : (
             <div className="flex items-center gap-3 text-[var(--salt-foam)]">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[rgba(255,255,255,0.05)]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-bg-hover)] shadow-[0_8px_20px_rgba(45,112,149,0.1)]">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <path d="M9 18V5l12-2v13" />
                   <circle cx="6" cy="18" r="3" />
@@ -181,7 +182,7 @@ export function NowPlayingBar() {
               disabled={!hasTrack}
               aria-label={playLabel}
               aria-busy={isLoading}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--salt-primary)] text-[var(--sea-abyss)] shadow-[0_0_24px_rgba(91,184,245,0.35)] transition-transform duration-150 hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:scale-100"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-[linear-gradient(145deg,#2494ce,#0d73ae)] text-white shadow-[0_8px_22px_rgba(25,126,184,0.28)] transition-[transform,box-shadow] duration-150 hover:scale-[1.04] hover:shadow-[0_10px_28px_rgba(25,126,184,0.34)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:scale-100"
             >
               {playIcon}
             </button>
@@ -206,7 +207,7 @@ export function NowPlayingBar() {
               disabled={!hasTrack}
               aria-label={playLabel}
               aria-busy={isLoading}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--salt-primary)] text-[var(--sea-abyss)] disabled:cursor-not-allowed disabled:opacity-35"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(145deg,#2494ce,#0d73ae)] text-white shadow-[0_7px_18px_rgba(25,126,184,0.25)] disabled:cursor-not-allowed disabled:opacity-35"
             >
               {isLoading ? <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : isPlaying ? <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>}
             </button>

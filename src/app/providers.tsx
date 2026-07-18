@@ -12,7 +12,27 @@ export function Providers({ children }: { children: ReactNode }) {
           queries: {
             staleTime: 30000,
             refetchOnWindowFocus: false,
-            retry: 1,
+            retry: (failureCount, error) => {
+              if (
+                error instanceof DOMException &&
+                error.name === 'AbortError'
+              ) {
+                return false;
+              }
+
+              const isTransientProviderError =
+                typeof error === 'object' &&
+                error !== null &&
+                'code' in error &&
+                ['network', 'timeout', 'upstream'].includes(
+                  String(error.code)
+                );
+
+              return (
+                failureCount < 1 &&
+                (error instanceof TypeError || isTransientProviderError)
+              );
+            },
           },
         },
       })

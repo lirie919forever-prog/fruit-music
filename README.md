@@ -1,6 +1,6 @@
 # Marea
 
-Marea is a dark ambient music web app built with Next.js 16, React 19, Zustand, React Query, and Howler. It browses Creative Commons music from Jamendo, ccMixter, and the Internet Archive.
+Marea is a blue-white ocean Creative Commons music app built with Next.js 16, React 19, Zustand, React Query, and Howler. It browses verified music from Jamendo, ccMixter, and the Internet Archive.
 
 ## Requirements
 
@@ -32,7 +32,7 @@ Marea is a dark ambient music web app built with Next.js 16, React 19, Zustand, 
 
 4. Open [http://localhost:3000](http://localhost:3000).
 
-Internet Archive powers the default album, artist, and tagged-category views. Trending and search federate Jamendo, ccMixter, and Archive without allowing one failed provider to block successful sources. Jamendo contributes when a valid client ID is configured; otherwise the credential-free providers remain usable and the UI reports the degraded source honestly.
+Curated Pop, J-Pop, and Classical views use verified Jamendo tracks. Trending combines provider-backed Jamendo and ccMixter signals; federated search can include verified Archive tracks after exact media and licensing metadata are resolved. Albums are provider-backed summaries, and ccMixter/Archive remain available where their metadata satisfies the app's provenance and playback requirements. When a provider fails, healthy provider results remain available and the UI reports the degraded source honestly.
 
 LX Music custom sources are intentionally unsupported. They are executable, undocumented provider adapters rather than a stable, rights-cleared HTTP API; running arbitrary source scripts would bypass this app's host validation and credential boundaries.
 

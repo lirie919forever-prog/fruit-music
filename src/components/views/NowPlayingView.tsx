@@ -4,6 +4,7 @@ import { usePlayerStore } from '@/store/playerStore';
 import { useAudio } from '@/components/player/AudioProvider';
 import { Attribution } from '@/components/ui/Attribution';
 import { GlassPanel } from '@/components/ui/GlassPanel';
+import { CoverArt } from '@/components/ui/CoverArt';
 import { HiQueueList } from 'react-icons/hi2';
 
 function formatTime(seconds: number): string {
@@ -59,7 +60,7 @@ function PlaybackButton({ onClick, label, disabled = false, children }: { onClic
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className="rounded-full p-2 text-[var(--pearl-mid)] transition-colors duration-150 hover:text-[var(--salt-white)] disabled:cursor-not-allowed disabled:opacity-35"
+      className="rounded-full p-2 text-[var(--pearl-mid)] transition-[color,background,transform] duration-150 hover:scale-105 hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:scale-100"
     >
       {children}
     </button>
@@ -80,6 +81,9 @@ export function NowPlayingView() {
   const next = usePlayerStore((s) => s.next);
   const previous = usePlayerStore((s) => s.previous);
   const playQueueIndex = usePlayerStore((s) => s.playQueueIndex);
+  const removeFromQueue = usePlayerStore((s) => s.removeFromQueue);
+  const reorderQueue = usePlayerStore((s) => s.reorderQueue);
+  const clearQueue = usePlayerStore((s) => s.clearQueue);
   const status = usePlayerStore((s) => s.status);
   const error = usePlayerStore((s) => s.error);
   const { seek } = useAudio();
@@ -107,16 +111,16 @@ export function NowPlayingView() {
 
   return (
     <div className="relative flex h-full flex-col gap-6 lg:flex-row">
-      <div className="flex flex-1 flex-col items-center justify-center gap-6 py-4">
+      <div className="flex flex-1 flex-col items-center justify-center gap-6 rounded-[30px] border border-[var(--glass-border)] bg-[rgba(255,255,255,0.36)] px-2 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-sm sm:px-6">
         <div className="relative flex flex-col items-center">
-          <img
+          <CoverArt
             src={currentSong.coverArt}
             alt={currentSong.album}
-            className="aspect-square w-full max-w-[300px] rounded-[24px] object-cover shadow-[0_48px_100px_color-mix(in_srgb,var(--sea-abyss)_80%,transparent),0_0_0_1px_color-mix(in_srgb,var(--glass-border)_70%,transparent)]"
+            className="aspect-square w-full max-w-[300px] rounded-[28px] border border-white object-cover shadow-[0_34px_76px_rgba(39,101,137,0.24),0_0_0_1px_var(--glass-border)]"
           />
           <div
             aria-hidden
-            className="mt-[-4px] h-[60px] w-full max-w-[300px] rounded-b-[24px] opacity-20"
+            className="mt-[-4px] h-[54px] w-full max-w-[286px] rounded-b-[24px] opacity-10"
             style={{
               backgroundImage: `url(${currentSong.coverArt})`,
               backgroundSize: 'cover',
@@ -130,13 +134,11 @@ export function NowPlayingView() {
         </div>
 
         <div className="w-full max-w-md px-4 text-center">
-          <h2 className="truncate text-3xl font-bold tracking-tight text-white">{currentSong.title}</h2>
+          <h2 className="truncate text-3xl font-bold tracking-[-0.035em] text-[var(--salt-white)]">{currentSong.title}</h2>
           <p className="mt-2 text-[13px] font-semibold uppercase tracking-[0.18em] text-[var(--salt-primary)]">{currentSong.artist}</p>
           <p className="mt-1 text-sm text-[var(--salt-mist)]">{currentSong.album}</p>
           <div className="mt-3"><Attribution song={currentSong} /></div>
-          <p className="mt-2 text-xs text-[var(--salt-mist)]" role="status">
-            {status === 'loading' ? 'Loading verified audio…' : status === 'error' ? error : null}
-          </p>
+          {status === 'error' ? <p className="mt-2 text-xs text-[var(--danger)]" role="status">{error}</p> : <p className="mt-2 text-xs text-[var(--salt-mist)]" role="status">{status === 'loading' ? 'Loading verified audio…' : null}</p>}
         </div>
 
         <div className="w-full max-w-md px-4">
@@ -151,7 +153,7 @@ export function NowPlayingView() {
             onClick={togglePlay}
             aria-label={playLabel}
             aria-busy={isLoading}
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--salt-primary)] text-[var(--sea-abyss)] shadow-[0_0_24px_var(--glow-strong)] transition-transform duration-150 hover:scale-[1.02]"
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-[linear-gradient(145deg,#2494ce,#0d73ae)] text-white shadow-[0_10px_28px_rgba(25,126,184,0.3)] transition-[transform,box-shadow] duration-150 hover:scale-[1.04] hover:shadow-[0_12px_34px_rgba(25,126,184,0.36)]"
           >
             {isLoading ? (
               <span aria-hidden className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -168,33 +170,35 @@ export function NowPlayingView() {
       </div>
 
       <GlassPanel className="w-full space-y-4 px-4 py-4 lg:w-80" hover>
-        <div className="flex items-center gap-2 text-sm text-[var(--salt-mist)]">
-          <HiQueueList className="h-4 w-4" />
-          <span>Up Next ({queue.length})</span>
+        <div className="flex items-center justify-between gap-2 text-sm text-[var(--salt-mist)]">
+          <div className="flex items-center gap-2"><HiQueueList className="h-4 w-4" /><span>Up Next ({queue.length})</span></div>
+          {queue.length > 1 && <button type="button" onClick={clearQueue} className="rounded-full border border-transparent px-3 py-1.5 text-[11px] text-[var(--salt-mist)] transition-colors hover:border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]">Clear queue</button>}
         </div>
         <div className="max-h-[300px] space-y-1 overflow-y-auto rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2 backdrop-blur-xl">
           {queue.map((item, index) => (
-            <button
-              type="button"
-              onClick={() => playQueueIndex(index)}
-              aria-current={index === queueIndex ? 'true' : undefined}
+            <div
               key={`${item.song.id}-${index}`}
-              className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
-              style={{
-                background: index === queueIndex ? 'var(--glass-bg-hover)' : 'transparent',
-                borderLeft: index === queueIndex ? '2px solid var(--salt-primary)' : '2px solid transparent',
-                color: index === queueIndex ? 'var(--salt-white)' : 'var(--salt-mist)',
-              }}
+              className="flex items-center gap-1 rounded-xl px-1 py-1"
+              style={{ background: index === queueIndex ? 'var(--glass-bg-hover)' : 'transparent' }}
             >
-              <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-[var(--salt-mist)]" style={{ fontFamily: 'var(--font-mono)' }}>
-                {index + 1}
-              </span>
-              <img src={item.song.coverArt} alt="" className="h-7 w-7 shrink-0 rounded-md object-cover" />
-              <span className="flex-1 truncate">{item.song.title}</span>
-              <span className="shrink-0 text-[11px] tabular-nums text-[var(--salt-mist)]" style={{ fontFamily: 'var(--font-mono)' }}>
-                {formatTime(item.song.duration)}
-              </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => playQueueIndex(index)}
+                aria-current={index === queueIndex ? 'true' : undefined}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 text-left text-sm transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+                style={{ color: index === queueIndex ? 'var(--salt-primary)' : 'var(--salt-foam)' }}
+              >
+                <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-[var(--salt-mist)]" style={{ fontFamily: 'var(--font-mono)' }}>{index + 1}</span>
+                <CoverArt src={item.song.coverArt} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-white object-cover shadow-sm" />
+                <span className="flex-1 truncate">{item.song.title}</span>
+                <span className="shrink-0 text-[11px] tabular-nums text-[var(--salt-mist)]" style={{ fontFamily: 'var(--font-mono)' }}>{formatTime(item.song.duration)}</span>
+              </button>
+              <div className="flex shrink-0 items-center">
+                <button type="button" onClick={() => reorderQueue(index, index - 1)} disabled={index === 0} aria-label={`Move ${item.song.title} earlier`} className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30">↑</button>
+                <button type="button" onClick={() => reorderQueue(index, index + 1)} disabled={index === queue.length - 1} aria-label={`Move ${item.song.title} later`} className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30">↓</button>
+                <button type="button" onClick={() => removeFromQueue(index)} aria-label={`Remove ${item.song.title} from queue`} className="h-7 w-6 rounded text-sm text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)]">×</button>
+              </div>
+            </div>
           ))}
         </div>
       </GlassPanel>

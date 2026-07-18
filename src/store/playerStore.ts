@@ -1,6 +1,9 @@
 'use client';
 
-import { create } from 'zustand';
+import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useStore } from 'zustand';
+import { createStore, type StoreApi } from 'zustand/vanilla';
+import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import type { Song, QueueItem, ViewType } from '@/types/music';
 
 export interface TransportCommand {
@@ -11,7 +14,7 @@ export interface TransportCommand {
 
 export type PlayerStatus = 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 'error';
 
-interface PlayerState {
+export interface PlayerState {
   currentSong: Song | null;
   activeSongId: string | null;
   queue: QueueItem[];
@@ -25,15 +28,21 @@ interface PlayerState {
   shuffle: boolean;
   repeat: 'off' | 'all' | 'one';
   currentView: ViewType;
+  searchQuery: string;
   status: PlayerStatus;
   error: string | null;
   transportCommand: TransportCommand | null;
+  favorites: Song[];
+  history: Song[];
 
   setCurrentSong: (song: Song) => void;
   setQueue: (songs: Song[], startIndex?: number) => void;
   playSong: (song: Song) => void;
   addToQueue: (song: Song) => void;
+  playNext: (song: Song) => void;
   removeFromQueue: (index: number) => void;
+  clearQueue: () => void;
+  reorderQueue: (fromIndex: number, toIndex: number) => void;
   playQueueIndex: (index: number) => void;
   next: () => void;
   previous: () => void;
@@ -46,7 +55,10 @@ interface PlayerState {
   setDuration: (duration: number) => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
+  toggleFavorite: (song: Song) => void;
+  clearHistory: () => void;
   setCurrentView: (view: ViewType) => void;
+  setSearchQuery: (query: string) => void;
   setStatus: (status: PlayerStatus, error?: string | null) => void;
   playAlbum: (songs: Song[], startIndex?: number) => void;
 }
@@ -90,7 +102,14 @@ function queueState(songs: Song[], startIndex = 0) {
   };
 }
 
-export const usePlayerStore = create<PlayerState>((set, get) => ({
+const noopStorage: StateStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
+
+export function createPlayerStore(initialView: ViewType = 'albums', initialQuery = '') {
+  return createStore<PlayerState>()(persist((set, get) => ({
   currentSong: null,
   activeSongId: null,
   queue: [],
@@ -103,15 +122,33 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   duration: 0,
   shuffle: false,
   repeat: 'off',
-  currentView: 'trending',
+  currentView: initialView,
+  searchQuery: initialView === 'search' ? initialQuery : '',
   status: 'idle',
   error: null,
   transportCommand: null,
+  favorites: [],
+  history: [],
 
   setCurrentSong: (song) => set(queueState([song])),
   setQueue: (songs, startIndex = 0) => set(queueState(songs, startIndex)),
   playSong: (song) => set({ ...queueState([song]), currentView: 'now-playing' }),
   addToQueue: (song) => set((state) => ({ queue: [...state.queue, { song, addedBy: 'user' }] })),
+  playNext: (song) => set((state) => {
+    const insertAt = state.queueIndex === null ? state.queue.length : state.queueIndex + 1;
+    const queue = [...state.queue];
+    queue.splice(insertAt, 0, { song, addedBy: 'user' });
+    return { queue };
+  }),
+  clearQueue: () => set((state) => {
+    if (state.queueIndex === null || !state.currentSong) return queueState([]);
+    const current = state.queue[state.queueIndex];
+    return {
+      queue: current ? [current] : [],
+      queueIndex: current ? 0 : null,
+      currentSong: current?.song ?? null,
+    };
+  }),
   removeFromQueue: (index) => {
     const { queue, queueIndex, playbackIntent } = get();
     if (index < 0 || index >= queue.length) return;
@@ -151,6 +188,24 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         transportCommand: null,
       } : {}),
     });
+  },
+
+  reorderQueue: (fromIndex, toIndex) => {
+    const { queue, queueIndex } = get();
+    if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex < 0 || toIndex < 0 || fromIndex >= queue.length || toIndex >= queue.length || fromIndex === toIndex) return;
+
+    const nextQueue = [...queue];
+    const [movedItem] = nextQueue.splice(fromIndex, 1);
+    nextQueue.splice(toIndex, 0, movedItem);
+
+    let nextIndex = queueIndex;
+    if (queueIndex !== null) {
+      if (fromIndex === queueIndex) nextIndex = toIndex;
+      else if (fromIndex < queueIndex && toIndex >= queueIndex) nextIndex = queueIndex - 1;
+      else if (fromIndex > queueIndex && toIndex <= queueIndex) nextIndex = queueIndex + 1;
+    }
+
+    set({ queue: nextQueue, queueIndex: nextIndex });
   },
 
   playQueueIndex: (index) => {
@@ -236,13 +291,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setEnginePlaying: (songId, playing) => set((state) => {
     if (!state.currentSong || state.currentSong.id !== songId) return {};
     if (playing) {
+      if (!state.playbackIntent) return {};
+      const history = [
+        state.currentSong,
+        ...state.history.filter((song) => song.id !== songId),
+      ].slice(0, 30);
       return {
         activeSongId: songId,
         isPlaying: true,
         status: 'playing' as PlayerStatus,
         error: null,
+        history,
       };
     }
+    if (state.activeSongId !== songId) return {};
     return {
       activeSongId: null,
       isPlaying: false,
@@ -289,7 +351,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const modes: PlayerState['repeat'][] = ['off', 'all', 'one'];
     return { repeat: modes[(modes.indexOf(state.repeat) + 1) % modes.length] };
   }),
-  setCurrentView: (view) => set({ currentView: view }),
+  toggleFavorite: (song) => set((state) => {
+    const isFavorite = state.favorites.some((item) => item.id === song.id);
+    return {
+      favorites: isFavorite
+        ? state.favorites.filter((item) => item.id !== song.id)
+        : [song, ...state.favorites],
+    };
+  }),
+  clearHistory: () => set({ history: [] }),
+  setCurrentView: (view) => set({ currentView: view, ...(view === 'search' ? {} : { searchQuery: '' }) }),
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
   setStatus: (status, error = null) => set({
     status,
     error,
@@ -297,4 +369,49 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   }),
 
   playAlbum: (songs, startIndex = 0) => set({ ...queueState(songs, startIndex), currentView: 'now-playing' }),
-}));
+  }), {
+    name: 'marea-player-v1',
+    storage: createJSONStorage(() => typeof window === 'undefined' ? noopStorage : window.localStorage),
+    skipHydration: true,
+    version: 1,
+    partialize: (state) => ({
+      favorites: state.favorites,
+      history: state.history,
+      volume: state.volume,
+      lastNonZeroVolume: state.lastNonZeroVolume,
+      shuffle: state.shuffle,
+      repeat: state.repeat,
+    }),
+  }));
+}
+
+export const playerStore = createPlayerStore();
+
+const PlayerStoreContext = createContext<StoreApi<PlayerState> | null>(null);
+
+export function PlayerStoreProvider({ initialView, initialQuery, children }: { initialView: ViewType; initialQuery: string; children: ReactNode }) {
+  const [store] = useState(() => createPlayerStore(initialView, initialQuery));
+  useEffect(() => {
+    void store.persist.rehydrate();
+  }, [store]);
+  return createElement(PlayerStoreContext.Provider, { value: store }, children);
+}
+
+export function usePlayerStoreApi(): StoreApi<PlayerState> {
+  return useContext(PlayerStoreContext) ?? playerStore;
+}
+
+export type PlayerStoreHook = {
+  <T>(selector: (state: PlayerState) => T): T;
+  getState: StoreApi<PlayerState>['getState'];
+  setState: StoreApi<PlayerState>['setState'];
+  subscribe: StoreApi<PlayerState>['subscribe'];
+};
+
+export const usePlayerStore = (<T>(selector: (state: PlayerState) => T): T => {
+  return useStore(usePlayerStoreApi(), selector);
+}) as PlayerStoreHook;
+
+usePlayerStore.getState = playerStore.getState;
+usePlayerStore.setState = playerStore.setState;
+usePlayerStore.subscribe = playerStore.subscribe;

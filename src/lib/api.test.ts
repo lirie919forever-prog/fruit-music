@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Song } from '@/types/music';
+import type { Artist, Song } from '@/types/music';
 import {
   archiveProvider,
   ccmixterProvider,
@@ -42,6 +42,10 @@ function song(id: string): Song {
   };
 }
 
+function artist(id: string): Artist {
+  return { id, name: id, coverArt: '/placeholder-album.svg', albumCount: 1 };
+}
+
 beforeEach(() => {
   vi.spyOn(jamendoProvider, 'search');
   vi.spyOn(ccmixterProvider, 'search');
@@ -56,11 +60,11 @@ describe('provider federation', () => {
   it('keeps fallback results and reports a failed provider', async () => {
     vi.mocked(jamendoProvider.search).mockRejectedValue(new Error('unauthorized'));
     vi.mocked(ccmixterProvider.search).mockResolvedValue([song('ccmixter-1')]);
-    vi.mocked(archiveProvider.search).mockResolvedValue([song('archive-item')]);
+    vi.mocked(archiveProvider.search).mockResolvedValue([]);
 
     const state = await searchFederated('ambient');
 
-    expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1', 'archive-item']);
+    expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
     expect(state.failedProviders).toEqual(['Jamendo']);
     expect(state.providerCount).toBe(3);
   });
@@ -86,7 +90,46 @@ describe('provider federation', () => {
     });
   });
 
-  it('deduplicates repeated provider-prefixed IDs', async () => {
+  it('reports degraded artists while retaining successful results', async () => {
+    vi.spyOn(jamendoProvider, 'getArtists').mockRejectedValue(new Error('down'));
+    vi.spyOn(ccmixterProvider, 'getArtists').mockResolvedValue([artist('ccmixter-artist-user')]);
+
+    await expect(api.getArtists()).resolves.toEqual({
+      results: [artist('ccmixter-artist-user')],
+      failedProviders: ['Jamendo'],
+      providerCount: 2,
+    });
+  });
+
+  it('reports total trending failure instead of silently returning empty', async () => {
+    vi.spyOn(jamendoProvider, 'getTrending').mockRejectedValue(new Error('down'));
+    vi.spyOn(ccmixterProvider, 'getTrending').mockRejectedValue(new Error('down'));
+
+    await expect(api.getTrending()).resolves.toMatchObject({
+      results: [],
+      failedProviders: ['Jamendo', 'ccMixter'],
+      providerCount: 2,
+    });
+  });
+
+  it('rethrows an externally aborted search as AbortError', async () => {
+    const controller = new AbortController();
+    vi.mocked(jamendoProvider.search).mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      throw new DOMException('Aborted', 'AbortError');
+    });
+    vi.mocked(archiveProvider.search).mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      throw new DOMException('Aborted', 'AbortError');
+    });
+
+    const pending = searchFederated('ambient', controller.signal);
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('deduplicates federated results by stable ID', async () => {
     vi.mocked(jamendoProvider.search).mockResolvedValue([song('jamendo-1')]);
     vi.mocked(ccmixterProvider.search).mockResolvedValue([song('jamendo-1')]);
     vi.mocked(archiveProvider.search).mockResolvedValue([]);

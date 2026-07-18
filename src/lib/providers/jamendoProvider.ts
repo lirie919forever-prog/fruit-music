@@ -31,8 +31,8 @@ function decodeHtml(s: string): string {
     .replace(/&#039;/g, "'");
 }
 
-async function jamendoFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
-  return providerFetch<T>('Jamendo', path.split('/').pop() || 'request', path, params);
+async function jamendoFetch<T>(path: string, params: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
+  return providerFetch<T>('Jamendo', path.split('/').pop() || 'request', path, params, signal);
 }
 
 interface JamendoTrack {
@@ -117,14 +117,14 @@ function jamendoArtistToArtist(a: JamendoArtist & { id: string }): Artist {
 }
 
 export const jamendoProvider: MusicProvider = {
-  async getAlbums(): Promise<Album[]> {
+  async getAlbums(signal?: AbortSignal): Promise<Album[]> {
     // The /albums endpoint returns recently-released albums with no track counts.
     // Instead, derive albums from the popular tracks list so counts are always accurate.
     const data = await jamendoFetch<{ results: JamendoTrack[] }>(`${PROXY_BASE}/tracks`, {
       limit: '200',
       audioformat: 'mp31',
       order: 'popularity_total',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
 
     const seen = new Map<string, Album>();
@@ -144,49 +144,51 @@ export const jamendoProvider: MusicProvider = {
           genre: '',
         });
       }
-      seen.get(albumId)!.songCount++;
+      const album = seen.get(albumId)!;
+      album.songCount += 1;
+      album.duration += t.duration;
     }
 
     return Array.from(seen.values());
   },
 
-  async getArtists(): Promise<Artist[]> {
+  async getArtists(signal?: AbortSignal): Promise<Artist[]> {
     const data = await jamendoFetch<{ results: JamendoArtist[] }>(`${PROXY_BASE}/artists`, {
       limit: '100',
       order: 'popularity_total',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isJamendoArtist).map(jamendoArtistToArtist);
   },
 
-  async getAlbumSongs(albumId: string): Promise<Song[]> {
+  async getAlbumSongs(albumId: string, signal?: AbortSignal): Promise<Song[]> {
     const rawId = albumId.replace('jamendo-', '');
     const data = await jamendoFetch<{ results: JamendoTrack[] }>(`${PROXY_BASE}/tracks`, {
       album_id: rawId,
       limit: '100',
       audioformat: 'mp31',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isJamendoTrack).map(jamendoTrackToSong);
   },
 
-  async getArtistSongs(artistId: string): Promise<Song[]> {
+  async getArtistSongs(artistId: string, signal?: AbortSignal): Promise<Song[]> {
     const rawId = artistId.replace('jamendo-artist-', '');
     const data = await jamendoFetch<{ results: JamendoTrack[] }>(`${PROXY_BASE}/tracks`, {
       artist_id: rawId,
       limit: '100',
       audioformat: 'mp31',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isJamendoTrack).map(jamendoTrackToSong);
   },
 
-  async search(query: string): Promise<Song[]> {
+  async search(query: string, signal?: AbortSignal): Promise<Song[]> {
     const data = await jamendoFetch<{ results: JamendoTrack[] }>(`${PROXY_BASE}/tracks`, {
       search: query,
       limit: '50',
       audioformat: 'mp31',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isJamendoTrack).map(jamendoTrackToSong);
   },
@@ -195,25 +197,25 @@ export const jamendoProvider: MusicProvider = {
     return song.path;
   },
 
-  async getSongsByTag(tag: string, limit = 200): Promise<Song[]> {
+  async getSongsByTag(tag: string, limit = 200, signal?: AbortSignal): Promise<Song[]> {
     const data = await jamendoFetch<{ results: JamendoTrack[] }>(`${PROXY_BASE}/tracks`, {
       fuzzytags: tag,
       limit: String(limit),
       audioformat: 'mp31',
       order: 'popularity_total',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isJamendoTrack).map(jamendoTrackToSong);
   },
 
-  async getTrending(limit = 200): Promise<Song[]> {
+  async getTrending(limit = 200, signal?: AbortSignal): Promise<Song[]> {
     const data = await jamendoFetch<{ results: JamendoTrack[] }>(`${PROXY_BASE}/tracks`, {
       featured: '1',
       limit: String(limit),
       audioformat: 'mp31',
       order: 'popularity_total',
       boost: 'popularity_total',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isJamendoTrack).map(jamendoTrackToSong);
   },

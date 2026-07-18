@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { usePlayerStore } from '@/store/playerStore';
 import { Attribution } from '@/components/ui/Attribution';
+import { CoverArt } from '@/components/ui/CoverArt';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import type { Song } from '@/types/music';
 
@@ -37,8 +38,7 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 }
 
-export function SearchView() {
-  const [query, setQuery] = useState('');
+export function SearchView({ query, onQueryChange }: { query: string; onQueryChange: (query: string) => void }) {
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
   const canSearch = debouncedQuery.trim().length >= 2;
@@ -47,8 +47,8 @@ export function SearchView() {
 
   const { data: searchState, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['search-federated', debouncedQuery],
-    queryFn: async () => {
-      const state = await api.search(debouncedQuery);
+    queryFn: async ({ signal }) => {
+      const state = await api.search(debouncedQuery, signal);
       return { ...state, results: dedupeAndSort(state.results, debouncedQuery) };
     },
     enabled: canSearch,
@@ -57,14 +57,16 @@ export function SearchView() {
 
   const results = canSearch ? searchState?.results : undefined;
   const failedProviders = searchState?.failedProviders ?? [];
-  const allProvidersFailed = failedProviders.length === (searchState?.providerCount ?? 3);
+  const allProvidersFailed = searchState
+    ? failedProviders.length === searchState.providerCount
+    : false;
 
   return (
     <section className="space-y-6 pb-[120px]">
       <div className="relative max-w-xl">
         <label htmlFor="music-search" className="sr-only">Search verified music</label>
         <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--pearl-dim)]"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-        <input id="music-search" ref={inputRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search verified music…" className="h-12 w-full rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg)] pl-12 pr-4 text-sm text-[var(--pearl-bright)] outline-none transition focus:border-[var(--biolum-primary)] focus:ring-2 focus:ring-[var(--biolum-glow)]" />
+        <input id="music-search" ref={inputRef} type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search verified music…" className="h-12 w-full rounded-[18px] border border-[var(--glass-border)] bg-[rgba(255,255,255,0.76)] pl-12 pr-4 text-sm text-[var(--pearl-bright)] shadow-[inset_0_1px_0_white,0_8px_24px_rgba(48,119,157,0.08)] outline-none transition-[border-color,box-shadow,background] focus:border-[var(--biolum-primary)] focus:bg-white focus:ring-4 focus:ring-[var(--biolum-glow)]" />
       </div>
 
       {!canSearch && <p className="py-12 text-center text-sm text-[var(--pearl-dim)]">{debouncedQuery ? 'Type at least 2 characters to search' : 'Search across verified Jamendo, ccMixter, and Archive tracks'}</p>}
@@ -85,10 +87,10 @@ function SearchResultRow({ song }: { song: Song }) {
   const isActive = currentSong?.id === song.id;
 
   return (
-    <article className={`grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border-l-2 px-3 py-2 ${isActive ? 'border-[var(--biolum-primary)] bg-[var(--glass-hover)]' : 'border-transparent'}`}>
-      <img src={song.coverArt} alt={song.album} loading="lazy" decoding="async" className="h-10 w-10 rounded-md object-cover" />
+    <article className={`grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-transparent border-l-2 px-3 py-2 transition-[background,border-color,box-shadow] hover:border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)] ${isActive ? 'border-l-[var(--biolum-primary)] bg-[var(--glass-hover)] shadow-[0_5px_18px_rgba(42,132,179,0.08)]' : 'border-l-transparent'}`}>
+      <CoverArt src={song.coverArt} alt={song.album} loading="lazy" decoding="async" className="h-10 w-10 rounded-xl border border-white object-cover shadow-sm" />
       <div className="min-w-0"><p className="truncate text-sm font-medium text-[var(--pearl-bright)]">{song.title}</p><p className="truncate text-xs text-[var(--pearl-dim)]">{song.artist}</p><div className="mt-1"><Attribution song={song} compact /></div></div>
-      <div className="flex items-center gap-1"><span className="hidden text-xs tabular-nums text-[var(--pearl-dim)] sm:inline">{formatDuration(song.duration)}</span><button type="button" onClick={() => addToQueue(song)} aria-label={`Add ${song.title} to queue`} className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--glass-border)] text-[var(--salt-bright)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">＋</button><button type="button" onClick={() => playSong(song)} aria-label={`Play ${song.title} by ${song.artist}`} className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--salt-primary)] text-[var(--sea-abyss)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-white)]">▶</button></div>
+      <div className="flex items-center gap-1"><span className="hidden text-xs tabular-nums text-[var(--pearl-dim)] sm:inline">{formatDuration(song.duration)}</span><button type="button" onClick={() => addToQueue(song)} aria-label={`Add ${song.title} to queue`} className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--glass-border)] bg-white/60 text-[var(--salt-primary)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">＋</button><button type="button" onClick={() => playSong(song)} aria-label={`Play ${song.title} by ${song.artist}`} className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(145deg,#2494ce,#0d73ae)] text-white shadow-[0_5px_14px_rgba(25,126,184,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">▶</button></div>
     </article>
   );
 }

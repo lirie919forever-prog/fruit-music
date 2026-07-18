@@ -25,13 +25,27 @@ interface ArchiveDoc {
   attributionUrl: string;
 }
 
-async function archiveFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
-  return providerFetch<T>('Archive', path.split('/').pop() || 'request', path, params);
+async function archiveFetch<T>(path: string, params: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
+  return providerFetch<T>('Archive', path.split('/').pop() || 'request', path, params, signal);
 }
 
 function isArchiveDoc(doc: ArchiveDoc): boolean {
-  return Boolean(doc?.identifier && doc.title && doc.creator && doc.streamUrl && doc.duration > 0 &&
-    doc.size > 0 && doc.contentType === 'audio/mpeg' && doc.licenseName && doc.licenseUrl && doc.sourceUrl);
+  return Boolean(
+    doc?.identifier &&
+    doc.title &&
+    doc.creator &&
+    doc.filename &&
+    Array.isArray(doc.subject) &&
+    doc.streamUrl &&
+    Number.isFinite(doc.duration) &&
+    doc.duration > 0 &&
+    Number.isFinite(doc.size) &&
+    doc.size > 0 &&
+    doc.contentType === 'audio/mpeg' &&
+    doc.licenseName &&
+    doc.licenseUrl &&
+    doc.sourceUrl
+  );
 }
 
 function docToSong(doc: ArchiveDoc, index: number): Song {
@@ -66,18 +80,18 @@ function docToSong(doc: ArchiveDoc, index: number): Song {
 }
 
 export const archiveProvider: MusicProvider = {
-  async getSongsByTag(tag: string, limit = 50): Promise<Song[]> {
+  async getSongsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<Song[]> {
     const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
       subject: tag,
       limit: String(limit),
       format: 'mp3',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isArchiveDoc).map(docToSong);
   },
 
-  async getTrending(limit = 50): Promise<Song[]> {
-    return this.getSongsByTag('classical', limit);
+  async getTrending(limit = 50, signal?: AbortSignal): Promise<Song[]> {
+    return this.getSongsByTag('classical', limit, signal);
   },
 
   async getAlbums(): Promise<Album[]> {
@@ -92,21 +106,21 @@ export const archiveProvider: MusicProvider = {
     return [];
   },
 
-  async getArtistSongs(artistId: string): Promise<Song[]> {
+  async getArtistSongs(artistId: string, signal?: AbortSignal): Promise<Song[]> {
     const creator = decodeURIComponent(artistId.replace('archive-artist-', ''));
     const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
       creator,
       limit: '20',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isArchiveDoc).map(docToSong);
   },
 
-  async search(query: string): Promise<Song[]> {
+  async search(query: string, signal?: AbortSignal): Promise<Song[]> {
     const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
       subject: query,
       limit: '30',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isArchiveDoc).map(docToSong);
   },

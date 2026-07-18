@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { usePlayerStore } from '@/store/playerStore';
+import { usePlayerStoreApi } from '@/store/playerStore';
 
 function acceptsGlobalShortcut(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return true;
@@ -10,6 +10,7 @@ function acceptsGlobalShortcut(target: EventTarget | null): boolean {
 }
 
 export function useKeyboardShortcuts(seek: (time: number) => void) {
+  const playerStore = usePlayerStoreApi();
   const seekRef = useRef(seek);
 
   useEffect(() => {
@@ -20,7 +21,7 @@ export function useKeyboardShortcuts(seek: (time: number) => void) {
     function onKeyDown(event: KeyboardEvent) {
       if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || !acceptsGlobalShortcut(event.target)) return;
 
-      const state = usePlayerStore.getState();
+      const state = playerStore.getState();
       const key = event.key.toLowerCase();
 
       if (event.key === ' ') {
@@ -49,5 +50,5 @@ export function useKeyboardShortcuts(seek: (time: number) => void) {
 
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [playerStore]);
 }

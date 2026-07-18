@@ -29,16 +29,16 @@ export function GlassPanel({
 
   return (
     <div
-      className={`${hover ? 'transition-[border-color,box-shadow,background] duration-200 hover:border-[var(--glass-border-active)] hover:bg-[rgba(255,255,255,0.06)]' : ''} ${className}`.trim()}
+      className={`${hover ? 'transition-[box-shadow,transform] duration-200 hover:-translate-y-px hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_18px_44px_rgba(48,114,151,0.16)]' : ''} ${className}`.trim()}
       style={{
-        background: 'rgba(255,255,255,0.04)',
-        backdropFilter: `blur(${blurMap[intensity]}) saturate(var(--glass-saturate)) brightness(1.05)`,
-        WebkitBackdropFilter: `blur(${blurMap[intensity]}) saturate(var(--glass-saturate)) brightness(1.05)`,
+        background: 'var(--glass-bg)',
+        backdropFilter: `blur(${blurMap[intensity]}) saturate(var(--glass-saturate))`,
+        WebkitBackdropFilter: `blur(${blurMap[intensity]}) saturate(var(--glass-saturate))`,
         border: '1px solid var(--glass-border)',
-        borderRadius: '18px',
+        borderRadius: '22px',
         boxShadow: glowing
-          ? `inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 36px rgba(2,8,16,0.38), 0 0 24px ${glowColor}33`
-          : 'inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 36px rgba(2,8,16,0.38)',
+          ? `inset 0 1px 0 rgba(255,255,255,0.92), 0 14px 38px rgba(48,114,151,0.14), 0 0 26px ${glowColor}22`
+          : 'inset 0 1px 0 rgba(255,255,255,0.92), 0 14px 38px rgba(48,114,151,0.12)',
         ...style,
       }}
       {...props}

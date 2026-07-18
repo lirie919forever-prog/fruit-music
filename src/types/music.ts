@@ -58,4 +58,4 @@ export interface QueueItem {
   addedBy: 'user' | 'autoplay';
 }
 
-export type ViewType = 'albums' | 'artists' | 'search' | 'playlist' | 'now-playing' | 'pop' | 'jp' | 'trending' | 'remixes' | 'jazz' | 'classical';
+export type ViewType = 'albums' | 'artists' | 'search' | 'favorites' | 'history' | 'playlist' | 'now-playing' | 'pop' | 'jp' | 'trending' | 'remixes' | 'jazz' | 'classical';

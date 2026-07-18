@@ -15,7 +15,7 @@ export function VolumeSlider() {
         onClick={toggleMute}
         aria-label={volume === 0 ? 'Unmute' : 'Mute'}
         aria-pressed={volume === 0}
-        className="flex h-6 w-6 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors duration-150 hover:text-[var(--salt-white)]"
+        className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors duration-150 hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]"
       >
         {volume === 0 ? <HiSpeakerXMark size={16} /> : <HiSpeakerWave size={16} />}
       </button>

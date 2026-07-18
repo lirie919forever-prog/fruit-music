@@ -48,6 +48,41 @@ describe('Jamendo provider', () => {
     });
   });
 
+  it('accumulates album duration while deriving albums', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      results: [
+        {
+          id: '42',
+          name: 'One',
+          artist_name: 'Artist',
+          artist_id: '7',
+          album_name: 'Album',
+          album_id: '9',
+          duration: 62,
+          audio: 'https://example.com/one.mp3',
+          license_ccurl: 'https://creativecommons.org/licenses/by/4.0/',
+          shareurl: 'https://www.jamendo.com/track/42',
+        },
+        {
+          id: '43',
+          name: 'Two',
+          artist_name: 'Artist',
+          artist_id: '7',
+          album_name: 'Album',
+          album_id: '9',
+          duration: 38,
+          audio: 'https://example.com/two.mp3',
+          license_ccurl: 'https://creativecommons.org/licenses/by/4.0/',
+          shareurl: 'https://www.jamendo.com/track/43',
+        },
+      ],
+    }));
+
+    await expect(jamendoProvider.getAlbums()).resolves.toMatchObject([
+      { id: 'jamendo-9', songCount: 2, duration: 100 },
+    ]);
+  });
+
   it('drops unresolved records instead of inventing playable metadata', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ results: [{ id: '42' }] }));
 

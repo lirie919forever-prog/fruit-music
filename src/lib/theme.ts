@@ -13,20 +13,20 @@ export interface ThemeColors {
 
 export const defaultTheme: Record<ThemeMode, ThemeColors> = {
   dark: {
-    primary: '#ffffff',
-    secondary: '#a1a1a6',
-    accent: '#ff2d55',
-    surface: 'rgba(255, 255, 255, 0.08)',
-    text: '#ffffff',
-    textSecondary: 'rgba(255, 255, 255, 0.6)',
+    primary: '#eaf7ff',
+    secondary: '#8aa8bd',
+    accent: '#1479b8',
+    surface: 'rgba(225, 246, 255, 0.12)',
+    text: '#eaf7ff',
+    textSecondary: 'rgba(218, 239, 250, 0.68)',
   },
   light: {
-    primary: '#1d1d1f',
-    secondary: '#86868b',
-    accent: '#ff2d55',
-    surface: 'rgba(0, 0, 0, 0.05)',
-    text: '#1d1d1f',
-    textSecondary: 'rgba(0, 0, 0, 0.5)',
+    primary: '#08263b',
+    secondary: '#55758a',
+    accent: '#0b76b7',
+    surface: 'rgba(255, 255, 255, 0.68)',
+    text: '#08263b',
+    textSecondary: 'rgba(8, 38, 59, 0.62)',
   },
 };
 
@@ -64,6 +64,8 @@ const viewTitles: Record<ViewType, string> = {
   albums: 'Albums',
   artists: 'Artists',
   search: 'Search',
+  favorites: 'Favorites',
+  history: 'Recently Played',
   playlist: 'Playlist',
   'now-playing': 'Now Playing',
   pop: 'Pop',

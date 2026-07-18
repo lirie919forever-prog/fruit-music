@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
 import { Howl } from 'howler';
-import { usePlayerStore } from '@/store/playerStore';
+import { usePlayerStore, usePlayerStoreApi } from '@/store/playerStore';
 import { api } from '@/lib/api';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import type { Song } from '@/types/music';
@@ -28,12 +28,14 @@ export function getHowlerFormat(song: Pick<Song, 'contentType' | 'suffix'>): str
 }
 
 export function AudioProvider({ children }: { children: ReactNode }) {
+  const playerStore = usePlayerStoreApi();
   const howlRef = useRef<Howl | null>(null);
   const pendingHowlRef = useRef<Howl | null>(null);
   const rafRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadIdRef = useRef(0);
   const retryCountRef = useRef(0);
+  const streamRequestIdRef = useRef(0);
   const attemptLoadRef = useRef<(() => void) | null>(null);
 
   const currentSong = usePlayerStore((state) => state.currentSong);
@@ -106,15 +108,17 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     const song = currentSong;
     const loadToken = loadIdRef.current;
     retryCountRef.current = 0;
-    const shouldPlay = usePlayerStore.getState().playbackIntent;
+    const shouldPlay = playerStore.getState().playbackIntent;
     setStatus(shouldPlay ? 'loading' : 'paused');
 
     const isCurrent = () => loadIdRef.current === loadToken
-      && usePlayerStore.getState().currentSong?.id === song.id;
+      && playerStore.getState().currentSong?.id === song.id;
 
     const fail = (message: string, failedHowl?: Howl) => {
+      if (failedHowl && failedHowl !== pendingHowlRef.current && failedHowl !== howlRef.current) return;
+      const shouldRetry = isCurrent() && playerStore.getState().playbackIntent;
       if (failedHowl) unloadHowl(failedHowl);
-      if (!isCurrent()) return;
+      if (!shouldRetry) return;
 
       retryCountRef.current += 1;
       if (retryCountRef.current <= MAX_RETRIES) {
@@ -127,12 +131,21 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     };
 
     function attemptLoad() {
-      const state = usePlayerStore.getState();
+      const state = playerStore.getState();
       if (!isCurrent() || !state.playbackIntent || pendingHowlRef.current || howlRef.current) return;
+      const requestId = ++streamRequestIdRef.current;
       setStatus('loading');
 
       api.getStreamUrl(song).then((streamUrl) => {
-        if (!isCurrent() || !usePlayerStore.getState().playbackIntent) return;
+        if (
+          requestId !== streamRequestIdRef.current ||
+          !isCurrent() ||
+          !playerStore.getState().playbackIntent ||
+          pendingHowlRef.current ||
+          howlRef.current
+        ) {
+          return;
+        }
         if (!streamUrl) {
           fail('No verified audio stream is available for this track.');
           return;
@@ -142,11 +155,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           src: [streamUrl],
           format: [getHowlerFormat(song)],
           html5: true,
-          volume: usePlayerStore.getState().volume,
+          volume: playerStore.getState().volume,
           onloaderror: () => fail('The audio stream could not be loaded. Try again.', howl),
           onplayerror: () => fail('Playback was blocked or the audio stream failed. Try again.', howl),
           onload: () => {
-            if (!isCurrent()) {
+            if (
+              !isCurrent() ||
+              pendingHowlRef.current !== howl ||
+              requestId !== streamRequestIdRef.current
+            ) {
               unloadHowl(howl);
               return;
             }
@@ -161,11 +178,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
             setDuration(loadedDuration);
             setStatus('ready');
-            if (usePlayerStore.getState().playbackIntent) howl.play();
+            if (playerStore.getState().playbackIntent) howl.play();
           },
           onplay: () => {
             if (!isCurrent() || howlRef.current !== howl) return;
-            if (!usePlayerStore.getState().playbackIntent) {
+            if (!playerStore.getState().playbackIntent) {
               howl.pause();
               return;
             }
@@ -187,9 +204,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           onend: () => {
             if (!isCurrent() || howlRef.current !== howl) return;
             stopProgress();
-            const state = usePlayerStore.getState();
+            const state = playerStore.getState();
             if (state.repeat === 'one' && state.playbackIntent) {
               howl.seek(0);
+              setProgress(0);
               howl.play();
             } else {
               state.next();
@@ -199,7 +217,12 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
         pendingHowlRef.current = howl;
       }).catch(() => {
-        if (isCurrent()) fail('The audio stream could not be resolved. Try again.');
+        if (
+          requestId === streamRequestIdRef.current &&
+          isCurrent()
+        ) {
+          fail('The audio stream could not be resolved. Try again.');
+        }
       });
     }
 
@@ -214,22 +237,25 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       unloadHowl(pendingHowlRef.current);
       unloadHowl(howlRef.current);
     };
-  }, [clearRetry, currentSong, setDuration, setEnginePlaying, setPlaybackIntent, setProgress, setStatus, startProgress, stopEngine, stopProgress, unloadHowl]);
+  }, [clearRetry, currentSong, playerStore, setDuration, setEnginePlaying, setPlaybackIntent, setProgress, setStatus, startProgress, stopEngine, stopProgress, unloadHowl]);
 
   useEffect(() => {
     const active = howlRef.current;
     if (playbackIntent) {
       if (active && !active.playing()) active.play();
       else if (!active && !pendingHowlRef.current) {
-        if (usePlayerStore.getState().status === 'loading') retryCountRef.current = 0;
+        retryCountRef.current = 0;
         attemptLoadRef.current?.();
       }
     } else {
       clearRetry();
+      streamRequestIdRef.current += 1;
+      retryCountRef.current = 0;
+      unloadHowl(pendingHowlRef.current);
       if (active?.playing()) active.pause();
       stopProgress();
     }
-  }, [clearRetry, playbackIntent, stopProgress]);
+  }, [clearRetry, playbackIntent, playerStore, stopProgress, unloadHowl]);
 
   useEffect(() => {
     howlRef.current?.volume(volume);
@@ -263,17 +289,28 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }) : null;
     navigator.mediaSession.playbackState = !currentSong ? 'none' : isPlaying ? 'playing' : 'paused';
 
-    navigator.mediaSession.setActionHandler('play', currentSong ? () => setPlaybackIntent(true) : null);
-    navigator.mediaSession.setActionHandler('pause', currentSong ? () => setPlaybackIntent(false) : null);
-    navigator.mediaSession.setActionHandler('nexttrack', currentSong ? next : null);
-    navigator.mediaSession.setActionHandler('previoustrack', currentSong ? previous : null);
-    navigator.mediaSession.setActionHandler('seekto', currentSong ? (details) => {
+    const registerAction = (
+      action: MediaSessionAction,
+      handler: MediaSessionActionHandler | null
+    ) => {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+      } catch {
+        // Browsers may expose Media Session while omitting individual actions.
+      }
+    };
+
+    registerAction('play', currentSong ? () => setPlaybackIntent(true) : null);
+    registerAction('pause', currentSong ? () => setPlaybackIntent(false) : null);
+    registerAction('nexttrack', currentSong ? next : null);
+    registerAction('previoustrack', currentSong ? previous : null);
+    registerAction('seekto', currentSong ? (details) => {
       if (details.seekTime !== undefined) seek(details.seekTime);
     } : null);
 
     return () => {
       for (const action of ['play', 'pause', 'nexttrack', 'previoustrack', 'seekto'] as MediaSessionAction[]) {
-        navigator.mediaSession.setActionHandler(action, null);
+        registerAction(action, null);
       }
     };
   }, [currentSong, isPlaying, next, previous, seek, setPlaybackIntent]);

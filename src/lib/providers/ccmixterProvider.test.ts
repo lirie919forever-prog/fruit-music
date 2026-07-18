@@ -22,6 +22,42 @@ describe('ccMixter provider', () => {
     expect(requestedUrl).not.toContain('tags=');
   });
 
+  it('rejects tracks without a positive verified duration', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      results: [{
+        upload_id: 43,
+        upload_name: 'Unknown duration',
+        user_name: 'example',
+        user_real_name: 'Example',
+        license_url: 'https://creativecommons.org/licenses/by/4.0/',
+        files: [{
+          download_url: 'https://ccmixter.org/content/example/track.mp3',
+          file_format_info: { mime_type: 'audio/mpeg' },
+        }],
+      }],
+    }));
+
+    await expect(ccmixterProvider.search('track')).resolves.toEqual([]);
+  });
+
+  it('rejects malformed duration strings', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      results: [{
+        upload_id: 44,
+        upload_name: 'Malformed duration',
+        user_name: 'example',
+        user_real_name: 'Example',
+        license_url: 'https://creativecommons.org/licenses/by/4.0/',
+        files: [{
+          download_url: 'https://ccmixter.org/content/example/track.mp3',
+          file_format_info: { mime_type: 'audio/mpeg', ps: '1:foo' },
+        }],
+      }],
+    }));
+
+    await expect(ccmixterProvider.search('track')).resolves.toEqual([]);
+  });
+
   it('maps Unicode creators without relying on btoa', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({
       results: [{

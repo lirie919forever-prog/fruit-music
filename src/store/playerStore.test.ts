@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Song } from '@/types/music';
-import { usePlayerStore } from '@/store/playerStore';
+import { createPlayerStore, usePlayerStore } from '@/store/playerStore';
 
 function song(id: string): Song {
   return {
@@ -46,6 +46,21 @@ beforeEach(() => {
     status: 'idle',
     error: null,
     transportCommand: null,
+    favorites: [],
+    history: [],
+  });
+});
+
+describe('navigation state', () => {
+  it('uses the server-provided view and search query as initial state', () => {
+    const store = createPlayerStore('search', 'ocean');
+    expect(store.getState()).toMatchObject({ currentView: 'search', searchQuery: 'ocean' });
+  });
+
+  it('drops stale search text when leaving Search', () => {
+    const store = createPlayerStore('search', 'ocean');
+    store.getState().setCurrentView('artists');
+    expect(store.getState()).toMatchObject({ currentView: 'artists', searchQuery: '' });
   });
 });
 
@@ -235,6 +250,70 @@ describe('player queue', () => {
       status: 'loading',
       error: null,
       playbackIntent: true,
+    });
+  });
+
+  it('keeps the selected song stable while reordering the queue', () => {
+    usePlayerStore.getState().setQueue([song('a'), song('b'), song('c')], 1);
+    usePlayerStore.getState().reorderQueue(0, 2);
+
+    expect(usePlayerStore.getState()).toMatchObject({
+      queue: expect.arrayContaining([
+        expect.objectContaining({ song: expect.objectContaining({ id: 'b' }) }),
+      ]),
+      queueIndex: 0,
+      currentSong: expect.objectContaining({ id: 'b' }),
+    });
+    expect(usePlayerStore.getState().queue.map((item) => item.song.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('supports play-next and clear queue while keeping the current track', () => {
+    const first = song('a');
+    const second = song('b');
+    const next = song('next');
+    usePlayerStore.getState().setQueue([first, second], 0);
+    usePlayerStore.getState().playNext(next);
+    expect(usePlayerStore.getState().queue.map((item) => item.song.id)).toEqual(['a', 'next', 'b']);
+    usePlayerStore.getState().clearQueue();
+    expect(usePlayerStore.getState().queue.map((item) => item.song.id)).toEqual(['a']);
+    expect(usePlayerStore.getState().currentSong?.id).toBe('a');
+  });  it('keeps the active index when moving the active entry', () => {
+    usePlayerStore.getState().setQueue([song('a'), song('b'), song('c')], 1);
+    usePlayerStore.getState().reorderQueue(1, 2);
+
+    expect(usePlayerStore.getState().queueIndex).toBe(2);
+    expect(usePlayerStore.getState().currentSong?.id).toBe('b');
+  });
+
+  it('stores favorites and a bounded deduplicated playback history', () => {
+    const first = song('a');
+    const second = song('b');
+    usePlayerStore.getState().toggleFavorite(first);
+    usePlayerStore.getState().toggleFavorite(first);
+    expect(usePlayerStore.getState().favorites).toEqual([]);
+
+    usePlayerStore.getState().toggleFavorite(first);
+    usePlayerStore.getState().playSong(first);
+    usePlayerStore.getState().setEnginePlaying('a', true);
+    usePlayerStore.getState().playSong(second);
+    usePlayerStore.getState().setEnginePlaying('b', true);
+    usePlayerStore.getState().playSong(first);
+    usePlayerStore.getState().setEnginePlaying('a', true);
+
+    expect(usePlayerStore.getState().favorites.map((track) => track.id)).toEqual(['a']);
+    expect(usePlayerStore.getState().history.map((track) => track.id)).toEqual(['a', 'b']);
+  });
+
+  it('does not let a stale engine stop clear the current track', () => {
+    usePlayerStore.getState().playSong(song('a'));
+    usePlayerStore.getState().setEnginePlaying('a', true);
+    usePlayerStore.getState().playSong(song('b'));
+    usePlayerStore.getState().setEnginePlaying('a', false);
+
+    expect(usePlayerStore.getState()).toMatchObject({
+      currentSong: expect.objectContaining({ id: 'b' }),
+      playbackIntent: true,
+      status: 'loading',
     });
   });
 

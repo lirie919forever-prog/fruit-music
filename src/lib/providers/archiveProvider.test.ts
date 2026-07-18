@@ -12,6 +12,30 @@ afterEach(() => {
 });
 
 describe('Archive provider', () => {
+  it('drops records with missing subject metadata', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      results: [{
+        identifier: 'concert-2',
+        title: 'Movement II',
+        creator: 'Orchestra',
+        filename: 'movement.mp3',
+        duration: 125,
+        size: 1024,
+        bitRate: 192,
+        contentType: 'audio/mpeg',
+        suffix: 'mp3',
+        streamUrl: '/api/music/archive/stream/concert-2?file=movement.mp3',
+        sourceUrl: 'https://archive.org/details/concert-2',
+        creatorUrl: '',
+        licenseName: 'CC BY',
+        licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+        attributionUrl: 'https://archive.org/details/concert-2',
+      }],
+    }));
+
+    await expect(archiveProvider.search('classical')).resolves.toEqual([]);
+  });
+
   it('preserves the concrete file identity in the song ID', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({
       results: [{

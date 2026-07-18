@@ -28,16 +28,24 @@ interface CCMixterUpload {
   file_page_url?: string;
 }
 
-async function ccFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
-  return providerFetch<T>('ccMixter', path.split('/').pop() || 'request', path, params);
+async function ccFetch<T>(path: string, params: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
+  return providerFetch<T>('ccMixter', path.split('/').pop() || 'request', path, params, signal);
 }
 
 function parseDuration(ps?: string): number {
   if (!ps) return 0;
   const parts = ps.split(':').map(Number);
-  if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
-  if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
-  return 0;
+  if (
+    !parts.every(Number.isFinite) ||
+    parts.some((part) => part < 0) ||
+    parts.length < 2 ||
+    parts.length > 3
+  ) {
+    return 0;
+  }
+  if (parts.slice(1).some((part) => part >= 60)) return 0;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] * 3600 + parts[1] * 60 + parts[2];
 }
 
 function uploadToSong(u: CCMixterUpload): Song | null {
@@ -52,7 +60,18 @@ function uploadToSong(u: CCMixterUpload): Song | null {
     }
   });
   const license = normalizeCreativeCommonsLicense(u.license_url);
-  if (!mp3File?.download_url || !license || !u.upload_id || !u.upload_name || !u.user_name) return null;
+  const duration = parseDuration(mp3File?.file_format_info?.ps);
+  if (
+    !mp3File?.download_url ||
+    !license ||
+    !u.upload_id ||
+    !u.upload_name ||
+    !u.user_name ||
+    !Number.isFinite(duration) ||
+    duration <= 0
+  ) {
+    return null;
+  }
 
   const coverArt = u.upload_extra?.cover || u.upload_pic || createDeterministicCover(u.user_name || u.upload_name || 'cc', 40);
   const tags = u.upload_tags?.split(',').map(t => t.trim()).filter(Boolean) || [];
@@ -66,7 +85,7 @@ function uploadToSong(u: CCMixterUpload): Song | null {
     album: 'ccMixter',
     albumId: `ccmixter-album-${u.user_name}`,
     coverArt,
-    duration: parseDuration(mp3File.file_format_info?.ps),
+    duration,
     track: 0,
     year: 0,
     genre,
@@ -86,21 +105,21 @@ function uploadToSong(u: CCMixterUpload): Song | null {
 }
 
 export const ccmixterProvider: MusicProvider = {
-  async getSongsByTag(tag: string, limit = 50): Promise<Song[]> {
+  async getSongsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<Song[]> {
     const data = await ccFetch<{ results: CCMixterUpload[] }>(`${PROXY_BASE}/tracks`, {
       tags: tag,
       limit: String(limit),
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.map(uploadToSong).filter((s): s is Song => s !== null);
   },
 
-  async getTrending(limit = 50): Promise<Song[]> {
-    return this.getSongsByTag('remix', limit);
+  async getTrending(limit = 50, signal?: AbortSignal): Promise<Song[]> {
+    return this.getSongsByTag('remix', limit, signal);
   },
 
-  async getAlbums(): Promise<Album[]> {
-    const songs = await this.getSongsByTag('remix', 100);
+  async getAlbums(signal?: AbortSignal): Promise<Album[]> {
+    const songs = await this.getSongsByTag('remix', 100, signal);
     const seen = new Map<string, Album>();
     for (const s of songs) {
       if (!seen.has(s.artistId)) {
@@ -123,8 +142,8 @@ export const ccmixterProvider: MusicProvider = {
     return Array.from(seen.values());
   },
 
-  async getArtists(): Promise<Artist[]> {
-    const songs = await this.getSongsByTag('remix', 100);
+  async getArtists(signal?: AbortSignal): Promise<Artist[]> {
+    const songs = await this.getSongsByTag('remix', 100, signal);
     const seen = new Map<string, Artist>();
     for (const s of songs) {
       if (!seen.has(s.artistId)) {
@@ -139,26 +158,26 @@ export const ccmixterProvider: MusicProvider = {
     return Array.from(seen.values());
   },
 
-  async getAlbumSongs(albumId: string): Promise<Song[]> {
+  async getAlbumSongs(albumId: string, signal?: AbortSignal): Promise<Song[]> {
     const userName = albumId.replace('ccmixter-album-', '');
-    return this.getArtistSongs(`ccmixter-artist-${userName}`);
+    return this.getArtistSongs(`ccmixter-artist-${userName}`, signal);
   },
 
-  async getArtistSongs(artistId: string): Promise<Song[]> {
+  async getArtistSongs(artistId: string, signal?: AbortSignal): Promise<Song[]> {
     const userName = artistId.replace('ccmixter-artist-', '');
     const data = await ccFetch<{ results: CCMixterUpload[] }>(`${PROXY_BASE}/tracks`, {
       user_name: userName,
       limit: '50',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.map(uploadToSong).filter((s): s is Song => s !== null);
   },
 
-  async search(query: string): Promise<Song[]> {
+  async search(query: string, signal?: AbortSignal): Promise<Song[]> {
     const data = await ccFetch<{ results: CCMixterUpload[] }>(`${PROXY_BASE}/tracks`, {
       search: query,
       limit: '30',
-    });
+    }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.map(uploadToSong).filter((s): s is Song => s !== null);
   },
