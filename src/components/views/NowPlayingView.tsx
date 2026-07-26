@@ -1,11 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import { usePlayerStore } from '@/store/playerStore';
 import { useAudio } from '@/components/player/AudioProvider';
+import { LyricsPanel } from '@/components/player/LyricsPanel';
+import { SleepTimer } from '@/components/player/SleepTimer';
 import { hasNextInQueue } from '@/components/player/playbackRecovery';
 import { Attribution } from '@/components/ui/Attribution';
 import { CoverArt } from '@/components/ui/CoverArt';
-import { HiQueueList } from 'react-icons/hi2';
+import { HiMusicalNote, HiQueueList } from 'react-icons/hi2';
 import { BsShuffle, BsRepeat, BsRepeat1 } from 'react-icons/bs';
 import type { NavigationItem } from '@/lib/navigation';
 import type { ViewType } from '@/types/music';
@@ -89,6 +92,54 @@ function PlaybackButton({
   );
 }
 
+type Panel = 'queue' | 'lyrics';
+
+function PanelTab({
+  id,
+  selected,
+  onSelect,
+  icon,
+  children,
+}: {
+  id: Panel;
+  selected: boolean;
+  onSelect: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      id={`tab-${id}`}
+      aria-selected={selected}
+      aria-controls={`panel-${id}`}
+      // Only the selected tab is in the tab order; the arrow keys move between
+      // them. This is the roving-tabindex pattern the tablist role requires,
+      // and without it a keyboard lands on every tab on the way to the panel.
+      tabIndex={selected ? 0 : -1}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+        event.preventDefault();
+        const other = document.getElementById(`tab-${id === 'queue' ? 'lyrics' : 'queue'}`);
+        (other as HTMLButtonElement | null)?.focus();
+        (other as HTMLButtonElement | null)?.click();
+      }}
+      className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${
+        selected
+          ? 'bg-[var(--salt-ghost)] text-[var(--salt-white)]'
+          : 'text-[var(--salt-mist)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)]'
+      }`}
+    >
+      <span aria-hidden className={selected ? 'text-[var(--salt-primary)]' : 'text-[var(--salt-mist)]'}>
+        {icon}
+      </span>
+      {children}
+    </button>
+  );
+}
+
 export function NowPlayingView({
   onNavigateWithItem,
 }: {
@@ -117,6 +168,7 @@ export function NowPlayingView({
   const favorites = usePlayerStore((s) => s.favorites);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const { seek } = useAudio();
+  const [panel, setPanel] = useState<Panel>('queue');
   const isFavorite = currentSong ? favorites.some((song) => song.id === currentSong.id) : false;
   const isLoading = status === 'loading' && playbackIntent;
   const canGoNext = hasNextInQueue({ queue, queueIndex, shuffle, repeat });
@@ -251,17 +303,33 @@ export function NowPlayingView({
             </span>
           </PlaybackButton>
         </div>
+
+        <SleepTimer />
       </div>
 
       {/* `self-start` keeps the panel the height of its contents: as a stretched
           flex child it drew an empty white column down the rest of the page. */}
       <div className="w-full shrink-0 self-start rounded-xl border border-[var(--glass-border)] bg-white px-3 py-3 lg:w-80">
         <div className="flex items-center justify-between gap-2 pb-1">
-          <div className="flex items-center gap-2 text-[13px] font-semibold text-[var(--salt-white)]">
-            <HiQueueList className="h-4 w-4 text-[var(--salt-mist)]" />
-            <span>Up Next ({queue.length})</span>
+          <div role="tablist" aria-label="Now playing panels" className="flex items-center gap-1">
+            <PanelTab
+              id="queue"
+              selected={panel === 'queue'}
+              onSelect={() => setPanel('queue')}
+              icon={<HiQueueList className="h-4 w-4" />}
+            >
+              Up Next ({queue.length})
+            </PanelTab>
+            <PanelTab
+              id="lyrics"
+              selected={panel === 'lyrics'}
+              onSelect={() => setPanel('lyrics')}
+              icon={<HiMusicalNote className="h-4 w-4" />}
+            >
+              Lyrics
+            </PanelTab>
           </div>
-          {queue.length > 1 && (
+          {panel === 'queue' && queue.length > 1 && (
             <button
               type="button"
               onClick={clearQueue}
@@ -271,7 +339,19 @@ export function NowPlayingView({
             </button>
           )}
         </div>
-        <div className="max-h-[320px] overflow-y-auto lg:max-h-[calc(100dvh-260px)]">
+        <div id="panel-lyrics" role="tabpanel" aria-labelledby="tab-lyrics" hidden={panel !== 'lyrics'}>
+          {/* Mounted only while shown, so opening the tab is what asks for the
+              lyrics — the whole catalog does not get looked up in the
+              background for a panel nobody opened. */}
+          {panel === 'lyrics' && <LyricsPanel song={currentSong} />}
+        </div>
+        <div
+          id="panel-queue"
+          role="tabpanel"
+          aria-labelledby="tab-queue"
+          hidden={panel !== 'queue'}
+          className="max-h-[320px] overflow-y-auto lg:max-h-[calc(100dvh-260px)]"
+        >
           {queue.length ? (
             queue.map((item, index) => (
               <div

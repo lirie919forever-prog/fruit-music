@@ -11,6 +11,7 @@ import {
 } from '@/lib/providers';
 import type { ProviderCatalogResult } from '@/lib/providers/types';
 import { ProviderError, providerFetch } from '@/lib/providers/errors';
+import { isLyricsResult, type LyricsResult } from '@/lib/lyrics/lrclib';
 import { isSong } from '@/lib/songShape';
 
 function dedupeEntities<T extends { id: string }>(entities: T[]): T[] {
@@ -235,6 +236,31 @@ export const api = {
       throw new ProviderError('Apple Preview', 'chart', 'invalid_response');
     }
     return results;
+  },
+
+  /**
+   * Lyrics for a track, or `null` when nobody has them.
+   *
+   * "Nobody has them" is the common answer — most of this catalog is Creative
+   * Commons music that LRCLIB has never been asked about — so a miss is a
+   * normal result rather than an error. Only a server that could not answer at
+   * all throws, which is what lets the panel tell "no lyrics exist" apart from
+   * "the lookup is broken".
+   */
+  async getLyrics(song: Song, signal?: AbortSignal): Promise<LyricsResult | null> {
+    const data = await providerFetch<{ found?: boolean; lyrics?: unknown }>(
+      'LRCLIB',
+      'lyrics',
+      '/api/lyrics',
+      {
+        track: song.title,
+        artist: song.artist,
+        ...(song.album ? { album: song.album } : {}),
+        duration: String(song.duration),
+      },
+      signal,
+    );
+    return data.found === true && isLyricsResult(data.lyrics) ? data.lyrics : null;
   },
 
   async resolveSong(songId: string, signal?: AbortSignal): Promise<Song | null> {
