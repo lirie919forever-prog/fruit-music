@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import {
   HiArrowPath,
   HiChartBar,
@@ -22,10 +21,8 @@ import { CoverArt } from '@/components/ui/CoverArt';
 import { TrackMenu } from '@/components/ui/TrackMenu';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { buildNavigationUrl, type NavigationItem } from '@/lib/navigation';
-import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
 import { playableSongs } from './newViewModel';
 import { useNewViewData } from './useNewViewData';
-import type { FederatedResult } from '@/lib/api';
 import type { Song, ViewType } from '@/types/music';
 
 interface ShelfProps {
@@ -541,7 +538,6 @@ export function NewView({
   const {
     charts: { billboard, uk, jp },
     genres,
-    verifiedMix,
     spotlightSongs,
     bestNewSongs,
     releaseSongs,

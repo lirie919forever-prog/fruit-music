@@ -1,6 +1,6 @@
 # Marea
 
-Marea is a blue-white ocean Creative Commons music app built with Next.js 16, React 19, Zustand, React Query, and Howler. It browses verified music from Jamendo, ccMixter, and the Internet Archive, with a separate opt-in LX Music integration.
+Marea is a blue-white ocean Creative Commons music app built with Next.js 16, React 19, Zustand, React Query, and Howler. It browses verified music from Jamendo, ccMixter, and the Internet Archive, plus Apple's published charts as 30-second previews, with a separate opt-in LX Music integration. It installs as a PWA, drives the OS media controls, shows synced lyrics from LRCLIB where they honestly fit the audio, and can stop itself on a sleep timer.
 
 ## Requirements
 
@@ -36,8 +36,6 @@ Marea is a blue-white ocean Creative Commons music app built with Next.js 16, Re
 
    The flag is read at build time as well as at runtime. `api.vkeys.cn` — the community search endpoint LX falls back to, and the only host that serves LX cover art — is added to the image optimizer's `remotePatterns` **only** when `NEXT_PUBLIC_LX_ENABLED=true` is set for the build. A default build permits Jamendo, ccMixter and Apple artwork and nothing else. This used to be untrue: the host sat unconditionally in the artwork allowlist, so every deployment permitted it whether or not LX was enabled.
 
-   The flag is read at build time as well as at runtime: — the community search endpoint LX falls back to, and the only host that serves LX cover art — is added to the image optimizer's only when is set for the build. A default build allows Jamendo, ccMixter and Apple artwork and nothing else. This used to be untrue: the host sat unconditionally in the artwork allowlist, so every deployment permitted it whether or not LX was on.
-
 3. Start development:
 
    ```bash
@@ -70,17 +68,27 @@ npm run start      # serve the production build
 - Albums and artists are summaries; full song queues are fetched on demand.
 - The bottom player height and the clearance the scrolling pane leaves for it are one pair of CSS custom properties, `--player-bar-height` (72px) and `--player-bar-clearance`, rather than two numbers written out separately in the bar and the shell.
 
+## Installing as an app
+
+`src/app/manifest.ts` describes the installed app and `src/app/icons/` generates its icons with `ImageResponse` at build time — a PWA is only installable with a raster icon of at least 192px, and this repository has no image toolchain, so the icons are drawn from the same colours `globals.css` uses rather than committed as binaries nobody can diff. There is no service worker: the app is a client for four live catalogs, and an offline shell that could only show an error is not worth the cache-invalidation surface.
+
+Playback integrates with the OS through the Media Session API (`src/components/player/mediaSession.ts`) — metadata, artwork, play/pause/stop, next/previous, seek-to and relative seek, plus a position state so a lock screen draws a scrubber that moves. None of that is reachable from the app's own UI, so it is covered by tests in `AudioProvider.test.tsx` rather than by anything a person would notice while clicking around.
+
 ## Providers and streaming
 
 Browser requests go through `src/app/api/music/[...path]/route.ts`, which keeps credentials server-side, validates provider input, forwards media byte ranges, and preserves upstream media statuses. Search can return partial results when one provider fails.
 
-Artwork is served by Next's own image optimizer, configured in . is the single artwork allowlist, shared with the client-side guard in so the browser and the optimizer cannot disagree about which hosts are permitted. is set deliberately: the optimizer follows an upstream redirect without re-checking against the new location, and every artwork host answers directly, so no hop is needed.
-
-Media streams are proxied by , which fetches with and checks every hop against a per-provider host allowlist before following it.
-
 Artwork is served by Next's own image optimizer, configured in `next.config.ts`. `images.remotePatterns` is the single artwork allowlist, shared with the client-side guard in `src/lib/artworkHosts.ts` so the browser and the optimizer cannot disagree about which hosts are permitted. `maximumRedirects: 0` is set deliberately: the optimizer follows an upstream redirect _without_ re-checking `remotePatterns` against the new location, and every artwork host answers directly, so no hop is needed.
 
 Media streams are proxied by `src/app/api/music/streamProxy.ts`, which fetches with `redirect: 'manual'` and validates every hop against a per-provider host allowlist before following it. The allowlists are measured, not assumed: Jamendo and Apple answer their stream URLs directly, while Archive redirects to a per-node `*.archive.org` host.
+
+### Lyrics
+
+Lyrics come from [LRCLIB](https://lrclib.net), a free public database of community-contributed synced and plain lyrics, through `src/app/api/lyrics/route.ts`. LRCLIB serves CORS-open JSON, so the browser could call it directly; it is proxied anyway so the answer is cached once for everyone rather than once per visitor, so the client's address never reaches LRCLIB, and so this app keeps a single rule that upstreams are reached from the server.
+
+**Rights.** This is the one surface here whose content is neither the operator's nor covered by a Creative Commons licence. LRCLIB hosts transcriptions of commercially released songs contributed by its users; it is widely used by music players for exactly this purpose and asks only that callers identify themselves in a `User-Agent`, which this app does. It publishes no licence grant for the lyric text itself, and the underlying words remain the rightsholders' regardless of who transcribed them. Deployment operators are responsible for deciding whether serving them is appropriate in their jurisdiction and for their audience. Set `LYRICS_ENABLED=false` to turn the route off; it then answers `{ "found": false, "reason": "disabled" }` without calling anybody, and the Lyrics tab says no lyrics were found.
+
+**Why the panel often refuses to scroll.** LRCLIB's timings are measured from the start of the full commercial recording. Most chart tracks here play as Apple's thirty-second previews, which are a clip from the middle of that recording — so every timestamp is measured from a zero that is not the clip's zero. Following them anyway highlights the wrong line for the whole clip and makes clicking one seek somewhere unrelated. `syncFitsTrack` in `src/lib/lyrics/lrc.ts` detects a document that outruns what is playing and the panel falls back to plain text with a note saying why. Full-length Creative Commons recordings scroll normally when LRCLIB happens to hold them, which is rarely — independent CC music is not what its contributors transcribe.
 
 The built-in rate limiter is a bounded, best-effort guard keyed by trusted proxy client address and route bucket. Its state is local to one application instance. Production deployments that need deployment-wide enforcement must add a distributed or platform-level rate limit and ensure the proxy overwrites `X-Real-IP` or `X-Forwarded-For`.
 

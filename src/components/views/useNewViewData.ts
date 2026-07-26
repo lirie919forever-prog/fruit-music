@@ -85,6 +85,8 @@ export function useNewViewData() {
   // subscribes to playback history — so every track that started playing re-ran
   // all of them, though none of them reads history. The dependency lists name
   // the shelves, so they only rerun when one actually changes.
+  // Only the release shelf reads this mix, so it is not returned: a hook that
+  // hands back a value nobody uses is one more thing a reader has to check.
   const verifiedMix = useMemo(
     () => interleaveSongGroups([popData, trendingData, jazzData, remixData, classicalData], 48),
     [popData, trendingData, jazzData, remixData, classicalData],
@@ -137,7 +139,6 @@ export function useNewViewData() {
       remix: remixData ?? [],
       classical: classicalData ?? [],
     },
-    verifiedMix,
     spotlightSongs,
     bestNewSongs,
     releaseSongs,
