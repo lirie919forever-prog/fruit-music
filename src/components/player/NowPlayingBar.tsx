@@ -3,9 +3,12 @@
 import { usePlayerStore } from '@/store/playerStore';
 import { VolumeSlider } from '@/components/ui/VolumeSlider';
 import { useAudio } from '@/components/player/AudioProvider';
+import { hasNextInQueue } from '@/components/player/playbackRecovery';
 import { BsShuffle, BsRepeat, BsRepeat1 } from 'react-icons/bs';
 import { HiQueueList } from 'react-icons/hi2';
 import { CoverArt } from '@/components/ui/CoverArt';
+import type { NavigationItem } from '@/lib/navigation';
+import type { ViewType } from '@/types/music';
 
 function formatTime(seconds: number): string {
   if (!seconds || Number.isNaN(seconds)) return '0:00';
@@ -82,7 +85,7 @@ function SeekSlider({
   );
 }
 
-export function NowPlayingBar() {
+export function NowPlayingBar({ onNavigateWithItem }: { onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void }) {
   const currentSong = usePlayerStore((s) => s.currentSong);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const playbackIntent = usePlayerStore((s) => s.playbackIntent);
@@ -96,21 +99,21 @@ export function NowPlayingBar() {
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
   const toggleRepeat = usePlayerStore((s) => s.toggleRepeat);
   const status = usePlayerStore((s) => s.status);
+  const error = usePlayerStore((s) => s.error);
+  const favorites = usePlayerStore((s) => s.favorites);
+  const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const queue = usePlayerStore((s) => s.queue);
   const queueIndex = usePlayerStore((s) => s.queueIndex);
   const setCurrentView = usePlayerStore((s) => s.setCurrentView);
   const { seek } = useAudio();
+  const isFavorite = currentSong ? favorites.some((song) => song.id === currentSong.id) : false;
 
   const safeProgress = duration > 0 ? Math.max(0, Math.min(Number.isFinite(progress) ? progress : 0, duration)) : 0;
   const progressPct = duration > 0 ? Math.max(0, Math.min(100, (safeProgress / duration) * 100)) : 0;
   const hasTrack = Boolean(currentSong);
   const canSeek = hasTrack && duration > 0;
   const isLoading = status === 'loading' && playbackIntent;
-  const canGoNext = hasTrack && queueIndex !== null && (
-    shuffle && queue.length > 1 ||
-    queueIndex < queue.length - 1 ||
-    repeat === 'all'
-  );
+  const canGoNext = hasTrack && hasNextInQueue({ queue, queueIndex, shuffle, repeat });
   const playLabel = status === 'error' ? 'Retry playback' : isLoading ? 'Cancel loading' : isPlaying ? 'Pause' : 'Play';
   const playIcon = isLoading ? (
     <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -131,7 +134,9 @@ export function NowPlayingBar() {
           className="sr-only"
         >
           {currentSong
-            ? `${status === 'loading' ? 'Loading' : status === 'error' ? 'Playback failed for' : isPlaying ? 'Playing' : 'Paused'} ${currentSong.title} by ${currentSong.artist}`
+            ? status === 'error'
+              ? `${error || 'Playback failed'} — ${currentSong.title} by ${currentSong.artist}`
+              : `${status === 'loading' ? 'Loading' : isPlaying ? 'Playing' : 'Paused'} ${currentSong.title} by ${currentSong.artist}`
             : 'Not playing'}
         </div>
 
@@ -150,10 +155,29 @@ export function NowPlayingBar() {
                 >
                   {currentSong.title}
                 </button>
-                <p className="max-w-[180px] truncate text-xs text-[var(--salt-foam)]">
-                  {status === 'loading' ? 'Loading…' : status === 'error' ? 'Playback failed' : currentSong.artist}
-                </p>
+                {status === 'loading' ? (
+                  <p className="max-w-[180px] truncate text-xs text-[var(--salt-foam)]">Loading…</p>
+                ) : status === 'error' ? (
+                  <p className="max-w-[180px] truncate text-xs text-[var(--danger)]" title={error ?? undefined}>{error || 'Playback failed'}</p>
+                ) : onNavigateWithItem ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: currentSong.artistId })}
+                    className="block max-w-[180px] truncate text-left text-xs text-[var(--salt-foam)] hover:text-[var(--salt-primary)] focus-visible:outline-none"
+                  >
+                    {currentSong.artist}
+                  </button>
+                ) : <p className="max-w-[180px] truncate text-xs text-[var(--salt-foam)]">{currentSong.artist}</p>}
               </div>
+              <button
+                type="button"
+                onClick={() => toggleFavorite(currentSong)}
+                aria-label={`${isFavorite ? 'Remove' : 'Add'} ${currentSong.title} ${isFavorite ? 'from' : 'to'} favorites`}
+                aria-pressed={isFavorite}
+                className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--salt-primary)] transition hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] sm:flex"
+              >
+                {isFavorite ? '♥' : '♡'}
+              </button>
             </>
           ) : (
             <div className="flex items-center gap-3 text-[var(--salt-foam)]">

@@ -68,25 +68,26 @@ function renderView(
 	searchQuery: string,
 	onSearchQueryChange: (value: string) => void,
 	onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void,
+	onNavigateToView: (view: ViewType) => void,
 ) {
 	const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
 	if (currentView === 'new') return <NewView onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'albums') return <AlbumGrid onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'artists') return <ArtistGrid onNavigateWithItem={onNavigateWithItem} />;
-	if (currentView === 'search') return <SearchView query={searchQuery} onQueryChange={onSearchQueryChange} />;
-	if (currentView === 'favorites') return <PersonalLibraryView kind="favorites" />;
-	if (currentView === 'history') return <PersonalLibraryView kind="history" />;
-	if (currentView === 'now-playing') return <NowPlayingView />;
-	if (currentView === 'pop') return <CategoryGrid config={{ view: 'pop', title: 'Pop', description: 'Pop tracks from Jamendo', fetchFn: getPopSongs, queryKey: ['pop'] }} />;
-	if (currentView === 'billboard') return <CategoryGrid config={{ view: 'billboard', title: 'US Top Songs', description: 'Apple US chart metadata with optional configured playback', fetchFn: getBillboardSongs, queryKey: ['chart', 'billboard'] }} />;
-	if (currentView === 'uk') return <CategoryGrid config={{ view: 'uk', title: 'UK Top Songs', description: 'Apple UK chart metadata with optional configured playback', fetchFn: getUkChartSongs, queryKey: ['chart', 'uk'] }} />;
+	if (currentView === 'search') return <SearchView query={searchQuery} onQueryChange={onSearchQueryChange} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'favorites') return <PersonalLibraryView kind="favorites" onNavigateWithItem={onNavigateWithItem} onNavigate={onNavigateToView} />;
+	if (currentView === 'history') return <PersonalLibraryView kind="history" onNavigateWithItem={onNavigateWithItem} onNavigate={onNavigateToView} />;
+	if (currentView === 'now-playing') return <NowPlayingView onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'pop') return <CategoryGrid config={{ view: 'pop', title: 'Pop', description: 'Pop tracks from Jamendo', fetchFn: getPopSongs, queryKey: ['pop'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'billboard') return <CategoryGrid config={{ view: 'billboard', title: 'US Top Songs', description: 'Apple US chart metadata with optional configured playback', fetchFn: getBillboardSongs, queryKey: ['chart', 'billboard'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'uk') return <CategoryGrid config={{ view: 'uk', title: 'UK Top Songs', description: 'Apple UK chart metadata with optional configured playback', fetchFn: getUkChartSongs, queryKey: ['chart', 'uk'] }} onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'jp') return <CategoryGrid config={lxEnabled
 		? { view: 'jp', title: 'Japan Top Songs', description: 'Apple Japan chart metadata with optional configured playback', fetchFn: getJpChartSongs, queryKey: ['chart', 'jp'] }
-		: { view: 'jp', title: 'J-Pop', description: 'Verified J-Pop tracks from Jamendo', fetchFn: getJpopSongs, queryKey: ['jp'] }} />;
-	if (currentView === 'trending') return <CategoryGrid config={{ view: 'trending', title: 'Trending', description: 'Featured Jamendo tracks and ccMixter remixes', fetchFn: getTrendingSongs, queryKey: ['trending'] }} />;
-	if (currentView === 'remixes') return <CategoryGrid config={{ view: 'remixes', title: 'Remixes', description: 'Creative remixes from ccMixter', fetchFn: getRemixSongs, queryKey: ['remixes'] }} />;
-	if (currentView === 'jazz') return <CategoryGrid config={{ view: 'jazz', title: 'Jazz', description: 'Jazz tracks from ccMixter', fetchFn: getJazzSongs, queryKey: ['jazz'] }} />;
-	if (currentView === 'classical') return <CategoryGrid config={{ view: 'classical', title: 'Classical', description: 'Classical tracks from Jamendo', fetchFn: getClassicalSongs, queryKey: ['classical'] }} />;
+		: { view: 'jp', title: 'J-Pop', description: 'Verified J-Pop tracks from Jamendo', fetchFn: getJpopSongs, queryKey: ['jp'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'trending') return <CategoryGrid config={{ view: 'trending', title: 'Trending', description: 'Featured Jamendo tracks and ccMixter remixes', fetchFn: getTrendingSongs, queryKey: ['trending'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'remixes') return <CategoryGrid config={{ view: 'remixes', title: 'Remixes', description: 'Creative remixes from ccMixter', fetchFn: getRemixSongs, queryKey: ['remixes'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'jazz') return <CategoryGrid config={{ view: 'jazz', title: 'Jazz', description: 'Jazz tracks from ccMixter', fetchFn: getJazzSongs, queryKey: ['jazz'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'classical') return <CategoryGrid config={{ view: 'classical', title: 'Classical', description: 'Classical tracks from Jamendo', fetchFn: getClassicalSongs, queryKey: ['classical'] }} onNavigateWithItem={onNavigateWithItem} />;
 	return <AlbumGrid onNavigateWithItem={onNavigateWithItem} />;
 }
 
@@ -157,6 +158,12 @@ function MainContent({ initialItem }: { initialItem: NavigationItem | null }) {
 
 	return (
 		<div className="flex h-dvh overflow-hidden bg-[var(--sea-abyss)] text-[var(--salt-white)]">
+			<a
+				href="#main-content"
+				className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-4 focus-visible:z-[100] focus-visible:rounded-full focus-visible:bg-[var(--salt-primary)] focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-semibold focus-visible:text-white focus-visible:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--salt-primary)]"
+			>
+				Skip to content
+			</a>
 			<div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
 				{currentSong ? <CoverArt src={currentSong.coverArt || '/placeholder-album.svg'} alt="" aria-hidden className="ambient-artwork" /> : <div className="ambient-artwork ambient-artwork--idle" />}
 				<div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.8),rgba(226,245,255,0.52))]" />
@@ -168,14 +175,14 @@ function MainContent({ initialItem }: { initialItem: NavigationItem | null }) {
 						<MobileNavigation onNavigate={navigateToView} />
 						<h1 className="min-w-0 truncate text-2xl font-bold tracking-[-0.03em] text-[var(--salt-white)] sm:text-3xl">{getViewTitle(currentView)}</h1>
 					</header>
-					<div className="min-h-0 flex-1 overflow-y-auto px-3 sm:px-6" style={{ paddingBottom: '88px' }}>
-						{showDetailOverlay && pendingItem?.kind === 'album' && <ProviderDetailView kind="album" id={pendingItem.id} onClose={closeDetail} />}
-						{showDetailOverlay && pendingItem?.kind === 'artist' && <ProviderDetailView kind="artist" id={pendingItem.id} onClose={closeDetail} />}
-						{!showDetailOverlay && renderView(currentView, searchQuery, replaceSearchQuery, navigateWithItem)}
+					<div id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto px-3 outline-none sm:px-6" style={{ paddingBottom: '88px' }}>
+						{showDetailOverlay && pendingItem?.kind === 'album' && <ProviderDetailView kind="album" id={pendingItem.id} onClose={closeDetail} onNavigateWithItem={navigateWithItem} />}
+						{showDetailOverlay && pendingItem?.kind === 'artist' && <ProviderDetailView kind="artist" id={pendingItem.id} onClose={closeDetail} onNavigateWithItem={navigateWithItem} />}
+						{!showDetailOverlay && renderView(currentView, searchQuery, replaceSearchQuery, navigateWithItem, navigateToView)}
 					</div>
 				</main>
 			</div>
-			<NowPlayingBar />
+			<NowPlayingBar onNavigateWithItem={navigateWithItem} />
 		</div>
 	);
 }

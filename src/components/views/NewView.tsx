@@ -18,7 +18,7 @@ import {
   HiUserGroup,
 } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
-import { ChartRail, SongRail } from './SongCard';
+import { ArtistLink, ChartRail, FavoriteButton, SongRail, formatDuration } from './SongCard';
 import { EditorialBanner } from './EditorialBanner';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { buildNavigationUrl, type NavigationItem } from '@/lib/navigation';
@@ -179,7 +179,7 @@ function EmptyDiscovery({ onNavigate }: { onNavigate: (view: ViewType) => void }
   );
 }
 
-function DiscoverySongRow({ song, rank, playableTracks }: { song: Song; rank: number; playableTracks: Song[] }) {
+function DiscoverySongRow({ song, rank, playableTracks, onNavigateWithItem }: { song: Song; rank: number; playableTracks: Song[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const currentSong = usePlayerStore((state) => state.currentSong);
@@ -193,45 +193,58 @@ function DiscoverySongRow({ song, rank, playableTracks }: { song: Song; rank: nu
       <span className={`text-center text-xs font-semibold tabular-nums ${active ? 'text-[#bd3f4f]' : 'text-[var(--salt-mist)]'}`} aria-label={`Track ${rank}`}>
         {active && isPlaying ? <span className="inline-block h-2 w-2 rounded-full bg-[#d84f5f]" aria-label="Playing" /> : rank}
       </span>
-      <button
-        type="button"
-        onClick={() => { if (!unavailable) playAlbum(playableTracks, playableIndex); }}
-        disabled={unavailable}
-        aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title} by ${song.artist}`}
-        className="flex min-w-0 items-center gap-3 rounded-lg text-left disabled:cursor-not-allowed"
-      >
-        <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="40px" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
-        <span className="min-w-0">
-          <span className={`block truncate text-sm font-semibold ${active ? 'text-[#a93748]' : 'text-[var(--salt-white)]'}`}>{song.title}</span>
-          <span className="block truncate text-xs text-[var(--salt-mist)]">{song.artist}</span>
-          <span className="hidden truncate text-[10px] text-[var(--salt-foam)] sm:block">{song.provider} - {song.licenseName || 'Provider terms'}</span>
-        </span>
-      </button>
-      {unavailable ? (
-        <span title="Playback unavailable" aria-label="Playback unavailable" className="flex h-9 w-9 items-center justify-center text-[var(--salt-mist)]">
-          <HiLockClosed className="h-4 w-4" aria-hidden />
-        </span>
-      ) : (
+      <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
-          onClick={() => addToQueue(song)}
-          title="Add to queue"
-          aria-label={`Add ${song.title} to queue`}
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--salt-primary)] transition-colors hover:bg-[#dceef5]"
+          onClick={() => { if (!unavailable) playAlbum(playableTracks, playableIndex); }}
+          disabled={unavailable}
+          aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title} by ${song.artist}`}
+          className="shrink-0 rounded-lg disabled:cursor-not-allowed"
         >
-          <HiPlus className="h-5 w-5" aria-hidden />
+          <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="40px" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
         </button>
-      )}
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => { if (!unavailable) playAlbum(playableTracks, playableIndex); }}
+            disabled={unavailable}
+            aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title} by ${song.artist}`}
+            className={`block w-full truncate text-left text-sm font-semibold disabled:cursor-not-allowed ${active ? 'text-[#a93748]' : 'text-[var(--salt-white)]'}`}
+          >
+            {song.title}
+          </button>
+          <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="block text-xs text-[var(--salt-mist)]" />
+          <span className="hidden truncate text-[10px] text-[var(--salt-foam)] sm:block">{formatDuration(song.duration)} · {song.provider} - {song.licenseName || 'Provider terms'}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        <FavoriteButton song={song} className="h-9 w-9" />
+        {unavailable ? (
+          <span title="Playback unavailable" aria-label="Playback unavailable" className="flex h-9 w-9 shrink-0 items-center justify-center text-[var(--salt-mist)]">
+            <HiLockClosed className="h-4 w-4" aria-hidden />
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => addToQueue(song)}
+            title="Add to queue"
+            aria-label={`Add ${song.title} to queue`}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--salt-primary)] transition-colors hover:bg-[#dceef5]"
+          >
+            <HiPlus className="h-5 w-5" aria-hidden />
+          </button>
+        )}
+      </div>
     </article>
   );
 }
 
-function DiscoverySongGrid({ songs }: { songs: Song[] }) {
+function DiscoverySongGrid({ songs, onNavigateWithItem }: { songs: Song[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
   const readySongs = playableSongs(songs);
   return (
     <div className="grid gap-x-6 md:grid-cols-2 xl:grid-cols-3">
       {songs.map((song, index) => (
-        <DiscoverySongRow key={song.id} song={song} rank={index + 1} playableTracks={readySongs} />
+        <DiscoverySongRow key={song.id} song={song} rank={index + 1} playableTracks={readySongs} onNavigateWithItem={onNavigateWithItem} />
       ))}
     </div>
   );
@@ -266,7 +279,7 @@ function ReleaseRail({ songs, onNavigateWithItem }: { songs: Song[]; onNavigateW
   );
 }
 
-function MiniSongList({ songs }: { songs: Song[] }) {
+function MiniSongList({ songs, onNavigateWithItem }: { songs: Song[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
   const readySongs = playableSongs(songs);
 
@@ -276,28 +289,38 @@ function MiniSongList({ songs }: { songs: Song[] }) {
         const index = readySongs.findIndex((track) => track.id === song.id);
         const unavailable = index < 0;
         return (
-          <button
-            key={song.id}
-            type="button"
-            disabled={unavailable}
-            onClick={() => { if (!unavailable) playAlbum(readySongs, index); }}
-            className="flex h-12 w-full min-w-0 items-center gap-3 border-b border-[var(--glass-border)] text-left disabled:cursor-not-allowed"
-            aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title}`}
-          >
-            <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="36px" className="h-9 w-9 shrink-0 rounded-lg object-cover" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-semibold text-[var(--salt-white)]">{song.title}</span>
-              <span className="block truncate text-[11px] text-[var(--salt-mist)]">{song.artist}</span>
-            </span>
+          <div key={song.id} className="flex h-12 w-full min-w-0 items-center gap-2 border-b border-[var(--glass-border)]">
+            <button
+              type="button"
+              disabled={unavailable}
+              onClick={() => { if (!unavailable) playAlbum(readySongs, index); }}
+              aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title}`}
+              className="shrink-0 disabled:cursor-not-allowed"
+            >
+              <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="36px" className="h-9 w-9 shrink-0 rounded-lg object-cover" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                disabled={unavailable}
+                onClick={() => { if (!unavailable) playAlbum(readySongs, index); }}
+                aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title}`}
+                className="block w-full truncate text-left text-xs font-semibold text-[var(--salt-white)] disabled:cursor-not-allowed"
+              >
+                {song.title}
+              </button>
+              <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="block text-[11px] text-[var(--salt-mist)]" />
+            </div>
+            <FavoriteButton song={song} className="h-8 w-8 shrink-0" />
             {unavailable ? <HiLockClosed className="h-4 w-4 shrink-0 text-[var(--salt-mist)]" aria-hidden /> : <HiPlay className="h-4 w-4 shrink-0 text-[var(--salt-primary)]" aria-hidden />}
-          </button>
+          </div>
         );
       })}
     </div>
   );
 }
 
-function GenrePanel({ title, view, songs }: { title: string; view: ViewType; songs: Song[] }) {
+function GenrePanel({ title, view, songs, onNavigateWithItem }: { title: string; view: ViewType; songs: Song[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
   return (
     <section className="min-w-0 border-t-2 border-[#c7dce6] pt-3">
@@ -307,12 +330,12 @@ function GenrePanel({ title, view, songs }: { title: string; view: ViewType; son
           <HiArrowRight className="h-4 w-4" aria-hidden />
         </button>
       </div>
-      <MiniSongList songs={songs} />
+      <MiniSongList songs={songs} onNavigateWithItem={onNavigateWithItem} />
     </section>
   );
 }
 
-function ChartPreview({ options }: { options: ChartOption[] }) {
+function ChartPreview({ options, onNavigateWithItem }: { options: ChartOption[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
   const [activeKey, setActiveKey] = useState<ChartKey>(options[0].key);
   const selected = options.find((option) => option.key === activeKey) ?? options[0];
 
@@ -337,7 +360,7 @@ function ChartPreview({ options }: { options: ChartOption[] }) {
       </div>
       <div role="tabpanel" aria-label={`${selected.label} preview`}>
         {selected.isLoading ? <SectionLoading rows={6} /> : selected.songs.length > 0 ? (
-          <ChartRail songs={selected.songs.slice(0, 6)} label={`${selected.label} chart`} />
+          <ChartRail songs={selected.songs.slice(0, 6)} label={`${selected.label} chart`} onNavigateWithItem={onNavigateWithItem} />
         ) : (
           <div className="flex min-h-32 flex-col items-center justify-center gap-3 border-y border-[var(--glass-border)] text-center text-sm text-[var(--salt-mist)]">
             <p>{selected.isError ? `${selected.label} is temporarily unavailable.` : `No ${selected.label} entries are available.`}</p>
@@ -569,13 +592,13 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
 
       {bestNewSongs.length > 0 && (
         <Section title="Songs making waves" description="A cross-source queue, ready in one click" view="trending">
-          <DiscoverySongGrid songs={bestNewSongs} />
+          <DiscoverySongGrid songs={bestNewSongs} onNavigateWithItem={onNavigateWithItem} />
         </Section>
       )}
 
       {history.length > 0 && (
         <Section title="Continue listening" description="Pick up where you left off" view="history">
-          <SongRail songs={history.slice(0, 8)} label="Recently played" />
+          <SongRail songs={history.slice(0, 8)} label="Recently played" onNavigateWithItem={onNavigateWithItem} />
         </Section>
       )}
 
@@ -588,12 +611,12 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
       {genrePanels.length > 0 && (
         <Section title="Fresh by genre" description="Four quick picks from each collection">
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {genrePanels.map((panel) => <GenrePanel key={panel.view} {...panel} />)}
+            {genrePanels.map((panel) => <GenrePanel key={panel.view} {...panel} onNavigateWithItem={onNavigateWithItem} />)}
           </div>
         </Section>
       )}
 
-      {lxEnabled && <ChartPreview options={chartOptions} />}
+      {lxEnabled && <ChartPreview options={chartOptions} onNavigateWithItem={onNavigateWithItem} />}
 
       <Section title="Explore Marea">
         <ExploreGrid lxEnabled={lxEnabled} />

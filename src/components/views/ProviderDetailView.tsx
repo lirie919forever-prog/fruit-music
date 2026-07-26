@@ -7,13 +7,19 @@ import { CoverArt } from '@/components/ui/CoverArt';
 import { api } from '@/lib/api';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
-import type { Album, Artist, Song } from '@/types/music';
+import type { NavigationItem } from '@/lib/navigation';
+import type { Album, Artist, Song, ViewType } from '@/types/music';
 
 function isAlbum(item: Album | Artist): item is Album {
 	return 'artist' in item && 'songCount' in item;
 }
 
-export function ProviderDetailView({ kind, id, onClose }: { kind: 'album' | 'artist'; id: string; onClose?: () => void }) {
+export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
+	kind: 'album' | 'artist';
+	id: string;
+	onClose?: () => void;
+	onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
+}) {
 	const playAlbum = usePlayerStore((state) => state.playAlbum);
 
 	const metaQueryKey: readonly [string, string, string] = kind === 'album'
@@ -112,8 +118,10 @@ export function ProviderDetailView({ kind, id, onClose }: { kind: 'album' | 'art
 		);
 	}
 
-	const subtitle = isAlbum(resolvedMeta)
-		? `${resolvedMeta.artist} · ${trackCount} track${trackCount !== 1 ? 's' : ''}`
+	const isResolvedAlbum = isAlbum(resolvedMeta);
+	const albumMeta = isResolvedAlbum ? resolvedMeta : null;
+	const subtitle = isResolvedAlbum
+		? `${trackCount} track${trackCount !== 1 ? 's' : ''}`
 		: `${resolvedMeta.albumCount ?? 0} albums`;
 
 	return (
@@ -133,6 +141,17 @@ export function ProviderDetailView({ kind, id, onClose }: { kind: 'album' | 'art
 						>
 							{resolvedMeta.name}
 						</h2>
+						{albumMeta && (
+							onNavigateWithItem ? (
+								<button
+									type="button"
+									onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: albumMeta.artistId })}
+									className="mt-1 truncate text-sm text-[var(--salt-primary)] underline decoration-transparent underline-offset-2 transition-colors hover:decoration-current focus-visible:outline-none"
+								>
+									{albumMeta.artist}
+								</button>
+							) : <p className="mt-1 truncate text-sm text-[var(--salt-primary)]">{albumMeta.artist}</p>
+						)}
 						<p className="mt-1 text-xs text-[var(--salt-mist)]">{subtitle}</p>
 					</div>
 				</div>
@@ -162,7 +181,7 @@ export function ProviderDetailView({ kind, id, onClose }: { kind: 'album' | 'art
 
 			{trackCount > 0 ? (
 				<div className="mt-5 px-4 sm:px-6">
-					<SongRail songs={songs} label={`${kind}:${id}`} />
+					<SongRail songs={songs} label={`${kind}:${id}`} onNavigateWithItem={onNavigateWithItem} />
 				</div>
 			) : (
 				<div className="mx-4 mt-6 rounded-[24px] border border-dashed border-[var(--glass-border-active)] bg-white/35 p-5 sm:mx-6">

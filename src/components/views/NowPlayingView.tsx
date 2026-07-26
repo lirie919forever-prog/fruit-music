@@ -2,10 +2,13 @@
 
 import { usePlayerStore } from '@/store/playerStore';
 import { useAudio } from '@/components/player/AudioProvider';
+import { hasNextInQueue } from '@/components/player/playbackRecovery';
 import { Attribution } from '@/components/ui/Attribution';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { HiQueueList } from 'react-icons/hi2';
+import type { NavigationItem } from '@/lib/navigation';
+import type { ViewType } from '@/types/music';
 
 function formatTime(seconds: number): string {
   if (!seconds || Number.isNaN(seconds)) return '0:00';
@@ -67,7 +70,7 @@ function PlaybackButton({ onClick, label, disabled = false, children }: { onClic
   );
 }
 
-export function NowPlayingView() {
+export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void }) {
   const currentSong = usePlayerStore((s) => s.currentSong);
   const queue = usePlayerStore((s) => s.queue);
   const queueIndex = usePlayerStore((s) => s.queueIndex);
@@ -86,13 +89,12 @@ export function NowPlayingView() {
   const clearQueue = usePlayerStore((s) => s.clearQueue);
   const status = usePlayerStore((s) => s.status);
   const error = usePlayerStore((s) => s.error);
+  const favorites = usePlayerStore((s) => s.favorites);
+  const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const { seek } = useAudio();
+  const isFavorite = currentSong ? favorites.some((song) => song.id === currentSong.id) : false;
   const isLoading = status === 'loading' && playbackIntent;
-  const canGoNext = queueIndex !== null && (
-    shuffle && queue.length > 1 ||
-    queueIndex < queue.length - 1 ||
-    repeat === 'all'
-  );
+  const canGoNext = hasNextInQueue({ queue, queueIndex, shuffle, repeat });
   const playLabel = status === 'error' ? 'Retry playback' : isLoading ? 'Cancel loading' : isPlaying ? 'Pause' : 'Play';
 
   if (!currentSong) {
@@ -135,7 +137,15 @@ export function NowPlayingView() {
 
         <div className="w-full max-w-md px-4 text-center">
           <h2 className="truncate text-3xl font-bold tracking-[-0.035em] text-[var(--salt-white)]">{currentSong.title}</h2>
-          <p className="mt-2 text-[13px] font-semibold uppercase tracking-[0.18em] text-[var(--salt-primary)]">{currentSong.artist}</p>
+          {onNavigateWithItem ? (
+            <button
+              type="button"
+              onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: currentSong.artistId })}
+              className="mt-2 text-[13px] font-semibold uppercase tracking-[0.18em] text-[var(--salt-primary)] underline decoration-transparent underline-offset-4 transition-colors hover:decoration-current focus-visible:outline-none"
+            >
+              {currentSong.artist}
+            </button>
+          ) : <p className="mt-2 text-[13px] font-semibold uppercase tracking-[0.18em] text-[var(--salt-primary)]">{currentSong.artist}</p>}
           <p className="mt-1 text-sm text-[var(--salt-mist)]">{currentSong.album}</p>
           <div className="mt-3"><Attribution song={currentSong} /></div>
           {status === 'error' ? <p className="mt-2 text-xs text-[var(--danger)]" role="status">{error}</p> : <p className="mt-2 text-xs text-[var(--salt-mist)]" role="status">{status === 'loading' ? 'Loading verified audio…' : null}</p>}
@@ -165,6 +175,9 @@ export function NowPlayingView() {
           </button>
           <PlaybackButton onClick={next} label="Next" disabled={!canGoNext}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg>
+          </PlaybackButton>
+          <PlaybackButton onClick={() => toggleFavorite(currentSong)} label={`${isFavorite ? 'Remove' : 'Add'} ${currentSong.title} ${isFavorite ? 'from' : 'to'} favorites`}>
+            <span aria-hidden className="text-2xl leading-none text-[var(--salt-primary)]">{isFavorite ? '♥' : '♡'}</span>
           </PlaybackButton>
         </div>
       </div>

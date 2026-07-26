@@ -3,11 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { usePlayerStore } from '@/store/playerStore';
-import { Attribution } from '@/components/ui/Attribution';
-import { CoverArt } from '@/components/ui/CoverArt';
+import { SongCard } from './SongCard';
 import { providerErrorMessage } from '@/lib/providers/errors';
-import type { Song } from '@/types/music';
+import type { NavigationItem } from '@/lib/navigation';
+import type { Song, ViewType } from '@/types/music';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -33,12 +32,7 @@ function dedupeAndSort(songs: Song[], query: string): Song[] {
   });
 }
 
-function formatDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
-  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
-}
-
-export function SearchView({ query, onQueryChange }: { query: string; onQueryChange: (query: string) => void }) {
+export function SearchView({ query, onQueryChange, onNavigateWithItem }: { query: string; onQueryChange: (query: string) => void; onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void }) {
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
   const canSearch = debouncedQuery.trim().length >= 2;
@@ -78,28 +72,15 @@ export function SearchView({ query, onQueryChange }: { query: string; onQueryCha
       {results && allProvidersFailed && !isLoading && <div className="flex flex-col items-center gap-3 rounded-[24px] border border-[var(--glass-border)] bg-white/40 py-10 text-center text-sm text-[var(--danger)]"><p>Search providers are unavailable. Please try again.</p><button type="button" onClick={() => void refetch()} className="rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Try again</button></div>}
       {results && unavailableProviders.length > 0 && !allProvidersFailed && <p className="text-xs text-[var(--pearl-dim)]">{unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'was' : 'were'} unavailable or degraded. Showing available results.</p>}
       {results && !results.length && !allProvidersFailed && !isLoading && <p className="py-12 text-center text-sm text-[var(--pearl-dim)]">No tracks match “{debouncedQuery}”.</p>}
-      {results && results.length > 0 && <div className="space-y-1"><p className="mb-2 text-xs uppercase tracking-widest text-[var(--pearl-dim)]">Tracks — {results.length} results</p>{results.map((song) => <SearchResultRow key={song.id} song={song} />)}</div>}
+      {results && results.length > 0 && (
+        <div className="space-y-1">
+          <p className="mb-2 text-xs uppercase tracking-widest text-[var(--pearl-dim)]">Tracks — {results.length} results</p>
+          {results.map((song, index) => (
+            <SongCard key={song.id} song={song} index={index} tracks={results} onNavigateWithItem={onNavigateWithItem} />
+          ))}
+        </div>
+      )}
     </section>
-  );
-}
-
-function SearchResultRow({ song }: { song: Song }) {
-  const playSong = usePlayerStore((state) => state.playSong);
-  const addToQueue = usePlayerStore((state) => state.addToQueue);
-  const currentSong = usePlayerStore((state) => state.currentSong);
-  const isActive = currentSong?.id === song.id;
-
-  return (
-    <article className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-transparent border-l-2 px-3 py-2 transition-[background,border-color,box-shadow] hover:border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)] ${isActive ? 'border-l-[var(--biolum-primary)] bg-[var(--glass-hover)] shadow-[0_5px_18px_rgba(42,132,179,0.08)]' : 'border-l-transparent'}`}>
-      <div className="flex min-w-0 items-center gap-3">
-        <button type="button" onClick={() => playSong(song)} aria-label={`Play ${song.title} by ${song.artist}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">
-          <CoverArt src={song.coverArt} alt={song.album} loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded-xl border border-white object-cover shadow-sm" />
-          <span className="min-w-0"><span className="block truncate text-sm font-medium text-[var(--pearl-bright)]">{song.title}</span><span className="block truncate text-xs text-[var(--pearl-dim)]">{song.artist}</span></span>
-        </button>
-        <span className="hidden min-w-0 sm:block"><Attribution song={song} compact /></span>
-      </div>
-      <div className="flex items-center gap-1"><span className="hidden text-xs tabular-nums text-[var(--pearl-dim)] sm:inline">{formatDuration(song.duration)}</span><button type="button" onClick={() => addToQueue(song)} aria-label={`Add ${song.title} to queue`} className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--glass-border)] bg-white/60 text-[var(--salt-primary)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">＋</button><button type="button" onClick={() => playSong(song)} aria-label={`Play ${song.title} by ${song.artist}`} className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(145deg,#2494ce,#0d73ae)] text-white shadow-[0_5px_14px_rgba(25,126,184,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">▶</button></div>
-    </article>
   );
 }
 

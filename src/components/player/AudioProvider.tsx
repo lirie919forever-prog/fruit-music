@@ -5,7 +5,7 @@ import { Howl } from 'howler';
 import { usePlayerStore, usePlayerStoreApi } from '@/store/playerStore';
 import { api } from '@/lib/api';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-import { getResumePosition, isNaturalTrackEnd } from '@/components/player/playbackRecovery';
+import { getResumePosition, hasNextInQueue, isNaturalTrackEnd } from '@/components/player/playbackRecovery';
 import type { Song } from '@/types/music';
 
 interface AudioContextType {
@@ -19,6 +19,9 @@ const MAX_RETRIES = 2;
 const MAX_PREMATURE_END_RECOVERIES = 2;
 const UNLOCK_TIMEOUT_MS = 4_000;
 const LOAD_TIMEOUT_MS = 15_000;
+// Gives the mini-player a moment to show the failure reason before the queue
+// moves on, so a skip doesn't read as the track silently vanishing.
+const AUTO_SKIP_DELAY_MS = 1_500;
 
 export function getHowlerFormat(song: Pick<Song, 'contentType' | 'suffix'>): string {
   const suffix = song.suffix.trim().toLowerCase().replace(/^\./, '');
@@ -44,6 +47,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unlockHowlRef = useRef<Howl | null>(null);
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSkipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentSong = usePlayerStore((state) => state.currentSong);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
@@ -104,16 +108,22 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     loadTimerRef.current = null;
   }, []);
 
+  const clearAutoSkip = useCallback(() => {
+    if (autoSkipTimerRef.current) clearTimeout(autoSkipTimerRef.current);
+    autoSkipTimerRef.current = null;
+  }, []);
+
   const stopEngine = useCallback(() => {
     loadIdRef.current += 1;
     attemptLoadRef.current = null;
     clearRetry();
     clearUnlockWait();
     clearLoadWait();
+    clearAutoSkip();
     stopProgress();
     unloadHowl(pendingHowlRef.current);
     unloadHowl(howlRef.current);
-  }, [clearLoadWait, clearRetry, clearUnlockWait, stopProgress, unloadHowl]);
+  }, [clearAutoSkip, clearLoadWait, clearRetry, clearUnlockWait, stopProgress, unloadHowl]);
 
   useEffect(() => {
     stopEngine();
@@ -136,6 +146,24 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     const isCurrent = () => loadIdRef.current === loadToken
       && playerStore.getState().currentSong?.id === song.id;
 
+    // A track that keeps failing after every retry should not stall a queue
+    // that has somewhere else to go — Apple Music's queue moves past a dead
+    // track rather than parking on it. The delay gives the mini-player's error
+    // text (wired in NowPlayingBar) a moment to be seen before the skip.
+    const scheduleAutoSkip = () => {
+      clearAutoSkip();
+      if (!hasNextInQueue(playerStore.getState())) return;
+      autoSkipTimerRef.current = setTimeout(() => {
+        autoSkipTimerRef.current = null;
+        // `status === 'error'` is itself the "still failed, untouched by the
+        // user" signal: setStatus always clears playbackIntent on entering
+        // error, and togglePlay/retry always move status off 'error' first.
+        const latest = playerStore.getState();
+        if (!isCurrent() || latest.status !== 'error') return;
+        latest.next();
+      }, AUTO_SKIP_DELAY_MS);
+    };
+
     const fail = (message: string, failedHowl?: Howl) => {
       if (failedHowl && failedHowl !== pendingHowlRef.current && failedHowl !== howlRef.current) return;
       clearLoadWait();
@@ -151,6 +179,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       }
 
       setStatus('error', message);
+      scheduleAutoSkip();
     };
 
     function attemptLoad() {
@@ -276,6 +305,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                 attemptLoadRef.current?.();
               } else {
                 setStatus('error', 'The audio stream ended before the track finished. Try again.');
+                scheduleAutoSkip();
               }
               return;
             }
@@ -301,6 +331,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
             return;
           }
           setStatus('error', 'The audio stream took too long to load. Press Play to try again.');
+          scheduleAutoSkip();
           unloadHowl(howl);
           clearLoadWait();
         }, LOAD_TIMEOUT_MS);
@@ -323,11 +354,12 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       clearRetry();
       clearUnlockWait();
       clearLoadWait();
+      clearAutoSkip();
       stopProgress();
       unloadHowl(pendingHowlRef.current);
       unloadHowl(howlRef.current);
     };
-  }, [clearLoadWait, clearRetry, clearUnlockWait, currentSong, playerStore, setDuration, setEnginePlaying, setPlaybackIntent, setProgress, setStatus, startProgress, stopEngine, stopProgress, unloadHowl]);
+  }, [clearAutoSkip, clearLoadWait, clearRetry, clearUnlockWait, currentSong, playerStore, setDuration, setEnginePlaying, setPlaybackIntent, setProgress, setStatus, startProgress, stopEngine, stopProgress, unloadHowl]);
 
   useEffect(() => {
     const active = howlRef.current;
@@ -341,6 +373,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       clearRetry();
       clearUnlockWait();
       clearLoadWait();
+      // A pending auto-skip is deliberately NOT cancelled here: entering the
+      // error state always clears playbackIntent, so cancelling would kill the
+      // skip that the failure just scheduled. The timer re-checks `status`
+      // before firing, which is what actually detects user intervention.
       streamRequestIdRef.current += 1;
       retryCountRef.current = 0;
       unloadHowl(pendingHowlRef.current);

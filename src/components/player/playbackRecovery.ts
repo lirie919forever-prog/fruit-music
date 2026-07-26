@@ -1,4 +1,12 @@
+import type { PlayerState } from '@/store/playerStore';
+
 export const END_TOLERANCE_SECONDS = 2;
+
+export function hasNextInQueue(state: Pick<PlayerState, 'queue' | 'queueIndex' | 'shuffle' | 'repeat'>): boolean {
+  const { queue, queueIndex, shuffle, repeat } = state;
+  if (queueIndex === null || queue.length === 0) return false;
+  return (shuffle && queue.length > 1) || queueIndex < queue.length - 1 || repeat === 'all';
+}
 
 export function isNaturalTrackEnd(
   position: number,
