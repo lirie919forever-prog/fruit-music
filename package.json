@@ -12,8 +12,10 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit --incremental false",
     "test": "vitest run",
-    "check": "npm run lint && npm run typecheck && npm run test",
-    "deploy:staging": "npx vercel deploy"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "deploy:staging": "npx vercel deploy",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.10",
@@ -36,6 +38,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "happy-dom": "^20.11.1",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.4"

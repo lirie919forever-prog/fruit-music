@@ -8,7 +8,11 @@ import type { ViewType } from '@/types/music';
 
 type LibraryKind = 'favorites' | 'history';
 
-export function PersonalLibraryView({ kind, onNavigateWithItem, onNavigate }: {
+export function PersonalLibraryView({
+  kind,
+  onNavigateWithItem,
+  onNavigate,
+}: {
   kind: LibraryKind;
   onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
   onNavigate?: (view: ViewType) => void;
@@ -23,23 +27,44 @@ export function PersonalLibraryView({ kind, onNavigateWithItem, onNavigate }: {
           the panel below says so, which makes a count line redundant. */}
       {songs.length > 0 && (
         <div className="flex items-center justify-between gap-4">
-          <p className="text-[13px] text-[var(--salt-mist)]">{songs.length} saved {songs.length === 1 ? 'track' : 'tracks'}</p>
-          {kind === 'history' && <button type="button" onClick={clearHistory} className="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]">Clear history</button>}
+          <p className="text-[13px] text-[var(--salt-mist)]">
+            {songs.length} saved {songs.length === 1 ? 'track' : 'tracks'}
+          </p>
+          {kind === 'history' && (
+            <button
+              type="button"
+              onClick={clearHistory}
+              className="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]"
+            >
+              Clear history
+            </button>
+          )}
         </div>
       )}
       {!songs.length ? (
         <StatusPanel
           align="center"
           title={kind === 'favorites' ? 'Nothing saved yet' : 'Nothing played yet'}
-          body={kind === 'favorites'
-            ? 'Favorite a track from any list and it will be kept here.'
-            : 'Play a verified track and it will be remembered here.'}
-          actions={onNavigate ? <StatusButton onClick={() => onNavigate('trending')}>Browse trending</StatusButton> : undefined}
+          body={
+            kind === 'favorites'
+              ? 'Favorite a track from any list and it will be kept here.'
+              : 'Play a verified track and it will be remembered here.'
+          }
+          actions={
+            onNavigate ? <StatusButton onClick={() => onNavigate('trending')}>Browse trending</StatusButton> : undefined
+          }
         />
       ) : (
         <div className="grid">
           {songs.map((song, index) => (
-            <SongCard key={song.id} song={song} index={index} tracks={songs} showIndex={kind === 'favorites'} onNavigateWithItem={onNavigateWithItem} />
+            <SongCard
+              key={song.id}
+              song={song}
+              index={index}
+              tracks={songs}
+              showIndex={kind === 'favorites'}
+              onNavigateWithItem={onNavigateWithItem}
+            />
           ))}
         </div>
       )}

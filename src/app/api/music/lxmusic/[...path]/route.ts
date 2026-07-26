@@ -17,7 +17,10 @@ const LX_API_BASE = process.env.LX_API_BASE;
 const LX_RESOLVER_BASE = process.env.LX_RESOLVER_BASE;
 const LX_SEARCH_BASE = process.env.LX_SEARCH_BASE || 'https://api.vkeys.cn/v2/music/netease';
 const LX_APPROVED_MEDIA_HOSTS = new Set(
-  (process.env.LX_APPROVED_MEDIA_HOSTS || '').split(',').map((host) => host.trim().toLowerCase()).filter(Boolean),
+  (process.env.LX_APPROVED_MEDIA_HOSTS || '')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean),
 );
 
 function configuredBase(value: string | undefined): string | null {
@@ -61,16 +64,11 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const CATALOG_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=600';
 const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 200, maxEntries: 4_000 });
 
-
-
-
-
 function catalogResponse(data: unknown): NextResponse {
   const response = NextResponse.json(data);
   setCdnCacheHeaders(response.headers, CATALOG_CACHE_CONTROL);
   return response;
 }
-
 
 function lxHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -82,15 +80,11 @@ function lxHeaders(): Record<string, string> {
 
 async function upstreamFetch(request: Request, url: string, init: RequestInit = {}): Promise<Response> {
   const mergedHeaders: Record<string, string> = {
-    ...init.headers as Record<string, string>,
+    ...(init.headers as Record<string, string>),
     ...lxHeaders(),
   };
   return fetch(url, { ...init, headers: mergedHeaders, signal: requestSignal(request, REQUEST_TIMEOUT_MS) });
 }
-
-
-
-
 
 interface LxSearchResponse {
   code?: number;
@@ -103,11 +97,7 @@ interface LxUrlResponse {
   extra?: { expire?: { time?: number } };
 }
 
-async function proxyStream(
-  request: Request,
-  streamUrl: string,
-  expireTime?: number,
-): Promise<NextResponse> {
+async function proxyStream(request: Request, streamUrl: string, expireTime?: number): Promise<NextResponse> {
   const requestHeaders = new Headers();
   const range = request.headers.get('range');
   const ifRange = request.headers.get('if-range');
@@ -127,7 +117,10 @@ async function proxyStream(
 
     const isSuccessfulMedia = upstream.status >= 200 && upstream.status < 300;
     const contentType = mediaContentType(upstream.headers.get('content-type'));
-    if (isSuccessfulMedia && (!contentType || (contentType !== 'application/octet-stream' && !contentType.startsWith('audio/')))) {
+    if (
+      isSuccessfulMedia &&
+      (!contentType || (contentType !== 'application/octet-stream' && !contentType.startsWith('audio/')))
+    ) {
       closeUpstream(upstream, cleanup);
       return NextResponse.json({ error: 'Upstream returned invalid media' }, { status: 502 });
     }
@@ -155,9 +148,7 @@ async function proxyStream(
       // a day when its origin may expire sooner.
       const now = Date.now();
       const expiryMs = expireTime && expireTime < 10_000_000_000 ? expireTime * 1000 : expireTime;
-      const remainingSeconds = expiryMs && expiryMs > now
-        ? Math.floor((expiryMs - now) / 1000) - 30
-        : 0;
+      const remainingSeconds = expiryMs && expiryMs > now ? Math.floor((expiryMs - now) / 1000) - 30 : 0;
       if (remainingSeconds > 60) {
         const maxAge = Math.min(remainingSeconds, 900);
         setCdnCacheHeaders(headers, `public, s-maxage=${maxAge}, stale-while-revalidate=${Math.min(maxAge, 300)}`);
@@ -179,24 +170,35 @@ async function proxyStream(
 }
 
 const RESOLVE_QUALITY: Record<string, string> = {
-  '128': '128k', '192': '192k', '320': '320k', 'hires': 'hires', 'lossless': 'hires',
+  '128': '128k',
+  '192': '192k',
+  '320': '320k',
+  hires: 'hires',
+  lossless: 'hires',
 };
 
 function resolveQuality(level: string): string {
-  return RESOLVE_QUALITY[level] || (Number.isInteger(Number(level)) ? (Number(level) >= 320 ? '320k' : '128k') : '320k');
+  return (
+    RESOLVE_QUALITY[level] || (Number.isInteger(Number(level)) ? (Number(level) >= 320 ? '320k' : '128k') : '320k')
+  );
 }
 
 /** Shape the community search API's payload into the one the LX API returns. */
 function mapFallbackSearch(payload: unknown): NextResponse {
-  const data = payload as { code?: number; data?: Array<{ id?: number | string; song?: string; singer?: string; album?: string; cover?: string }> };
-  const result = Array.isArray(data.data) ? data.data.map((item) => ({
-    id: item.id,
-    name: item.song,
-    ar: item.singer ? item.singer.split('/').map((name) => ({ name })) : [],
-    al: { name: item.album, picUrl: item.cover, id: item.id },
-    platform: 'wy',
-    type: 1,
-  })) : [];
+  const data = payload as {
+    code?: number;
+    data?: Array<{ id?: number | string; song?: string; singer?: string; album?: string; cover?: string }>;
+  };
+  const result = Array.isArray(data.data)
+    ? data.data.map((item) => ({
+        id: item.id,
+        name: item.song,
+        ar: item.singer ? item.singer.split('/').map((name) => ({ name })) : [],
+        al: { name: item.album, picUrl: item.cover, id: item.id },
+        platform: 'wy',
+        type: 1,
+      }))
+    : [];
   return catalogResponse({ code: data.code === 200 ? 0 : data.code, data: { result } });
 }
 
@@ -217,7 +219,10 @@ async function handleSearch(req: Request): Promise<NextResponse> {
   }
   const type = searchParams.get('type') || '1';
   if (!['1', '2', '3', '4', '5'].includes(type)) {
-    return NextResponse.json({ error: 'Invalid search type. Use 1=song,2=album,3=artist,4=lyric,5=playlist' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Invalid search type. Use 1=song,2=album,3=artist,4=lyric,5=playlist' },
+      { status: 400 },
+    );
   }
 
   try {
@@ -226,12 +231,15 @@ async function handleSearch(req: Request): Promise<NextResponse> {
     const upstream = new URL(`${apiBase}/search/${type}/${encodeURIComponent(key)}/1`);
     const response = await upstreamFetch(req, upstream.toString());
     if (response.ok) {
-      return catalogResponse(await response.json() as LxSearchResponse);
+      return catalogResponse((await response.json()) as LxSearchResponse);
     }
 
     const fallbackResponse = await fetchFallbackSearch(req, key);
     if (!fallbackResponse.ok) {
-      return NextResponse.json({ error: `LX Music upstream error (status ${response.status})` }, { status: response.status });
+      return NextResponse.json(
+        { error: `LX Music upstream error (status ${response.status})` },
+        { status: response.status },
+      );
     }
     return mapFallbackSearch(await fallbackResponse.json());
   } catch (error) {
@@ -293,7 +301,7 @@ async function handleUrl(req: Request): Promise<NextResponse> {
     try {
       const response = await upstreamFetch(req, directUrl);
       if (response.ok) {
-        const data = await response.json() as LxUrlResponse;
+        const data = (await response.json()) as LxUrlResponse;
         const resolvedUrl = data.url || data.data?.[0]?.url;
         if (resolvedUrl) {
           const candidate = approvedMediaUrl(resolvedUrl);
@@ -315,10 +323,7 @@ async function handleUrl(req: Request): Promise<NextResponse> {
   return proxyStream(req, streamUrl, expireTime);
 }
 
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ path: string[] }> },
-): Promise<NextResponse> {
+export async function GET(req: Request, { params }: { params: Promise<{ path: string[] }> }): Promise<NextResponse> {
   if (process.env.NEXT_PUBLIC_LX_ENABLED !== 'true') {
     return NextResponse.json(
       { error: 'LX Music is disabled', provider: 'LX Music', unavailable: true },
@@ -347,4 +352,3 @@ export async function GET(
 
   return NextResponse.json({ error: `Unknown lxmusic endpoint: ${resource ?? ''}` }, { status: 400 });
 }
-

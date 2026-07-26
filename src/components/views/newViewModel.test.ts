@@ -33,15 +33,16 @@ function song(id: string, albumId = `album-${id}`, playbackUnavailable = false):
 
 describe('New view model', () => {
   it('interleaves sources while preserving source order and removing duplicate IDs', () => {
-    expect(interleaveSongGroups([
-      [song('a1'), song('a2')],
-      [song('b1'), song('a2'), song('b3')],
-    ])).toEqual([song('a1'), song('b1'), song('a2'), song('b3')]);
+    expect(
+      interleaveSongGroups([
+        [song('a1'), song('a2')],
+        [song('b1'), song('a2'), song('b3')],
+      ]),
+    ).toEqual([song('a1'), song('b1'), song('a2'), song('b3')]);
   });
 
   it('limits results after interleaving', () => {
-    expect(interleaveSongGroups([[song('a1'), song('a2')], [song('b1')]], 2).map(({ id }) => id))
-      .toEqual(['a1', 'b1']);
+    expect(interleaveSongGroups([[song('a1'), song('a2')], [song('b1')]], 2).map(({ id }) => id)).toEqual(['a1', 'b1']);
   });
 
   it('separates playable tracks and deduplicates album representatives', () => {

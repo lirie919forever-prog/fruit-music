@@ -17,7 +17,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="h-full">
-      <body className="h-full overflow-hidden antialiased" style={{ fontFamily: 'var(--font-ui)', color: 'var(--salt-white)' }}>
+      <body
+        className="h-full overflow-hidden antialiased"
+        style={{ fontFamily: 'var(--font-ui)', color: 'var(--salt-white)' }}
+      >
         {children}
       </body>
     </html>

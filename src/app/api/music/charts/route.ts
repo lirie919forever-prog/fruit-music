@@ -60,7 +60,7 @@ async function lookupChunk(ids: string[], region: string, signal?: AbortSignal):
   const url = `https://itunes.apple.com/lookup?id=${ids.join(',')}&entity=song&country=${region}&limit=200`;
   const response = await fetch(url, { next: { revalidate: 900 }, signal: upstreamSignal(signal) });
   if (!response.ok) return [];
-  const data = await response.json() as { results?: ItunesTrack[] };
+  const data = (await response.json()) as { results?: ItunesTrack[] };
   return Array.isArray(data.results) ? data.results : [];
 }
 
@@ -79,7 +79,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       { next: { revalidate: 900 }, signal: upstreamSignal(request.signal) },
     );
     if (!feedResponse.ok) return NextResponse.json({ error: `${config.name} is unavailable` }, { status: 502 });
-    const feed = await feedResponse.json() as { feed?: { results?: FeedEntry[] } };
+    const feed = (await feedResponse.json()) as { feed?: { results?: FeedEntry[] } };
     const ids = (feed.feed?.results ?? [])
       .map((entry) => entry.id)
       .filter((id): id is string => typeof id === 'string' && TRACK_ID.test(id));
@@ -109,9 +109,12 @@ export async function GET(request: Request): Promise<NextResponse> {
       );
     }
 
-    return NextResponse.json({ name: config.name, results }, {
-      headers: { 'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800' },
-    });
+    return NextResponse.json(
+      { name: config.name, results },
+      {
+        headers: { 'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800' },
+      },
+    );
   } catch {
     return NextResponse.json(
       { error: `${config.name} is unavailable`, provider: 'Apple Preview', unavailable: true },

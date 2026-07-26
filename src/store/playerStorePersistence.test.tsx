@@ -186,7 +186,9 @@ describe('a damaged payload does not take the app down with it', () => {
     // The guard has to open on a failed rehydrate too, or one bad payload
     // means nothing is ever saved again for the rest of the session.
     await waitFor(() => {
-      act(() => { store.getState().toggleFavorite(song('recovered')); });
+      act(() => {
+        store.getState().toggleFavorite(song('recovered'));
+      });
       expect(readStored()).toMatchObject({ favorites: [expect.objectContaining({ id: 'recovered' })] });
     });
     unmount();
@@ -219,8 +221,10 @@ describe('a damaged payload does not take the app down with it', () => {
   });
 
   it('migrates an older payload through the same validation', () => {
-    expect(sanitizePersistedState({ favorites: [song('kept'), { id: 'dropped' }], volume: -3 }))
-      .toEqual({ favorites: [expect.objectContaining({ id: 'kept' })], volume: 0 });
+    expect(sanitizePersistedState({ favorites: [song('kept'), { id: 'dropped' }], volume: -3 })).toEqual({
+      favorites: [expect.objectContaining({ id: 'kept' })],
+      volume: 0,
+    });
   });
 });
 
@@ -231,7 +235,9 @@ describe('storage that misbehaves', () => {
     quotaError.name = 'QuotaExceededError';
     const backing = {
       getItem: () => null,
-      setItem: () => { throw quotaError; },
+      setItem: () => {
+        throw quotaError;
+      },
       removeItem: () => {},
     } as unknown as Storage;
 
@@ -245,7 +251,9 @@ describe('storage that misbehaves', () => {
 
   it('reads as empty when storage access itself throws', () => {
     const backing = {
-      get getItem(): never { throw new Error('blocked'); },
+      get getItem(): never {
+        throw new Error('blocked');
+      },
     } as unknown as Storage;
     const { storage, dispose } = createGuardedStorage(() => backing);
 
@@ -259,7 +267,9 @@ describe('storage that misbehaves', () => {
     const written: string[] = [];
     const backing = {
       getItem: () => null,
-      setItem: (_key: string, value: string) => { written.push(value); },
+      setItem: (_key: string, value: string) => {
+        written.push(value);
+      },
       removeItem: () => {},
     } as unknown as Storage;
 
@@ -275,4 +285,3 @@ describe('storage that misbehaves', () => {
     dispose();
   });
 });
-

@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Query } from '@tanstack/react-query';
-import {
-  CATALOG_STALE_TIME_MS,
-  catalogStaleTime,
-  countFederatedResults,
-  countListResults,
-} from './catalogFreshness';
+import { CATALOG_STALE_TIME_MS, catalogStaleTime, countFederatedResults, countListResults } from './catalogFreshness';
 
 function query<T>(data: T): Query<T, Error, T, readonly unknown[]> {
   return { state: { data } } as Query<T, Error, T, readonly unknown[]>;

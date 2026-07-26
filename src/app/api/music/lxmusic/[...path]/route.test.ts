@@ -28,10 +28,9 @@ describe('LX Music API route', () => {
     vi.resetModules();
 
     const { GET } = await import('./route');
-    const response = await GET(
-      new Request('http://localhost/api/music/lxmusic/search?key=test'),
-      { params: Promise.resolve({ path: ['search'] }) },
-    );
+    const response = await GET(new Request('http://localhost/api/music/lxmusic/search?key=test'), {
+      params: Promise.resolve({ path: ['search'] }),
+    });
 
     expect(response.status).toBe(503);
     expect(fetch).not.toHaveBeenCalled();
@@ -56,7 +55,9 @@ describe('LX Music API route', () => {
     delete process.env.LX_API_BASE;
     vi.resetModules();
     const { GET } = await import('./route');
-    const response = await GET(new Request('http://localhost/api/music/lxmusic/search'), { params: Promise.resolve({ path: ['search'] }) });
+    const response = await GET(new Request('http://localhost/api/music/lxmusic/search'), {
+      params: Promise.resolve({ path: ['search'] }),
+    });
     expect(response.status).toBe(503);
   });
 
@@ -66,7 +67,12 @@ describe('LX Music API route', () => {
     vi.resetModules();
     const { GET } = await import('./route');
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json({ url: 'https://resolver.example.test/media/song.mp3', extra: { expire: { time: Date.now() + 120_000 } } }))
+      .mockResolvedValueOnce(
+        Response.json({
+          url: 'https://resolver.example.test/media/song.mp3',
+          extra: { expire: { time: Date.now() + 120_000 } },
+        }),
+      )
       .mockResolvedValueOnce(new Response('audio', { status: 200, headers: { 'content-type': 'audio/mpeg' } }));
 
     const response = await GET(
@@ -80,7 +86,9 @@ describe('LX Music API route', () => {
 
   it('returns 400 for missing search key', async () => {
     const GET = await loadRoute();
-    const response = await GET(new Request('http://localhost/api/music/lxmusic/search'), { params: Promise.resolve({ path: ['search'] }) });
+    const response = await GET(new Request('http://localhost/api/music/lxmusic/search'), {
+      params: Promise.resolve({ path: ['search'] }),
+    });
     expect(response.status).toBe(400);
     expect((await response.json()).error).toBe('Missing search key');
   });
@@ -192,7 +200,9 @@ describe('LX Music API route', () => {
     // guard never distinguished it from any other failure.
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response('down', { status: 530 }))
-      .mockResolvedValueOnce(Response.json({ code: 200, data: [{ id: 7, song: 'Track', singer: 'A/B', album: 'Album' }] }));
+      .mockResolvedValueOnce(
+        Response.json({ code: 200, data: [{ id: 7, song: 'Track', singer: 'A/B', album: 'Album' }] }),
+      );
 
     const url = new URL('http://localhost/api/music/lxmusic/search');
     url.searchParams.set('key', 'test');

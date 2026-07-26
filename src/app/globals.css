@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme inline {
   --color-background: var(--sea-abyss);
@@ -39,6 +39,13 @@
   --pearl-dim: var(--salt-mist);
   --pearl-whisper: var(--salt-whisper);
 
+  /* The player bar's own height, and the room the scrolling pane leaves for it.
+     Both used to be written out by hand in two files — 72px in NowPlayingBar
+     and a hard-coded 88px of padding in MareaApp — so changing the bar meant
+     remembering to change a number somewhere else or clipping the last row. */
+  --player-bar-height: 72px;
+  --player-bar-clearance: calc(var(--player-bar-height) + 16px + env(safe-area-inset-bottom));
+
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
@@ -49,10 +56,19 @@
   scrollbar-color: rgba(39, 132, 184, 0.22) transparent;
 }
 
-*::-webkit-scrollbar { width: 6px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: rgba(39, 132, 184, 0.2); border-radius: 999px; }
-*::-webkit-scrollbar-thumb:hover { background: rgba(39, 132, 184, 0.36); }
+*::-webkit-scrollbar {
+  width: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(39, 132, 184, 0.2);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(39, 132, 184, 0.36);
+}
 
 html,
 body {
@@ -81,7 +97,9 @@ body {
   button,
   input,
   textarea,
-  select { font: inherit; }
+  select {
+    font: inherit;
+  }
 }
 
 button:focus-visible,
@@ -124,7 +142,10 @@ select:focus-visible {
   cursor: pointer;
   margin: 0;
 }
-.player-range::-webkit-slider-runnable-track { height: 100%; background: transparent; }
+.player-range::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
 .player-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -138,7 +159,10 @@ select:focus-visible {
   transition: opacity 160ms ease;
   box-shadow: 0 2px 7px rgba(23, 93, 132, 0.28);
 }
-.player-range::-moz-range-track { height: 100%; background: transparent; }
+.player-range::-moz-range-track {
+  height: 100%;
+  background: transparent;
+}
 .player-range::-moz-range-thumb {
   width: 13px;
   height: 13px;
@@ -152,27 +176,56 @@ select:focus-visible {
 .group:hover .player-range::-webkit-slider-thumb,
 .group:focus-within .player-range::-webkit-slider-thumb,
 .group:hover .player-range::-moz-range-thumb,
-.group:focus-within .player-range::-moz-range-thumb { opacity: 1; }
+.group:focus-within .player-range::-moz-range-thumb {
+  opacity: 1;
+}
 
 @keyframes marea-eq {
-  0%, 100% { transform: scaleY(0.25); }
-  25% { transform: scaleY(0.9); }
-  50% { transform: scaleY(0.5); }
-  75% { transform: scaleY(1); }
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  25% {
+    transform: scaleY(0.9);
+  }
+  50% {
+    transform: scaleY(0.5);
+  }
+  75% {
+    transform: scaleY(1);
+  }
 }
-.eq-bar-1 { animation: marea-eq 0.9s ease-in-out infinite; animation-delay: 0s; }
-.eq-bar-2 { animation: marea-eq 0.9s ease-in-out infinite; animation-delay: 0.18s; }
-.eq-bar-3 { animation: marea-eq 0.9s ease-in-out infinite; animation-delay: 0.36s; }
+.eq-bar-1 {
+  animation: marea-eq 0.9s ease-in-out infinite;
+  animation-delay: 0s;
+}
+.eq-bar-2 {
+  animation: marea-eq 0.9s ease-in-out infinite;
+  animation-delay: 0.18s;
+}
+.eq-bar-3 {
+  animation: marea-eq 0.9s ease-in-out infinite;
+  animation-delay: 0.36s;
+}
 
 /* Horizontal shelves signal that they scroll by letting the next card peek in,
    so the scrollbar underneath is redundant and reads as a stray rule. */
-.rail-scroll { scrollbar-width: none; }
-.rail-scroll::-webkit-scrollbar { height: 0; width: 0; }
+.rail-scroll {
+  scrollbar-width: none;
+}
+.rail-scroll::-webkit-scrollbar {
+  height: 0;
+  width: 0;
+}
 
-::selection { background: rgba(67, 169, 222, 0.24); }
+::selection {
+  background: rgba(67, 169, 222, 0.24);
+}
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

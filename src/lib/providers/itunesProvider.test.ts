@@ -50,13 +50,15 @@ describe('Apple preview provider', () => {
   });
 
   it('drops the collection and artist wrappers a track response carries', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [
-        { wrapperType: 'collection', collectionId: 1440871397, collectionName: 'Starboy' },
-        { wrapperType: 'artist', artistId: 479756766, artistName: 'The Weeknd' },
-        track(),
-      ],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          { wrapperType: 'collection', collectionId: 1440871397, collectionName: 'Starboy' },
+          { wrapperType: 'artist', artistId: 479756766, artistName: 'The Weeknd' },
+          track(),
+        ],
+      }),
+    );
 
     const songs = await itunesProvider.search('starboy');
 
@@ -64,9 +66,14 @@ describe('Apple preview provider', () => {
   });
 
   it('drops a track with no preview instead of listing one that cannot play', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [track({ previewUrl: undefined }), track({ trackId: 2, previewUrl: 'https://audio-ssl.itunes.apple.com/2.m4a' })],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          track({ previewUrl: undefined }),
+          track({ trackId: 2, previewUrl: 'https://audio-ssl.itunes.apple.com/2.m4a' }),
+        ],
+      }),
+    );
 
     const songs = await itunesProvider.search('starboy');
 
@@ -74,13 +81,15 @@ describe('Apple preview provider', () => {
   });
 
   it('orders album tracks by track number, not by the order Apple returned them', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [
-        track({ trackId: 3, trackNumber: 3 }),
-        track({ trackId: 1, trackNumber: 1 }),
-        track({ trackId: 2, trackNumber: 2 }),
-      ],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          track({ trackId: 3, trackNumber: 3 }),
+          track({ trackId: 1, trackNumber: 1 }),
+          track({ trackId: 2, trackNumber: 2 }),
+        ],
+      }),
+    );
 
     const songs = await itunesProvider.getAlbumSongs('itunes-album-1440871397');
 
@@ -89,9 +98,11 @@ describe('Apple preview provider', () => {
   });
 
   it('returns batched ids in the order they were asked for', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [track({ trackId: 30 }), track({ trackId: 10 }), track({ trackId: 20 })],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [track({ trackId: 30 }), track({ trackId: 10 }), track({ trackId: 20 })],
+      }),
+    );
 
     const songs = await itunesProvider.getSongsByIds(['10', '20', '30']);
 
@@ -116,12 +127,28 @@ describe('Apple preview provider', () => {
   });
 
   it('derives searched artists from albums, because Apple ships artist records with no artwork', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [
-        { wrapperType: 'collection', collectionId: 1, collectionName: 'Starboy', artistId: 479756766, artistName: 'The Weeknd', artworkUrl100: 'https://is1-ssl.mzstatic.com/a/100x100bb.jpg' },
-        { wrapperType: 'collection', collectionId: 2, collectionName: 'Dawn FM', artistId: 479756766, artistName: 'The Weeknd', artworkUrl100: 'https://is1-ssl.mzstatic.com/b/100x100bb.jpg' },
-      ],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            wrapperType: 'collection',
+            collectionId: 1,
+            collectionName: 'Starboy',
+            artistId: 479756766,
+            artistName: 'The Weeknd',
+            artworkUrl100: 'https://is1-ssl.mzstatic.com/a/100x100bb.jpg',
+          },
+          {
+            wrapperType: 'collection',
+            collectionId: 2,
+            collectionName: 'Dawn FM',
+            artistId: 479756766,
+            artistName: 'The Weeknd',
+            artworkUrl100: 'https://is1-ssl.mzstatic.com/b/100x100bb.jpg',
+          },
+        ],
+      }),
+    );
 
     const artists = await itunesProvider.searchArtists('weeknd');
 
@@ -133,28 +160,67 @@ describe('Apple preview provider', () => {
   });
 
   it('collapses the same release reissued under a second collection id', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [
-        { wrapperType: 'collection', collectionId: 7, collectionName: 'Starboy', artistId: 1, artistName: 'A', trackCount: 18 },
-        { wrapperType: 'collection', collectionId: 8, collectionName: 'Starboy', artistId: 1, artistName: 'A', trackCount: 18 },
-        { wrapperType: 'collection', collectionId: 9, collectionName: 'Starboy (Deluxe)', artistId: 1, artistName: 'A', trackCount: 20 },
-      ],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            wrapperType: 'collection',
+            collectionId: 7,
+            collectionName: 'Starboy',
+            artistId: 1,
+            artistName: 'A',
+            trackCount: 18,
+          },
+          {
+            wrapperType: 'collection',
+            collectionId: 8,
+            collectionName: 'Starboy',
+            artistId: 1,
+            artistName: 'A',
+            trackCount: 18,
+          },
+          {
+            wrapperType: 'collection',
+            collectionId: 9,
+            collectionName: 'Starboy (Deluxe)',
+            artistId: 1,
+            artistName: 'A',
+            trackCount: 20,
+          },
+        ],
+      }),
+    );
 
     // Different ids, same name and artist — one tile. A deluxe edition has a
     // different name and stays.
     await expect(itunesProvider.searchAlbums('starboy')).resolves.toHaveLength(2);
   });
 
-  it('keeps a discography to the artist\'s own records, not everything they feature on', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [
-        { wrapperType: 'artist', artistId: 5468295, artistName: 'Daft Punk' },
-        { wrapperType: 'collection', collectionId: 1, collectionName: 'Discovery', artistId: 5468295, artistName: 'Daft Punk', releaseDate: '2001-03-12T08:00:00Z' },
-        // Credited to Daft Punk, but it is The Weeknd's single.
-        { wrapperType: 'collection', collectionId: 2, collectionName: 'Starboy (feat. Daft Punk)', artistId: 479756766, artistName: 'The Weeknd', releaseDate: '2016-11-25T08:00:00Z' },
-      ],
-    }));
+  it("keeps a discography to the artist's own records, not everything they feature on", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          { wrapperType: 'artist', artistId: 5468295, artistName: 'Daft Punk' },
+          {
+            wrapperType: 'collection',
+            collectionId: 1,
+            collectionName: 'Discovery',
+            artistId: 5468295,
+            artistName: 'Daft Punk',
+            releaseDate: '2001-03-12T08:00:00Z',
+          },
+          // Credited to Daft Punk, but it is The Weeknd's single.
+          {
+            wrapperType: 'collection',
+            collectionId: 2,
+            collectionName: 'Starboy (feat. Daft Punk)',
+            artistId: 479756766,
+            artistName: 'The Weeknd',
+            releaseDate: '2016-11-25T08:00:00Z',
+          },
+        ],
+      }),
+    );
 
     const albums = await itunesProvider.getArtistAlbums('itunes-artist-5468295');
 
@@ -162,14 +228,37 @@ describe('Apple preview provider', () => {
   });
 
   it('orders a discography newest first', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [
-        { wrapperType: 'artist', artistId: 479756766, artistName: 'The Weeknd' },
-        { wrapperType: 'collection', collectionId: 1, collectionName: 'Starboy', artistId: 479756766, artistName: 'The Weeknd', releaseDate: '2016-11-25T08:00:00Z' },
-        { wrapperType: 'collection', collectionId: 2, collectionName: 'Dawn FM', artistId: 479756766, artistName: 'The Weeknd', releaseDate: '2022-01-07T08:00:00Z' },
-        { wrapperType: 'collection', collectionId: 3, collectionName: 'After Hours', artistId: 479756766, artistName: 'The Weeknd', releaseDate: '2020-03-20T08:00:00Z' },
-      ],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          { wrapperType: 'artist', artistId: 479756766, artistName: 'The Weeknd' },
+          {
+            wrapperType: 'collection',
+            collectionId: 1,
+            collectionName: 'Starboy',
+            artistId: 479756766,
+            artistName: 'The Weeknd',
+            releaseDate: '2016-11-25T08:00:00Z',
+          },
+          {
+            wrapperType: 'collection',
+            collectionId: 2,
+            collectionName: 'Dawn FM',
+            artistId: 479756766,
+            artistName: 'The Weeknd',
+            releaseDate: '2022-01-07T08:00:00Z',
+          },
+          {
+            wrapperType: 'collection',
+            collectionId: 3,
+            collectionName: 'After Hours',
+            artistId: 479756766,
+            artistName: 'The Weeknd',
+            releaseDate: '2020-03-20T08:00:00Z',
+          },
+        ],
+      }),
+    );
 
     const albums = await itunesProvider.getArtistAlbums('itunes-artist-479756766');
 
@@ -186,19 +275,23 @@ describe('Apple preview provider', () => {
   it('keeps the shelf populated when one browse seed fails', async () => {
     vi.mocked(fetch)
       .mockRejectedValueOnce(new Error('down'))
-      .mockResolvedValue(Response.json({
-        results: [{
-          wrapperType: 'collection',
-          collectionId: 1440871397,
-          collectionName: 'Starboy',
-          artistId: 479756766,
-          artistName: 'The Weeknd',
-          artworkUrl100: 'https://is1-ssl.mzstatic.com/image/100x100bb.jpg',
-          trackCount: 18,
-          releaseDate: '2016-11-25T08:00:00Z',
-          primaryGenreName: 'R&B/Soul',
-        }],
-      }));
+      .mockResolvedValue(
+        Response.json({
+          results: [
+            {
+              wrapperType: 'collection',
+              collectionId: 1440871397,
+              collectionName: 'Starboy',
+              artistId: 479756766,
+              artistName: 'The Weeknd',
+              artworkUrl100: 'https://is1-ssl.mzstatic.com/image/100x100bb.jpg',
+              trackCount: 18,
+              releaseDate: '2016-11-25T08:00:00Z',
+              primaryGenreName: 'R&B/Soul',
+            },
+          ],
+        }),
+      );
 
     const albums = await itunesProvider.getAlbums();
 

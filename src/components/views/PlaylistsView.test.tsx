@@ -39,7 +39,9 @@ let store: PlayerStore;
 
 function Probe() {
   const api = usePlayerStoreApi();
-  useEffect(() => { store = api; }, [api]);
+  useEffect(() => {
+    store = api;
+  }, [api]);
   return null;
 }
 
@@ -108,7 +110,9 @@ describe('creating', () => {
 describe('renaming', () => {
   it('renames from the detail header', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Old name', [song('a')]); });
+    act(() => {
+      store.getState().createPlaylist('Old name', [song('a')]);
+    });
     await openPlaylist('Old name');
 
     await user.click(screen.getByRole('button', { name: 'Rename' }));
@@ -123,7 +127,9 @@ describe('renaming', () => {
 
   it('abandons a rename on Escape and keeps the original name', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Keep me', [song('a')]); });
+    act(() => {
+      store.getState().createPlaylist('Keep me', [song('a')]);
+    });
     await openPlaylist('Keep me');
 
     await user.click(screen.getByRole('button', { name: 'Rename' }));
@@ -136,7 +142,9 @@ describe('renaming', () => {
 
   it('refuses a blank rename rather than leaving a nameless playlist', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Named', [song('a')]); });
+    act(() => {
+      store.getState().createPlaylist('Named', [song('a')]);
+    });
     await openPlaylist('Named');
 
     await user.click(screen.getByRole('button', { name: 'Rename' }));
@@ -150,7 +158,9 @@ describe('renaming', () => {
 describe('deleting', () => {
   it('asks before deleting, and does nothing if the answer is no', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Fragile', [song('a')]); });
+    act(() => {
+      store.getState().createPlaylist('Fragile', [song('a')]);
+    });
     await openPlaylist('Fragile');
 
     await user.click(screen.getByRole('button', { name: /Delete/ }));
@@ -163,7 +173,9 @@ describe('deleting', () => {
 
   it('deletes on confirmation and returns to the list', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Doomed', [song('a')]); });
+    act(() => {
+      store.getState().createPlaylist('Doomed', [song('a')]);
+    });
     await openPlaylist('Doomed');
 
     await user.click(screen.getByRole('button', { name: /Delete/ }));
@@ -178,7 +190,9 @@ describe('deleting', () => {
 describe('reordering and removing tracks', () => {
   it('moves a track up and down', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Mix', [song('a'), song('b'), song('c')]); });
+    act(() => {
+      store.getState().createPlaylist('Mix', [song('a'), song('b'), song('c')]);
+    });
     await openPlaylist('Mix');
 
     await user.click(screen.getByRole('button', { name: 'Move Title c earlier' }));
@@ -190,7 +204,9 @@ describe('reordering and removing tracks', () => {
 
   it('disables the moves that would fall off either end', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Mix', [song('a'), song('b')]); });
+    act(() => {
+      store.getState().createPlaylist('Mix', [song('a'), song('b')]);
+    });
     await openPlaylist('Mix');
 
     expect(screen.getByRole('button', { name: 'Move Title a earlier' })).toBeDisabled();
@@ -199,7 +215,9 @@ describe('reordering and removing tracks', () => {
 
   it('removes a track without touching the others', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Mix', [song('a'), song('b'), song('c')]); });
+    act(() => {
+      store.getState().createPlaylist('Mix', [song('a'), song('b'), song('c')]);
+    });
     await openPlaylist('Mix');
 
     await user.click(screen.getByRole('button', { name: 'Remove Title b from Mix' }));
@@ -211,7 +229,9 @@ describe('reordering and removing tracks', () => {
 describe('playing', () => {
   it('queues the whole playlist in order', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Mix', [song('a'), song('b')]); });
+    act(() => {
+      store.getState().createPlaylist('Mix', [song('a'), song('b')]);
+    });
     await openPlaylist('Mix');
 
     await user.click(screen.getByRole('button', { name: 'Play' }));
@@ -222,7 +242,9 @@ describe('playing', () => {
 
   it('offers nothing to play for an empty playlist', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('Empty'); });
+    act(() => {
+      store.getState().createPlaylist('Empty');
+    });
     await openPlaylist('Empty');
 
     expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled();
@@ -233,8 +255,12 @@ describe('playing', () => {
 describe('the list itself', () => {
   it('shows each playlist with its track count', async () => {
     mount();
-    act(() => { store.getState().createPlaylist('One', [song('a')]); });
-    act(() => { store.getState().createPlaylist('Two', [song('a'), song('b')]); });
+    act(() => {
+      store.getState().createPlaylist('One', [song('a')]);
+    });
+    act(() => {
+      store.getState().createPlaylist('Two', [song('a'), song('b')]);
+    });
 
     const one = screen.getByRole('button', { name: 'Open playlist One' });
     const two = screen.getByRole('button', { name: 'Open playlist Two' });

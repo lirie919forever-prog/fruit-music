@@ -39,16 +39,14 @@ function mapLxSong(item: LxSearchResult, level: string): Song {
   const songId = `lxmusic-${platform}_${item.type ?? 1}_${rawId}`;
 
   const title = item.name || 'Unknown';
-  const artist = item.ar?.[0]?.name
-    ? item.ar.map((a) => a.name || 'Unknown').join(' / ')
-    : 'Unknown';
+  const artist = item.ar?.[0]?.name ? item.ar.map((a) => a.name || 'Unknown').join(' / ') : 'Unknown';
   const album = item.al?.name || 'Unknown';
   const coverArt = safeCoverArt(item.al?.picUrl);
-  const duration = typeof item.dt === 'number' && Number.isFinite(item.dt) ? Math.max(0, Math.round(item.dt / 1000)) : 0;
+  const duration =
+    typeof item.dt === 'number' && Number.isFinite(item.dt) ? Math.max(0, Math.round(item.dt / 1000)) : 0;
 
-  const artistId = item.ar?.[0]?.id != null
-    ? `lxmusic-artist-${platform}_${item.ar[0].id}`
-    : `lxmusic-artist-${platform}_unknown`;
+  const artistId =
+    item.ar?.[0]?.id != null ? `lxmusic-artist-${platform}_${item.ar[0].id}` : `lxmusic-artist-${platform}_unknown`;
   const albumId = `lxmusic-album-${platform}_${item.al?.id ?? rawId}`;
 
   const lxLevel = item.privilege?.level ? String(item.privilege.level) : level;
@@ -106,10 +104,16 @@ export const lxmusicProvider: MusicProvider = {
   async search(query: string, signal?: AbortSignal): Promise<Song[]> {
     if (!query.trim()) return [];
     try {
-      const data = await providerFetch<LxSearchResponse>('LX Music', 'search', `${PROXY_BASE}/search`, {
-        key: query.trim(),
-        type: '1',
-      }, signal);
+      const data = await providerFetch<LxSearchResponse>(
+        'LX Music',
+        'search',
+        `${PROXY_BASE}/search`,
+        {
+          key: query.trim(),
+          type: '1',
+        },
+        signal,
+      );
 
       if (data.code !== 0 && data.code !== 200) {
         const msg = (data as Record<string, unknown>).msg ?? (data as Record<string, unknown>).message;
@@ -132,10 +136,16 @@ export const lxmusicProvider: MusicProvider = {
   async getSongsByTag(tag: string, limit = 200, signal?: AbortSignal): Promise<Song[]> {
     if (!tag.trim()) return [];
     try {
-      const data = await providerFetch<LxSearchResponse>('LX Music', 'tagSearch', `${PROXY_BASE}/search`, {
-        key: tag.trim(),
-        type: '1',
-      }, signal);
+      const data = await providerFetch<LxSearchResponse>(
+        'LX Music',
+        'tagSearch',
+        `${PROXY_BASE}/search`,
+        {
+          key: tag.trim(),
+          type: '1',
+        },
+        signal,
+      );
       if (data.code !== 0 && data.code !== 200) return [];
       const results = data.data?.result;
       if (!Array.isArray(results)) return [];
@@ -150,10 +160,16 @@ export const lxmusicProvider: MusicProvider = {
     const popularQueries = ['热门', '热歌', '飙升'];
     for (const q of popularQueries) {
       try {
-        const data = await providerFetch<LxSearchResponse>('LX Music', 'trending', `${PROXY_BASE}/search`, {
-          key: q,
-          type: '1',
-        }, signal);
+        const data = await providerFetch<LxSearchResponse>(
+          'LX Music',
+          'trending',
+          `${PROXY_BASE}/search`,
+          {
+            key: q,
+            type: '1',
+          },
+          signal,
+        );
         if (data.code !== 0 && data.code !== 200) continue;
         const results = data.data?.result;
         if (!Array.isArray(results) || results.length === 0) continue;

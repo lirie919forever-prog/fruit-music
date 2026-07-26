@@ -63,4 +63,20 @@ export interface QueueItem {
   addedBy: 'user' | 'autoplay';
 }
 
-export type ViewType = 'new' | 'albums' | 'artists' | 'search' | 'favorites' | 'history' | 'playlist' | 'now-playing' | 'pop' | 'jp' | 'billboard' | 'uk' | 'trending' | 'remixes' | 'jazz' | 'classical';
+export type ViewType =
+  | 'new'
+  | 'albums'
+  | 'artists'
+  | 'search'
+  | 'favorites'
+  | 'history'
+  | 'playlist'
+  | 'now-playing'
+  | 'pop'
+  | 'jp'
+  | 'billboard'
+  | 'uk'
+  | 'trending'
+  | 'remixes'
+  | 'jazz'
+  | 'classical';

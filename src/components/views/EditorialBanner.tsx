@@ -30,9 +30,10 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
   const headingId = useId();
   const playSong = usePlayerStore((state) => state.playSong);
   const unavailable = song.playbackUnavailable === true;
-  const openAlbum = onNavigateWithItem && song.albumId
-    ? () => onNavigateWithItem('albums', { kind: 'album', id: song.albumId })
-    : undefined;
+  const openAlbum =
+    onNavigateWithItem && song.albumId
+      ? () => onNavigateWithItem('albums', { kind: 'album', id: song.albumId })
+      : undefined;
 
   return (
     <article
@@ -68,7 +69,10 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
 
       <div className="flex min-w-0 flex-1 flex-col">
         <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#bd3f4f]">{eyebrow}</p>
-        <h3 id={headingId} className="mt-1 line-clamp-2 text-[17px] font-semibold leading-snug text-[var(--salt-white)] sm:text-xl">
+        <h3
+          id={headingId}
+          className="mt-1 line-clamp-2 text-[17px] font-semibold leading-snug text-[var(--salt-white)] sm:text-xl"
+        >
           {song.title}
         </h3>
         {onNavigateWithItem ? (
@@ -80,7 +84,9 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
           >
             {song.artist}
           </button>
-        ) : <p className="mt-0.5 truncate text-[13px] text-[var(--salt-mist)] sm:text-[15px]">{song.artist}</p>}
+        ) : (
+          <p className="mt-0.5 truncate text-[13px] text-[var(--salt-mist)] sm:text-[15px]">{song.artist}</p>
+        )}
 
         <div className="mt-3 flex items-center gap-1.5 sm:mt-4 sm:gap-2">
           {unavailable ? (

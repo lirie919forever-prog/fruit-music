@@ -77,7 +77,10 @@ function SeekSlider({
           className="player-range absolute inset-0"
         />
       </div>
-      <div className="flex justify-between text-[10px] tabular-nums text-[var(--salt-mist)]" style={{ fontFamily: 'var(--font-mono)' }}>
+      <div
+        className="flex justify-between text-[10px] tabular-nums text-[var(--salt-mist)]"
+        style={{ fontFamily: 'var(--font-mono)' }}
+      >
         <span>{formatTime(progress)}</span>
         <span>{formatTime(duration)}</span>
       </div>
@@ -85,7 +88,11 @@ function SeekSlider({
   );
 }
 
-export function NowPlayingBar({ onNavigateWithItem }: { onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void }) {
+export function NowPlayingBar({
+  onNavigateWithItem,
+}: {
+  onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
+}) {
   const currentSong = usePlayerStore((s) => s.currentSong);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const playbackIntent = usePlayerStore((s) => s.playbackIntent);
@@ -118,21 +125,25 @@ export function NowPlayingBar({ onNavigateWithItem }: { onNavigateWithItem?: (vi
   const playIcon = isLoading ? (
     <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
   ) : isPlaying ? (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
+    </svg>
   ) : (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5" aria-hidden><path d="M8 5v14l11-7z" /></svg>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5" aria-hidden>
+      <path d="M8 5v14l11-7z" />
+    </svg>
   );
 
   return (
     <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50">
       <div
         className="pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-[var(--glass-border)] bg-[rgba(255,255,255,0.94)] px-3 backdrop-blur-xl md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
-        style={{ minHeight: 'calc(72px + env(safe-area-inset-bottom))', paddingBottom: 'env(safe-area-inset-bottom)' }}
+        style={{
+          minHeight: 'calc(var(--player-bar-height) + env(safe-area-inset-bottom))',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
       >
-        <div
-          aria-live="polite"
-          className="sr-only"
-        >
+        <div aria-live="polite" className="sr-only">
           {currentSong
             ? status === 'error'
               ? `${error || 'Playback failed'} — ${currentSong.title} by ${currentSong.artist}`
@@ -157,9 +168,16 @@ export function NowPlayingBar({ onNavigateWithItem }: { onNavigateWithItem?: (vi
                   {currentSong.title}
                 </button>
                 {status === 'loading' ? (
-                  <p className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--salt-mist)]">Loading…</p>
+                  <p className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--salt-mist)]">
+                    Loading…
+                  </p>
                 ) : status === 'error' ? (
-                  <p className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--danger)]" title={error ?? undefined}>{error || 'Playback failed'}</p>
+                  <p
+                    className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--danger)]"
+                    title={error ?? undefined}
+                  >
+                    {error || 'Playback failed'}
+                  </p>
                 ) : onNavigateWithItem ? (
                   <button
                     type="button"
@@ -168,7 +186,11 @@ export function NowPlayingBar({ onNavigateWithItem }: { onNavigateWithItem?: (vi
                   >
                     {currentSong.artist}
                   </button>
-                ) : <p className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--salt-mist)]">{currentSong.artist}</p>}
+                ) : (
+                  <p className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--salt-mist)]">
+                    {currentSong.artist}
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -196,11 +218,19 @@ export function NowPlayingBar({ onNavigateWithItem }: { onNavigateWithItem?: (vi
 
         <div className="hidden min-w-0 flex-col items-center gap-2 md:flex">
           <div className="flex items-center gap-1">
-            <ControlButton active={shuffle} label="Shuffle" pressed={shuffle} onClick={toggleShuffle} disabled={!hasTrack}>
+            <ControlButton
+              active={shuffle}
+              label="Shuffle"
+              pressed={shuffle}
+              onClick={toggleShuffle}
+              disabled={!hasTrack}
+            >
               <BsShuffle size={14} />
             </ControlButton>
             <ControlButton label="Previous" onClick={previous} disabled={!hasTrack}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" /></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+              </svg>
             </ControlButton>
             <button
               onClick={togglePlay}
@@ -212,9 +242,17 @@ export function NowPlayingBar({ onNavigateWithItem }: { onNavigateWithItem?: (vi
               {playIcon}
             </button>
             <ControlButton label="Next" onClick={next} disabled={!canGoNext}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+              </svg>
             </ControlButton>
-            <ControlButton active={repeat !== 'off'} label={repeat === 'one' ? 'Repeat one' : repeat === 'all' ? 'Repeat all' : 'Repeat off'} pressed={repeat !== 'off'} onClick={toggleRepeat} disabled={!hasTrack}>
+            <ControlButton
+              active={repeat !== 'off'}
+              label={repeat === 'one' ? 'Repeat one' : repeat === 'all' ? 'Repeat all' : 'Repeat off'}
+              pressed={repeat !== 'off'}
+              onClick={toggleRepeat}
+              disabled={!hasTrack}
+            >
               {repeat === 'one' ? <BsRepeat1 size={14} /> : <BsRepeat size={14} />}
             </ControlButton>
           </div>
@@ -225,7 +263,9 @@ export function NowPlayingBar({ onNavigateWithItem }: { onNavigateWithItem?: (vi
         <div className="flex items-center justify-end gap-1 md:gap-3">
           <div className="flex items-center md:hidden">
             <ControlButton label="Previous" onClick={previous} disabled={!hasTrack}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" /></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+              </svg>
             </ControlButton>
             <button
               onClick={togglePlay}
@@ -234,10 +274,25 @@ export function NowPlayingBar({ onNavigateWithItem }: { onNavigateWithItem?: (vi
               aria-busy={isLoading}
               className="flex h-10 w-10 items-center justify-center rounded-full bg-[#d84f5f] text-white transition-colors hover:bg-[#bd3f4f] disabled:cursor-not-allowed disabled:bg-[#c3ccd2]"
             >
-              {isLoading ? <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : isPlaying ? <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>}
+              {isLoading ? (
+                <span
+                  aria-hidden
+                  className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
+                />
+              ) : isPlaying ? (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              )}
             </button>
             <ControlButton label="Next" onClick={next} disabled={!canGoNext}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+              </svg>
             </ControlButton>
           </div>
           <div className="hidden items-center gap-3 md:flex">

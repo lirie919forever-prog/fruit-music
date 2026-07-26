@@ -27,19 +27,34 @@ export function getCategoryState(data: Song[] | FederatedResult<Song> | undefine
     songs: data.results,
     failedProviders,
     degradedProviders,
-    totalFailure:
-      data.results.length === 0 &&
-      unavailableProviders.length === data.providerCount,
+    totalFailure: data.results.length === 0 && unavailableProviders.length === data.providerCount,
   };
 }
 
-export function CategoryGrid({ config, onNavigateWithItem }: { config: CategoryConfig; onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void }) {
-  const { data: categoryState, isLoading, isError, error, refetch } = useQuery({
+export function CategoryGrid({
+  config,
+  onNavigateWithItem,
+}: {
+  config: CategoryConfig;
+  onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
+}) {
+  const {
+    data: categoryState,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: config.queryKey,
     queryFn: ({ signal }) => config.fetchFn(signal),
     staleTime: catalogStaleTime(countListResults),
   });
-  const { songs, failedProviders, degradedProviders, totalFailure: allProvidersFailed } = getCategoryState(categoryState);
+  const {
+    songs,
+    failedProviders,
+    degradedProviders,
+    totalFailure: allProvidersFailed,
+  } = getCategoryState(categoryState);
   const unavailableProviders = [...new Set([...failedProviders, ...degradedProviders])];
   const hasUnavailableTracks = songs.some((song) => song.playbackUnavailable);
 
@@ -59,7 +74,9 @@ export function CategoryGrid({ config, onNavigateWithItem }: { config: CategoryC
       <StatusPanel
         eyebrow={config.title}
         title="No verified tracks are available for this category."
-        note={unavailableProviders.length > 0 ? `Unavailable or degraded: ${unavailableProviders.join(', ')}` : undefined}
+        note={
+          unavailableProviders.length > 0 ? `Unavailable or degraded: ${unavailableProviders.join(', ')}` : undefined
+        }
         actions={<StatusButton onClick={() => void refetch()}>Refresh</StatusButton>}
       />
     );
@@ -73,12 +90,27 @@ export function CategoryGrid({ config, onNavigateWithItem }: { config: CategoryC
         <p className="text-[13px] text-[var(--salt-mist)]">
           {songs.length} {songs.length === 1 ? 'track' : 'tracks'} · {config.description}
         </p>
-        {unavailableProviders.length > 0 && <p className="mt-1 text-xs text-[var(--salt-mist)]">{unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'is' : 'are'} unavailable. Showing available tracks.</p>}
-        {hasUnavailableTracks && <p className="mt-1 text-xs text-[var(--danger)]">Some chart metadata is available, but its playback source is currently unavailable.</p>}
+        {unavailableProviders.length > 0 && (
+          <p className="mt-1 text-xs text-[var(--salt-mist)]">
+            {unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'is' : 'are'} unavailable. Showing
+            available tracks.
+          </p>
+        )}
+        {hasUnavailableTracks && (
+          <p className="mt-1 text-xs text-[var(--danger)]">
+            Some chart metadata is available, but its playback source is currently unavailable.
+          </p>
+        )}
       </div>
       <div className="grid">
         {songs.map((song, index) => (
-          <SongCard key={`${song.id}-${index}`} song={song} index={index} tracks={songs} onNavigateWithItem={onNavigateWithItem} />
+          <SongCard
+            key={`${song.id}-${index}`}
+            song={song}
+            index={index}
+            tracks={songs}
+            onNavigateWithItem={onNavigateWithItem}
+          />
         ))}
       </div>
     </section>
@@ -94,7 +126,10 @@ function TrackSkeleton() {
           <div key={index} className="flex h-14 items-center gap-3 border-b border-[var(--glass-border)] px-1">
             <div className="hidden h-3 w-4 animate-pulse rounded bg-[var(--salt-ghost)] sm:block" />
             <div className="h-10 w-10 shrink-0 animate-pulse rounded bg-[var(--salt-ghost)]" />
-            <div className="min-w-0 flex-1 space-y-2"><div className="h-3 w-3/5 animate-pulse rounded bg-[var(--salt-ghost)]" /><div className="h-2.5 w-2/5 animate-pulse rounded bg-[var(--salt-ghost)]" /></div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="h-3 w-3/5 animate-pulse rounded bg-[var(--salt-ghost)]" />
+              <div className="h-2.5 w-2/5 animate-pulse rounded bg-[var(--salt-ghost)]" />
+            </div>
             <div className="h-3 w-8 animate-pulse rounded bg-[var(--salt-ghost)]" />
           </div>
         ))}

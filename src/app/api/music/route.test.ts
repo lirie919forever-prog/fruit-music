@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe('music media proxy', () => {
-  it.each([200, 206, 416])('preserves upstream status %s and streams its body', async status => {
+  it.each([200, 206, 416])('preserves upstream status %s and streams its body', async (status) => {
     const upstreamHeaders = new Headers({
       'content-type': 'audio/mpeg',
       'content-length': status === 416 ? '0' : '4',
@@ -66,7 +66,9 @@ describe('music media proxy', () => {
   it('aborts the upstream body when the downstream cancels a stream', async () => {
     let upstreamSignal: AbortSignal | undefined;
     const body = new ReadableStream<Uint8Array>({
-      start(controller) { controller.enqueue(new Uint8Array([1])); },
+      start(controller) {
+        controller.enqueue(new Uint8Array([1]));
+      },
     });
     vi.mocked(fetch)
       .mockResolvedValueOnce(Response.json({ files: [{ name: 'song.mp3', format: 'VBR MP3', length: 10, size: 100 }] }))
@@ -110,11 +112,25 @@ describe('music media proxy', () => {
 
   it('follows validated ccMixter redirects and preserves range headers', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json([{ files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] }]))
-      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: 'https://www.ccmixter.org/song.mp3' } }))
-      .mockResolvedValueOnce(new Response('music', { status: 206, headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-4/10' } }));
+      .mockResolvedValueOnce(
+        Response.json([
+          { files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: 'https://www.ccmixter.org/song.mp3' } }),
+      )
+      .mockResolvedValueOnce(
+        new Response('music', {
+          status: 206,
+          headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-4/10' },
+        }),
+      );
 
-    const response = await GET(request('ccmixter/stream/123', { range: 'bytes=0-4', 'if-range': '"etag"' }), context(['ccmixter', 'stream', '123']));
+    const response = await GET(
+      request('ccmixter/stream/123', { range: 'bytes=0-4', 'if-range': '"etag"' }),
+      context(['ccmixter', 'stream', '123']),
+    );
 
     expect(response.status).toBe(206);
     expect(String(vi.mocked(fetch).mock.calls[2][0])).toBe('https://www.ccmixter.org/song.mp3');
@@ -124,9 +140,13 @@ describe('music media proxy', () => {
 
   it('sends the referer ccMixter media requires and never forwards a browser one', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json([{
-        files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }],
-      }]))
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }],
+          },
+        ]),
+      )
       .mockResolvedValueOnce(new Response('music', { status: 200, headers: { 'content-type': 'audio/mpeg' } }));
 
     const response = await GET(
@@ -142,15 +162,26 @@ describe('music media proxy', () => {
 
   it('rejects external ccMixter redirect targets and redirect exhaustion', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json([{ files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] }]))
-      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: 'https://example.com/song.mp3' } }));
+      .mockResolvedValueOnce(
+        Response.json([
+          { files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: 'https://example.com/song.mp3' } }),
+      );
     const external = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
     expect(external.status).toBe(502);
 
     // A chain that revisits a URL is cut as soon as the repeat is seen rather
     // than fetched until the redirect budget runs out.
-    vi.mocked(fetch).mockReset()
-      .mockResolvedValueOnce(Response.json([{ files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] }]))
+    vi.mocked(fetch)
+      .mockReset()
+      .mockResolvedValueOnce(
+        Response.json([
+          { files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] },
+        ]),
+      )
       .mockResolvedValue(new Response(null, { status: 302, headers: { location: 'https://ccmixter.org/next.mp3' } }));
     const looping = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
     expect(looping.status).toBe(502);
@@ -161,11 +192,18 @@ describe('music media proxy', () => {
   it('stops after the redirect budget even when every hop is a new approved URL', async () => {
     let hop = 0;
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json([{ files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] }]))
-      .mockImplementation(async () => new Response(null, {
-        status: 302,
-        headers: { location: `https://ccmixter.org/hop-${hop++}.mp3` },
-      }));
+      .mockResolvedValueOnce(
+        Response.json([
+          { files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] },
+        ]),
+      )
+      .mockImplementation(
+        async () =>
+          new Response(null, {
+            status: 302,
+            headers: { location: `https://ccmixter.org/hop-${hop++}.mp3` },
+          }),
+      );
 
     const response = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
 
@@ -181,12 +219,20 @@ describe('music media proxy', () => {
     // origin — which is exactly what jamendo, archive and itunes did before,
     // because they passed no redirect validator at all.
     const offsiteThenAudio = (prelude: Response[]) => {
-      const queue = [...prelude, new Response(null, {
-        status: 302,
-        headers: { location: 'https://attacker.example/song.mp3' },
-      })];
-      return vi.mocked(fetch).mockReset().mockImplementation(async () =>
-        queue.shift() ?? new Response('audio-bytes', { status: 200, headers: { 'content-type': 'audio/mpeg' } }));
+      const queue = [
+        ...prelude,
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://attacker.example/song.mp3' },
+        }),
+      ];
+      return vi
+        .mocked(fetch)
+        .mockReset()
+        .mockImplementation(
+          async () =>
+            queue.shift() ?? new Response('audio-bytes', { status: 200, headers: { 'content-type': 'audio/mpeg' } }),
+        );
     };
 
     process.env.JAMENDO_CLIENT_ID = 'test-id';
@@ -198,7 +244,9 @@ describe('music media proxy', () => {
     const archive = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
     expect(archive.status).toBe(502);
 
-    offsiteThenAudio([Response.json({ results: [{ trackId: 5, previewUrl: 'https://audio-ssl.itunes.apple.com/p.m4a' }] })]);
+    offsiteThenAudio([
+      Response.json({ results: [{ trackId: 5, previewUrl: 'https://audio-ssl.itunes.apple.com/p.m4a' }] }),
+    ]);
     const itunes = await GET(request('itunes/stream/5'), context(['itunes', 'stream', '5']));
     expect(itunes.status).toBe(502);
   });
@@ -206,7 +254,9 @@ describe('music media proxy', () => {
   it('rejects a malformed partial response and cancels its body', async () => {
     let cancelled = false;
     const body = new ReadableStream<Uint8Array>({
-      cancel() { cancelled = true; },
+      cancel() {
+        cancelled = true;
+      },
     });
     vi.mocked(fetch)
       .mockResolvedValueOnce(Response.json({ files: [{ name: 'song.mp3', format: 'VBR MP3', length: 10, size: 100 }] }))
@@ -221,15 +271,14 @@ describe('music media proxy', () => {
   it('does not advertise range support unless the upstream does', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(Response.json({ files: [{ name: 'song.mp3', format: 'VBR MP3', length: 10, size: 100 }] }))
-      .mockResolvedValueOnce(new Response('audio', {
-        status: 200,
-        headers: { 'content-type': 'audio/mpeg', 'content-length': '5' },
-      }));
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg', 'content-length': '5' },
+        }),
+      );
 
-    const response = await GET(
-      request('archive/stream/item'),
-      context(['archive', 'stream', 'item']),
-    );
+    const response = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
 
     expect(response.headers.get('accept-ranges')).toBeNull();
     expect(response.headers.get('content-range')).toBeNull();
@@ -239,10 +288,12 @@ describe('music media proxy', () => {
   it('keeps Jamendo credentials server-controlled', async () => {
     process.env.JAMENDO_CLIENT_ID = 'configured-client';
     process.env.JAMENDO_CLIENT_SECRET = 'must-not-be-sent';
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      headers: { status: 'success', next: 'https://api.jamendo.com/v3.0/tracks?client_id=configured-client' },
-      results: [],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        headers: { status: 'success', next: 'https://api.jamendo.com/v3.0/tracks?client_id=configured-client' },
+        results: [],
+      }),
+    );
 
     const response = await GET(
       request('jamendo/tracks?client_id=attacker&format=xml&limit=10'),
@@ -256,20 +307,19 @@ describe('music media proxy', () => {
     expect(upstreamUrl.searchParams.get('format')).toBe('json');
     expect(upstreamUrl.searchParams.get('limit')).toBe('10');
     expect(upstreamUrl.toString()).not.toContain('must-not-be-sent');
-    const body = await response.json() as { headers?: { next?: string } };
+    const body = (await response.json()) as { headers?: { next?: string } };
     expect(body.headers?.next).toBeUndefined();
   });
 
   it('preserves Jamendo application-level failures', async () => {
     process.env.JAMENDO_CLIENT_ID = 'configured-client';
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      headers: { status: 'failed', error_message: 'Invalid credentials' },
-    }));
-
-    const response = await GET(
-      request('jamendo/tracks'),
-      context(['jamendo', 'tracks']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        headers: { status: 'failed', error_message: 'Invalid credentials' },
+      }),
     );
+
+    const response = await GET(request('jamendo/tracks'), context(['jamendo', 'tracks']));
 
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({ error: 'Invalid credentials' });
@@ -278,20 +328,14 @@ describe('music media proxy', () => {
   it('rejects invalid Jamendo stream IDs before fetching', async () => {
     process.env.JAMENDO_CLIENT_ID = 'configured-client';
 
-    const response = await GET(
-      request('jamendo/stream/not-a-number'),
-      context(['jamendo', 'stream', 'not-a-number']),
-    );
+    const response = await GET(request('jamendo/stream/not-a-number'), context(['jamendo', 'stream', 'not-a-number']));
 
     expect(response.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
 
   it('returns an honest configuration failure when Jamendo is not configured', async () => {
-    const response = await GET(
-      request('jamendo/tracks'),
-      context(['jamendo', 'tracks']),
-    );
+    const response = await GET(request('jamendo/tracks'), context(['jamendo', 'tracks']));
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining('not configured') });
@@ -305,10 +349,7 @@ describe('music media proxy', () => {
     );
     expect(invalidId.status).toBe(400);
 
-    const invalidLimit = await GET(
-      request('archive/tracks?limit=101'),
-      context(['archive', 'tracks']),
-    );
+    const invalidLimit = await GET(request('archive/tracks?limit=101'), context(['archive', 'tracks']));
     expect(invalidLimit.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -327,18 +368,20 @@ describe('music media proxy', () => {
         return Response.json({ response: { docs } });
       }
       return Response.json({
-        metadata: { title: 'Track', creator: 'Performer', subject: ['jazz'], licenseurl: 'https://creativecommons.org/licenses/by/4.0/' },
+        metadata: {
+          title: 'Track',
+          creator: 'Performer',
+          subject: ['jazz'],
+          licenseurl: 'https://creativecommons.org/licenses/by/4.0/',
+        },
         files: [{ name: 'a.mp3', format: 'VBR MP3', length: '2:00', size: '1024' }],
       });
     });
 
-    const response = await GET(
-      request('archive/tracks?subject=jazz&limit=3'),
-      context(['archive', 'tracks']),
-    );
+    const response = await GET(request('archive/tracks?subject=jazz&limit=3'), context(['archive', 'tracks']));
 
     expect(response.status).toBe(200);
-    const body = await response.json() as { results: unknown[] };
+    const body = (await response.json()) as { results: unknown[] };
     expect(body.results).toHaveLength(3);
     // One search request plus a bounded number of metadata lookups, not one per
     // candidate: enrichment is the expensive part and must not run 30 times.
@@ -356,9 +399,7 @@ describe('music media proxy', () => {
     expect(empty.headers.get('cache-control')).toBe('private, no-store');
     expect(empty.headers.get('cdn-cache-control')).toBe('private, no-store');
 
-    vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({ headers: { status: 'success' }, results: [{ id: '1' }] }),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ headers: { status: 'success' }, results: [{ id: '1' }] }));
     const populated = await GET(request('jamendo/tracks?limit=10'), context(['jamendo', 'tracks']));
     expect(populated.headers.get('cache-control')).toContain('s-maxage=');
   });
@@ -366,10 +407,7 @@ describe('music media proxy', () => {
   it('clamps a ccMixter request to the supported record ceiling', async () => {
     vi.mocked(fetch).mockImplementation(async () => Response.json([]));
 
-    const response = await GET(
-      request('ccmixter/tracks?limit=500'),
-      context(['ccmixter', 'tracks']),
-    );
+    const response = await GET(request('ccmixter/tracks?limit=500'), context(['ccmixter', 'tracks']));
 
     expect(response.status).toBe(200);
     for (const call of vi.mocked(fetch).mock.calls) {
@@ -394,18 +432,16 @@ describe('music media proxy', () => {
       return Response.json(Array.from({ length: size }, (_, index) => ({ upload_id: offset + index })));
     });
 
-    const response = await GET(
-      request('ccmixter/tracks?tags=remix&limit=100'),
-      context(['ccmixter', 'tracks']),
-    );
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=100'), context(['ccmixter', 'tracks']));
 
     expect(response.status).toBe(200);
-    const body = await response.json() as { results: Array<{ upload_id: number }> };
+    const body = (await response.json()) as { results: Array<{ upload_id: number }> };
     expect(body.results).toHaveLength(100);
     expect(body.results.at(-1)?.upload_id).toBe(99);
 
-    const offsets = vi.mocked(fetch).mock.calls
-      .slice(1)
+    const offsets = vi
+      .mocked(fetch)
+      .mock.calls.slice(1)
       .map((entry) => Number(new URL(String(entry[0])).searchParams.get('offset')));
     // Offsets advance monotonically, so no record is fetched twice.
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
@@ -417,13 +453,10 @@ describe('music media proxy', () => {
       Response.json(Array.from({ length: 30 }, (_, index) => ({ upload_id: index }))),
     );
 
-    const response = await GET(
-      request('ccmixter/tracks?tags=remix&limit=30'),
-      context(['ccmixter', 'tracks']),
-    );
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=30'), context(['ccmixter', 'tracks']));
 
     expect(response.status).toBe(200);
-    const body = await response.json() as { results: unknown[] };
+    const body = (await response.json()) as { results: unknown[] };
     expect(body.results).toHaveLength(30);
     // A full page that already satisfies the request must not trigger another.
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -432,10 +465,7 @@ describe('music media proxy', () => {
   it('stops paging ccMixter once a short page signals the end of results', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json([{ upload_id: 1 }]));
 
-    const response = await GET(
-      request('ccmixter/tracks?tags=remix&limit=40'),
-      context(['ccmixter', 'tracks']),
-    );
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=40'), context(['ccmixter', 'tracks']));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ results: [{ upload_id: 1 }] });
@@ -445,10 +475,7 @@ describe('music media proxy', () => {
   it('reports a persistently empty ccMixter body as degraded rather than as no results', async () => {
     vi.mocked(fetch).mockImplementation(async () => new Response('', { status: 200 }));
 
-    const response = await GET(
-      request('ccmixter/tracks?tags=remix'),
-      context(['ccmixter', 'tracks']),
-    );
+    const response = await GET(request('ccmixter/tracks?tags=remix'), context(['ccmixter', 'tracks']));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -457,28 +484,25 @@ describe('music media proxy', () => {
       reason: 'upstream-empty-response',
     });
     // The page shrinks toward a single record before giving up.
-    const sizes = vi.mocked(fetch).mock.calls
-      .map((call) => Number(new URL(String(call[0])).searchParams.get('limit')));
+    const sizes = vi.mocked(fetch).mock.calls.map((call) => Number(new URL(String(call[0])).searchParams.get('limit')));
     expect(sizes.at(-1)).toBe(1);
     expect(sizes.length).toBeGreaterThan(1);
   });
 
   it('retries a smaller ccMixter page when an oversized header aborts the response', async () => {
     vi.mocked(fetch)
-      .mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), {
-        cause: { code: 'UND_ERR_HEADERS_OVERFLOW' },
-      }))
+      .mockRejectedValueOnce(
+        Object.assign(new TypeError('fetch failed'), {
+          cause: { code: 'UND_ERR_HEADERS_OVERFLOW' },
+        }),
+      )
       .mockResolvedValueOnce(Response.json([{ upload_id: 1 }]));
 
-    const response = await GET(
-      request('ccmixter/tracks?tags=remix&limit=100'),
-      context(['ccmixter', 'tracks']),
-    );
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=100'), context(['ccmixter', 'tracks']));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ results: [{ upload_id: 1 }] });
-    const sizes = vi.mocked(fetch).mock.calls
-      .map((call) => Number(new URL(String(call[0])).searchParams.get('limit')));
+    const sizes = vi.mocked(fetch).mock.calls.map((call) => Number(new URL(String(call[0])).searchParams.get('limit')));
     expect(sizes[0]).toBeGreaterThan(sizes[1]);
   });
 
@@ -487,26 +511,24 @@ describe('music media proxy', () => {
       .mockResolvedValueOnce(Response.json(Array.from({ length: 20 }, (_, index) => ({ upload_id: index }))))
       .mockResolvedValueOnce(new Response('', { status: 200 }));
 
-    const response = await GET(
-      request('ccmixter/tracks?tags=remix&limit=40'),
-      context(['ccmixter', 'tracks']),
-    );
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=40'), context(['ccmixter', 'tracks']));
 
     expect(response.status).toBe(200);
-    const body = await response.json() as { results: unknown[]; degraded?: boolean };
+    const body = (await response.json()) as { results: unknown[]; degraded?: boolean };
     expect(body.results).toHaveLength(20);
     expect(body.degraded).toBeUndefined();
   });
 
   it('refuses a ccMixter upload without an MP3 file', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json([{
-      files: [{ download_url: 'https://example.com/notes.txt', file_format_info: { mime_type: 'text/plain' } }],
-    }]));
-
-    const response = await GET(
-      request('ccmixter/stream/123'),
-      context(['ccmixter', 'stream', '123']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([
+        {
+          files: [{ download_url: 'https://example.com/notes.txt', file_format_info: { mime_type: 'text/plain' } }],
+        },
+      ]),
     );
+
+    const response = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
 
     expect(response.status).toBe(404);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -514,16 +536,25 @@ describe('music media proxy', () => {
 
   it('uses the verified ccMixter MP3 instead of the first arbitrary file', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json([{
-        files: [
-          { download_url: 'https://example.com/notes.txt', file_format_info: { mime_type: 'text/plain' } },
-          { download_url: 'https://ccmixter.org/content/artist/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } },
-        ],
-      }]))
-      .mockResolvedValueOnce(new Response('music', {
-        status: 206,
-        headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-4/10' },
-      }));
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            files: [
+              { download_url: 'https://example.com/notes.txt', file_format_info: { mime_type: 'text/plain' } },
+              {
+                download_url: 'https://ccmixter.org/content/artist/song.mp3',
+                file_format_info: { mime_type: 'audio/mpeg' },
+              },
+            ],
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response('music', {
+          status: 206,
+          headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-4/10' },
+        }),
+      );
 
     const response = await GET(
       request('ccmixter/stream/123', { range: 'bytes=0-4' }),
@@ -537,14 +568,15 @@ describe('music media proxy', () => {
   });
 
   it('rejects ccMixter media URLs outside approved hosts', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json([{
-      files: [{ download_url: 'https://example.com/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }],
-    }]));
-
-    const response = await GET(
-      request('ccmixter/stream/123'),
-      context(['ccmixter', 'stream', '123']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([
+        {
+          files: [{ download_url: 'https://example.com/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }],
+        },
+      ]),
     );
+
+    const response = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
 
     expect(response.status).toBe(502);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -552,21 +584,22 @@ describe('music media proxy', () => {
 
   it('uses Archive metadata files directly without probing the full media URL', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json({
-        files: [
-          { name: 'notes.txt', format: 'Text' },
-          { name: 'actual track.mp3', format: 'VBR MP3', length: '00:03:12', size: 12345 },
-        ],
-      }))
-      .mockResolvedValueOnce(new Response('music', {
-        status: 200,
-        headers: { 'content-type': 'audio/mpeg' },
-      }));
+      .mockResolvedValueOnce(
+        Response.json({
+          files: [
+            { name: 'notes.txt', format: 'Text' },
+            { name: 'actual track.mp3', format: 'VBR MP3', length: '00:03:12', size: 12345 },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('music', {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg' },
+        }),
+      );
 
-    const response = await GET(
-      request('archive/stream/valid-item_1'),
-      context(['archive', 'stream', 'valid-item_1']),
-    );
+    const response = await GET(request('archive/stream/valid-item_1'), context(['archive', 'stream', 'valid-item_1']));
 
     expect(response.status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -577,14 +610,13 @@ describe('music media proxy', () => {
   });
 
   it('returns 404 when Archive metadata has no MP3', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      files: [{ name: 'notes.txt', format: 'Text' }],
-    }));
-
-    const response = await GET(
-      request('archive/stream/valid-item_1'),
-      context(['archive', 'stream', 'valid-item_1']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        files: [{ name: 'notes.txt', format: 'Text' }],
+      }),
     );
+
+    const response = await GET(request('archive/stream/valid-item_1'), context(['archive', 'stream', 'valid-item_1']));
 
     expect(response.status).toBe(404);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -606,17 +638,16 @@ describe('music media proxy', () => {
   });
 
   it('requires a playable Archive file with positive length and size', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      files: [
-        { name: 'zero-length.mp3', format: 'VBR MP3', length: 0, size: 100 },
-        { name: 'zero-size.mp3', format: 'VBR MP3', length: 0, size: 0 },
-      ],
-    }));
-
-    const response = await GET(
-      request('archive/stream/item'),
-      context(['archive', 'stream', 'item']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        files: [
+          { name: 'zero-length.mp3', format: 'VBR MP3', length: 0, size: 100 },
+          { name: 'zero-size.mp3', format: 'VBR MP3', length: 0, size: 0 },
+        ],
+      }),
     );
+
+    const response = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
 
     expect(response.status).toBe(404);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -624,15 +655,23 @@ describe('music media proxy', () => {
 
   it('binds an Archive stream to the exact requested playable file', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json({
-        files: [
-          { name: 'track.mp3', format: 'VBR MP3', length: 10, size: 100 },
-          { name: 'other.mp3', format: 'VBR MP3', length: 10, size: 100 },
-        ],
-      }))
-      .mockResolvedValueOnce(new Response('music', { status: 206, headers: {
-        'content-type': 'audio/mpeg', 'content-range': 'bytes 0-4/10',
-      } }));
+      .mockResolvedValueOnce(
+        Response.json({
+          files: [
+            { name: 'track.mp3', format: 'VBR MP3', length: 10, size: 100 },
+            { name: 'other.mp3', format: 'VBR MP3', length: 10, size: 100 },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('music', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-4/10',
+          },
+        }),
+      );
 
     const response = await GET(
       request('archive/stream/item?file=track.mp3', { range: 'bytes=0-4' }),
@@ -640,31 +679,54 @@ describe('music media proxy', () => {
     );
 
     expect(response.status).toBe(206);
-    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe(
-      'https://archive.org/download/item/track.mp3',
-    );
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe('https://archive.org/download/item/track.mp3');
     expect(vi.mocked(fetch).mock.calls[1][1]?.headers).toEqual(new Headers({ range: 'bytes=0-4' }));
   });
 
   it('enriches Archive catalog records and omits spoken-word records', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json({ response: { docs: [
-        { identifier: 'music-item', title: 'Catalog title', creator: 'Catalog creator', licenseurl: 'http://creativecommons.org/licenses/by/4.0/' },
-        { identifier: 'spoken-item', title: 'An audiobook lecture', creator: 'Reader', licenseurl: 'https://creativecommons.org/licenses/by/4.0/' },
-      ] } }))
-      .mockResolvedValueOnce(Response.json({
-        metadata: {
-          title: 'Verified song', creator: 'Verified artist', subject: ['jazz'], year: 2024,
-          licenseurl: 'http://creativecommons.org/licenses/by-sa/4.0/',
-        },
-        files: [{ name: 'verified.mp3', format: 'VBR MP3', length: '01:02', size: 2048, bitrate: 192 }],
-      }))
-      .mockResolvedValueOnce(Response.json({
-        metadata: {
-          title: 'Audiobook lecture', creator: 'Reader', licenseurl: 'https://creativecommons.org/licenses/by/4.0/',
-        },
-        files: [{ name: 'spoken.mp3', format: 'VBR MP3', length: 100, size: 2048 }],
-      }));
+      .mockResolvedValueOnce(
+        Response.json({
+          response: {
+            docs: [
+              {
+                identifier: 'music-item',
+                title: 'Catalog title',
+                creator: 'Catalog creator',
+                licenseurl: 'http://creativecommons.org/licenses/by/4.0/',
+              },
+              {
+                identifier: 'spoken-item',
+                title: 'An audiobook lecture',
+                creator: 'Reader',
+                licenseurl: 'https://creativecommons.org/licenses/by/4.0/',
+              },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          metadata: {
+            title: 'Verified song',
+            creator: 'Verified artist',
+            subject: ['jazz'],
+            year: 2024,
+            licenseurl: 'http://creativecommons.org/licenses/by-sa/4.0/',
+          },
+          files: [{ name: 'verified.mp3', format: 'VBR MP3', length: '01:02', size: 2048, bitrate: 192 }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          metadata: {
+            title: 'Audiobook lecture',
+            creator: 'Reader',
+            licenseurl: 'https://creativecommons.org/licenses/by/4.0/',
+          },
+          files: [{ name: 'spoken.mp3', format: 'VBR MP3', length: 100, size: 2048 }],
+        }),
+      );
 
     const response = await GET(
       request('archive/tracks?creator=Example%20Artist&limit=10'),
@@ -672,14 +734,29 @@ describe('music media proxy', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ results: [{
-      identifier: 'music-item', title: 'Verified song', creator: 'Verified artist', subject: ['jazz'], year: '2024',
-      filename: 'verified.mp3', duration: 62, size: 2048, bitRate: 192, contentType: 'audio/mpeg', suffix: 'mp3',
-      streamUrl: '/api/music/archive/stream/music-item?file=verified.mp3',
-      sourceUrl: 'https://archive.org/details/music-item', creatorUrl: '',
-      licenseName: 'CC BY-SA', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
-      attributionUrl: 'https://archive.org/details/music-item',
-    }] });
+    await expect(response.json()).resolves.toEqual({
+      results: [
+        {
+          identifier: 'music-item',
+          title: 'Verified song',
+          creator: 'Verified artist',
+          subject: ['jazz'],
+          year: '2024',
+          filename: 'verified.mp3',
+          duration: 62,
+          size: 2048,
+          bitRate: 192,
+          contentType: 'audio/mpeg',
+          suffix: 'mp3',
+          streamUrl: '/api/music/archive/stream/music-item?file=verified.mp3',
+          sourceUrl: 'https://archive.org/details/music-item',
+          creatorUrl: '',
+          licenseName: 'CC BY-SA',
+          licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
+          attributionUrl: 'https://archive.org/details/music-item',
+        },
+      ],
+    });
   });
 
   it('returns an empty degraded catalog when ccMixter is unavailable', async () => {
@@ -694,10 +771,7 @@ describe('music media proxy', () => {
   it('preserves provider HTTP failures rather than returning a successful empty payload', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response('unavailable', { status: 503 }));
 
-    const response = await GET(
-      request('archive/tracks'),
-      context(['archive', 'tracks']),
-    );
+    const response = await GET(request('archive/tracks'), context(['archive', 'tracks']));
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({ error: 'Archive upstream error' });
@@ -705,9 +779,11 @@ describe('music media proxy', () => {
 
   it('resolves an Apple preview from the lookup response rather than trusting a supplied URL', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json({
-        results: [{ trackId: 101, previewUrl: 'https://audio-ssl.itunes.apple.com/preview.m4a' }],
-      }))
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [{ trackId: 101, previewUrl: 'https://audio-ssl.itunes.apple.com/preview.m4a' }],
+        }),
+      )
       .mockResolvedValueOnce(new Response('audio', { status: 200, headers: { 'content-type': 'audio/mp4' } }));
 
     const response = await GET(request('itunes/stream/101'), context(['itunes', 'stream', '101']));
@@ -717,9 +793,11 @@ describe('music media proxy', () => {
   });
 
   it('refuses an Apple preview served from an unapproved host', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [{ trackId: 101, previewUrl: 'https://attacker.example/preview.m4a' }],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [{ trackId: 101, previewUrl: 'https://attacker.example/preview.m4a' }],
+      }),
+    );
 
     const response = await GET(request('itunes/stream/101'), context(['itunes', 'stream', '101']));
 
@@ -729,10 +807,7 @@ describe('music media proxy', () => {
   });
 
   it('rejects an unsupported Apple entity and an oversized id list before fetching', async () => {
-    const badEntity = await GET(
-      request('itunes/search?term=jazz&entity=tvEpisode'),
-      context(['itunes', 'search']),
-    );
+    const badEntity = await GET(request('itunes/search?term=jazz&entity=tvEpisode'), context(['itunes', 'search']));
     const tooManyIds = await GET(
       request(`itunes/lookup?id=${Array.from({ length: 51 }, (_, index) => index + 1).join(',')}`),
       context(['itunes', 'lookup']),

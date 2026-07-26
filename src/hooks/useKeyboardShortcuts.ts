@@ -19,7 +19,8 @@ export function useKeyboardShortcuts(seek: (time: number) => void) {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || !acceptsGlobalShortcut(event.target)) return;
+      if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || !acceptsGlobalShortcut(event.target))
+        return;
 
       const state = playerStore.getState();
       const key = event.key.toLowerCase();

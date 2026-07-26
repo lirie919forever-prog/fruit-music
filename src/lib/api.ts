@@ -50,14 +50,14 @@ async function federateCatalog<T extends { id: string }>(
   const settled = await Promise.allSettled(providers.map((provider) => provider.get()));
   throwIfAborted(signal);
   const failedProviders = settled.flatMap((result, index) =>
-    result.status === 'rejected' ? [providers[index].name] : []
+    result.status === 'rejected' ? [providers[index].name] : [],
   );
   const degradedProviders = settled.flatMap((result, index) =>
-    result.status === 'fulfilled' && result.value.degraded ? [providers[index].name] : []
+    result.status === 'fulfilled' && result.value.degraded ? [providers[index].name] : [],
   );
-  const results = dedupeEntities(settled.flatMap((result) =>
-    result.status === 'fulfilled' ? result.value.results : []
-  ));
+  const results = dedupeEntities(
+    settled.flatMap((result) => (result.status === 'fulfilled' ? result.value.results : [])),
+  );
 
   return {
     results,
@@ -96,17 +96,23 @@ export async function searchFederated(query: string, signal?: AbortSignal): Prom
  * somebody was skipped.
  */
 export async function searchAlbumsFederated(query: string, signal?: AbortSignal): Promise<FederatedResult<Album>> {
-  return federateCatalog([
-    { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchAlbums(query, signal) }) },
-    { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.searchAlbums(query, signal) }) },
-  ], signal);
+  return federateCatalog(
+    [
+      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchAlbums(query, signal) }) },
+      { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.searchAlbums(query, signal) }) },
+    ],
+    signal,
+  );
 }
 
 export async function searchArtistsFederated(query: string, signal?: AbortSignal): Promise<FederatedResult<Artist>> {
-  return federateCatalog([
-    { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchArtists(query, signal) }) },
-    { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.searchArtists(query, signal) }) },
-  ], signal);
+  return federateCatalog(
+    [
+      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchArtists(query, signal) }) },
+      { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.searchArtists(query, signal) }) },
+    ],
+    signal,
+  );
 }
 
 export function isServerConfigured(): boolean {
@@ -184,10 +190,15 @@ export const api = {
   },
 
   async getCcmixterSongsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<FederatedResult<Song>> {
-    return federateCatalog([{
-      name: 'ccMixter',
-      get: () => ccmixterProvider.getSongsByTagWithStatus(tag, limit, signal),
-    }], signal);
+    return federateCatalog(
+      [
+        {
+          name: 'ccMixter',
+          get: () => ccmixterProvider.getSongsByTagWithStatus(tag, limit, signal),
+        },
+      ],
+      signal,
+    );
   },
 
   async getTrending(limit = 50, signal?: AbortSignal): Promise<FederatedResult<Song>> {
@@ -234,7 +245,6 @@ export const api = {
   async getStreamUrl(song: Song, signal?: AbortSignal): Promise<string> {
     return getMusicProviderForSongId(song.id).getStreamUrl(song, signal);
   },
-
 
   isServerConfigured,
 };

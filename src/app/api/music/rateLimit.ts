@@ -19,9 +19,7 @@ function clientAddress(request: Request): string {
 
   // These headers must be overwritten by the deployment's trusted proxy.
   // Restricting the value also prevents attacker-controlled map keys.
-  return candidate && /^[0-9a-f:.]{1,64}$/i.test(candidate)
-    ? candidate.toLowerCase()
-    : 'unknown';
+  return candidate && /^[0-9a-f:.]{1,64}$/i.test(candidate) ? candidate.toLowerCase() : 'unknown';
 }
 
 export function createRateLimiter({
@@ -48,9 +46,10 @@ export function createRateLimiter({
       );
     }
 
-    entries.set(key, current
-      ? { ...current, count: current.count + 1 }
-      : { count: 1, expiresAt: timestamp + windowMs });
+    entries.set(
+      key,
+      current ? { ...current, count: current.count + 1 } : { count: 1, expiresAt: timestamp + windowMs },
+    );
 
     while (entries.size > maxEntries) {
       const oldest = entries.keys().next().value;

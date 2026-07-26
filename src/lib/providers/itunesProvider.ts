@@ -55,10 +55,16 @@ function releaseYear(value: string | undefined): number {
  * rows that fail when clicked.
  */
 export function isPlayableTrack(item: ItunesTrack): boolean {
-  return item.wrapperType === 'track' && item.kind === 'song' &&
-    typeof item.trackId === 'number' && Boolean(item.trackName) &&
-    typeof item.artistId === 'number' && Boolean(item.artistName) &&
-    typeof item.collectionId === 'number' && Boolean(item.previewUrl);
+  return (
+    item.wrapperType === 'track' &&
+    item.kind === 'song' &&
+    typeof item.trackId === 'number' &&
+    Boolean(item.trackName) &&
+    typeof item.artistId === 'number' &&
+    Boolean(item.artistName) &&
+    typeof item.collectionId === 'number' &&
+    Boolean(item.previewUrl)
+  );
 }
 
 export function itunesSongId(trackId: number | string): string {
@@ -175,17 +181,22 @@ function seedFor(offset: number): string {
 }
 
 /** Runs several seed queries at once and keeps whatever came back, so one failed seed does not empty the shelf. */
-async function gatherSeeds<T>(
-  count: number,
-  fetchSeed: (seed: string) => Promise<T[]>,
-): Promise<T[]> {
-  const settled = await Promise.allSettled(
-    Array.from({ length: count }, (_, index) => fetchSeed(seedFor(index))),
-  );
+async function gatherSeeds<T>(count: number, fetchSeed: (seed: string) => Promise<T[]>): Promise<T[]> {
+  const settled = await Promise.allSettled(Array.from({ length: count }, (_, index) => fetchSeed(seedFor(index))));
   return settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
 }
 
-interface ItunesProvider extends Required<Omit<MusicProvider, 'getAlbumsWithStatus' | 'getArtistsWithStatus' | 'searchWithStatus' | 'getSongsByTagWithStatus' | 'getTrendingWithStatus' | 'lastCatalogDegraded'>> {
+interface ItunesProvider extends Required<
+  Omit<
+    MusicProvider,
+    | 'getAlbumsWithStatus'
+    | 'getArtistsWithStatus'
+    | 'searchWithStatus'
+    | 'getSongsByTagWithStatus'
+    | 'getTrendingWithStatus'
+    | 'lastCatalogDegraded'
+  >
+> {
   getSongsByIds(trackIds: string[], signal?: AbortSignal): Promise<Song[]>;
 }
 
@@ -220,7 +231,8 @@ export const itunesProvider: ItunesProvider = {
 
   async getAlbums(signal?: AbortSignal): Promise<Album[]> {
     const results = await gatherSeeds(4, (seed) =>
-      itunesFetch('search', { term: seed, entity: 'album', limit: '25' }, signal));
+      itunesFetch('search', { term: seed, entity: 'album', limit: '25' }, signal),
+    );
     return albumsFrom(results);
   },
 
@@ -273,7 +285,8 @@ export const itunesProvider: ItunesProvider = {
 
   async getArtists(signal?: AbortSignal): Promise<Artist[]> {
     const results = await gatherSeeds(4, (seed) =>
-      itunesFetch('search', { term: seed, entity: 'album', limit: '25' }, signal));
+      itunesFetch('search', { term: seed, entity: 'album', limit: '25' }, signal),
+    );
     return artistsFrom(results);
   },
 
@@ -314,8 +327,9 @@ export const itunesProvider: ItunesProvider = {
     for (let index = 0; index < trackIds.length; index += 50) {
       chunks.push(trackIds.slice(index, index + 50));
     }
-    const settled = await Promise.allSettled(chunks.map((chunk) =>
-      itunesFetch('lookup', { id: chunk.join(','), entity: 'song', limit: '200' }, signal)));
+    const settled = await Promise.allSettled(
+      chunks.map((chunk) => itunesFetch('lookup', { id: chunk.join(','), entity: 'song', limit: '200' }, signal)),
+    );
     const byId = new Map<string, Song>();
     for (const result of settled) {
       if (result.status !== 'fulfilled') continue;
@@ -323,7 +337,9 @@ export const itunesProvider: ItunesProvider = {
     }
     // Chart order is the point of a chart, so results are re-sorted back into
     // the order the ids arrived in rather than the order Apple returned them.
-    return trackIds.map((trackId) => byId.get(itunesSongId(trackId))).filter((song): song is Song => song !== undefined);
+    return trackIds
+      .map((trackId) => byId.get(itunesSongId(trackId)))
+      .filter((song): song is Song => song !== undefined);
   },
 
   async getStreamUrl(song: Song): Promise<string> {

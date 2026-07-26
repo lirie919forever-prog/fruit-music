@@ -40,10 +40,7 @@ function routeFetch(feed: unknown, lookup: unknown) {
 
 describe('chart pages', () => {
   it('resolves a chart entry to a playable Apple preview', async () => {
-    vi.stubGlobal('fetch', routeFetch(
-      { feed: { results: [feedEntry('101')] } },
-      { results: [lookupTrack(101)] },
-    ));
+    vi.stubGlobal('fetch', routeFetch({ feed: { results: [feedEntry('101')] } }, { results: [lookupTrack(101)] }));
 
     const { GET } = await import('./route');
     const response = await GET(new Request('https://marea.test/api/music/charts?chart=billboard'));
@@ -51,49 +48,54 @@ describe('chart pages', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       name: 'Apple US Top Songs',
-      results: [{
-        id: 'itunes-101',
-        title: 'Track 101',
-        artist: 'Artist',
-        provider: 'Apple Preview',
-        path: '/api/music/itunes/stream/101',
-        licenseName: '30-second preview',
-      }],
+      results: [
+        {
+          id: 'itunes-101',
+          title: 'Track 101',
+          artist: 'Artist',
+          provider: 'Apple Preview',
+          path: '/api/music/itunes/stream/101',
+          licenseName: '30-second preview',
+        },
+      ],
     });
   });
 
   it('preserves chart position when the lookup returns another order', async () => {
-    vi.stubGlobal('fetch', routeFetch(
-      { feed: { results: [feedEntry('1'), feedEntry('2'), feedEntry('3')] } },
-      { results: [lookupTrack(3), lookupTrack(1), lookupTrack(2)] },
-    ));
+    vi.stubGlobal(
+      'fetch',
+      routeFetch(
+        { feed: { results: [feedEntry('1'), feedEntry('2'), feedEntry('3')] } },
+        { results: [lookupTrack(3), lookupTrack(1), lookupTrack(2)] },
+      ),
+    );
 
     const { GET } = await import('./route');
     const response = await GET(new Request('https://marea.test/api/music/charts?chart=uk'));
-    const body = await response.json() as { results: Array<{ id: string }> };
+    const body = (await response.json()) as { results: Array<{ id: string }> };
 
     expect(body.results.map((song) => song.id)).toEqual(['itunes-1', 'itunes-2', 'itunes-3']);
   });
 
   it('omits an entry with no preview rather than listing something unplayable', async () => {
-    vi.stubGlobal('fetch', routeFetch(
-      { feed: { results: [feedEntry('1'), feedEntry('2')] } },
-      { results: [lookupTrack(1, { previewUrl: undefined }), lookupTrack(2)] },
-    ));
+    vi.stubGlobal(
+      'fetch',
+      routeFetch(
+        { feed: { results: [feedEntry('1'), feedEntry('2')] } },
+        { results: [lookupTrack(1, { previewUrl: undefined }), lookupTrack(2)] },
+      ),
+    );
 
     const { GET } = await import('./route');
     const response = await GET(new Request('https://marea.test/api/music/charts?chart=jp'));
-    const body = await response.json() as { results: Array<{ id: string; playbackUnavailable?: boolean }> };
+    const body = (await response.json()) as { results: Array<{ id: string; playbackUnavailable?: boolean }> };
 
     expect(body.results.map((song) => song.id)).toEqual(['itunes-2']);
     expect(body.results.some((song) => song.playbackUnavailable)).toBe(false);
   });
 
   it('ignores a feed id that is not an Apple track id', async () => {
-    const fetchMock = routeFetch(
-      { feed: { results: [{ id: 'apple-1', name: 'Track' }] } },
-      { results: [] },
-    );
+    const fetchMock = routeFetch({ feed: { results: [{ id: 'apple-1', name: 'Track' }] } }, { results: [] });
     vi.stubGlobal('fetch', fetchMock);
 
     const { GET } = await import('./route');
@@ -114,12 +116,15 @@ describe('chart pages', () => {
   });
 
   it('reports the chart as unavailable rather than throwing when the lookup fails', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-      if (String(input).includes('rss.marketingtools.apple.com')) {
-        return Response.json({ feed: { results: [feedEntry('101')] } });
-      }
-      return new Response('nope', { status: 500 });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes('rss.marketingtools.apple.com')) {
+          return Response.json({ feed: { results: [feedEntry('101')] } });
+        }
+        return new Response('nope', { status: 500 });
+      }),
+    );
 
     const { GET } = await import('./route');
     const response = await GET(new Request('https://marea.test/api/music/charts?chart=jp'));
@@ -157,10 +162,7 @@ describe('chart pages', () => {
   });
 
   it('rate limits per chart, so one chart cannot lock out another', async () => {
-    vi.stubGlobal('fetch', routeFetch(
-      { feed: { results: [feedEntry('101')] } },
-      { results: [lookupTrack(101)] },
-    ));
+    vi.stubGlobal('fetch', routeFetch({ feed: { results: [feedEntry('101')] } }, { results: [lookupTrack(101)] }));
     const { GET } = await import('./route');
     const headers = { 'x-real-ip': '203.0.113.9' };
 

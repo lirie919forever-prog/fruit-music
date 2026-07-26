@@ -289,7 +289,11 @@ describe('player queue', () => {
   it('preserves the browse view when starting an isolated track', () => {
     const store = createPlayerStore('search');
     store.getState().playSong(song('a'));
-    expect(store.getState()).toMatchObject({ currentSong: expect.objectContaining({ id: 'a' }), currentView: 'search', status: 'loading' });
+    expect(store.getState()).toMatchObject({
+      currentSong: expect.objectContaining({ id: 'a' }),
+      currentView: 'search',
+      status: 'loading',
+    });
   });
 
   it('does not restart a replacement track when playback was paused', () => {
@@ -328,9 +332,7 @@ describe('player queue', () => {
     store.getState().reorderQueue(0, 2);
 
     expect(store.getState()).toMatchObject({
-      queue: expect.arrayContaining([
-        expect.objectContaining({ song: expect.objectContaining({ id: 'b' }) }),
-      ]),
+      queue: expect.arrayContaining([expect.objectContaining({ song: expect.objectContaining({ id: 'b' }) })]),
       queueIndex: 0,
       currentSong: expect.objectContaining({ id: 'b' }),
     });
@@ -347,7 +349,8 @@ describe('player queue', () => {
     store.getState().clearQueue();
     expect(store.getState().queue.map((item) => item.song.id)).toEqual(['a']);
     expect(store.getState().currentSong?.id).toBe('a');
-  });  it('keeps the active index when moving the active entry', () => {
+  });
+  it('keeps the active index when moving the active entry', () => {
     store.getState().setQueue([song('a'), song('b'), song('c')], 1);
     store.getState().reorderQueue(1, 2);
 
@@ -482,10 +485,21 @@ describe('persistence write guard', () => {
   let saved: Map<string, string>;
 
   function seed() {
-    saved.set(KEY, JSON.stringify({
-      state: { favorites: [song('kept')], history: [], playlists: [], volume: 0.7, lastNonZeroVolume: 0.7, shuffle: false, repeat: 'off' },
-      version: 1,
-    }));
+    saved.set(
+      KEY,
+      JSON.stringify({
+        state: {
+          favorites: [song('kept')],
+          history: [],
+          playlists: [],
+          volume: 0.7,
+          lastNonZeroVolume: 0.7,
+          shuffle: false,
+          repeat: 'off',
+        },
+        version: 1,
+      }),
+    );
   }
 
   function storedFavorites(): string[] {
@@ -497,8 +511,12 @@ describe('persistence write guard', () => {
     vi.stubGlobal('window', {
       localStorage: {
         getItem: (name: string) => saved.get(name) ?? null,
-        setItem: (name: string, value: string) => { saved.set(name, value); },
-        removeItem: (name: string) => { saved.delete(name); },
+        setItem: (name: string, value: string) => {
+          saved.set(name, value);
+        },
+        removeItem: (name: string) => {
+          saved.delete(name);
+        },
       },
     });
   });

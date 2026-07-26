@@ -13,10 +13,7 @@ export function Providers({ children }: { children: ReactNode }) {
             staleTime: 30000,
             refetchOnWindowFocus: false,
             retry: (failureCount, error) => {
-              if (
-                error instanceof DOMException &&
-                error.name === 'AbortError'
-              ) {
+              if (error instanceof DOMException && error.name === 'AbortError') {
                 return false;
               }
 
@@ -24,25 +21,18 @@ export function Providers({ children }: { children: ReactNode }) {
                 typeof error === 'object' &&
                 error !== null &&
                 'code' in error &&
-                ['network', 'timeout', 'upstream'].includes(
-                  String(error.code)
-                );
+                ['network', 'timeout', 'upstream'].includes(String(error.code));
 
-              return (
-                failureCount < 1 &&
-                (error instanceof TypeError || isTransientProviderError)
-              );
+              return failureCount < 1 && (error instanceof TypeError || isTransientProviderError);
             },
           },
         },
-      })
+      }),
   );
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AudioProvider>
-        {children}
-      </AudioProvider>
+      <AudioProvider>{children}</AudioProvider>
     </QueryClientProvider>
   );
 }

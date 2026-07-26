@@ -61,7 +61,9 @@ describe('following redirects', () => {
 
   it('follows a redirect that stays inside the allowlist', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: 'https://node1.media.test/a.mp3' } }))
+      .mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: 'https://node1.media.test/a.mp3' } }),
+      )
       .mockResolvedValueOnce(new Response('bytes', { status: 200 }));
 
     const result = await fetchApprovedMedia(req(), 'https://media.test/a.mp3', options);
@@ -123,10 +125,13 @@ describe('following redirects', () => {
 
   it('stops after the redirect budget when every hop is new', async () => {
     let hop = 0;
-    vi.mocked(fetch).mockImplementation(async () => new Response(null, {
-      status: 302,
-      headers: { location: `https://media.test/hop-${hop++}.mp3` },
-    }));
+    vi.mocked(fetch).mockImplementation(
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: `https://media.test/hop-${hop++}.mp3` },
+        }),
+    );
 
     const result = await fetchApprovedMedia(req(), 'https://media.test/a.mp3', { ...options, maxRedirects: 2 });
 
@@ -141,7 +146,13 @@ describe('body streaming', () => {
   it('aborts the upstream when the downstream cancels', async () => {
     const controller = new AbortController();
     const cleanup = vi.fn();
-    const upstream = new Response(new ReadableStream({ start() { /* never closes */ } }));
+    const upstream = new Response(
+      new ReadableStream({
+        start() {
+          /* never closes */
+        },
+      }),
+    );
 
     const body = streamBody(upstream, controller, cleanup);
     await body!.cancel('gone');

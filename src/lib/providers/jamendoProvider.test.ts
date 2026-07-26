@@ -13,26 +13,28 @@ afterEach(() => {
 
 describe('Jamendo provider', () => {
   it('maps valid tracks and drops malformed records', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [
-        {
-          id: '42',
-          name: 'Rock &amp; Roll',
-          artist_name: 'Artist',
-          artist_id: '7',
-          album_name: 'Album',
-          album_id: '9',
-          image: 'https://usercontent.jamendo.com/cover.jpg',
-          duration: 61.6,
-          position: 2,
-          audio: 'https://example.com/song.mp3',
-          license_ccurl: 'https://creativecommons.org/licenses/by/4.0/',
-          shareurl: 'https://www.jamendo.com/track/42',
-        },
-        { id: 'not-numeric', name: 'Invalid' },
-        null,
-      ],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            id: '42',
+            name: 'Rock &amp; Roll',
+            artist_name: 'Artist',
+            artist_id: '7',
+            album_name: 'Album',
+            album_id: '9',
+            image: 'https://usercontent.jamendo.com/cover.jpg',
+            duration: 61.6,
+            position: 2,
+            audio: 'https://example.com/song.mp3',
+            license_ccurl: 'https://creativecommons.org/licenses/by/4.0/',
+            shareurl: 'https://www.jamendo.com/track/42',
+          },
+          { id: 'not-numeric', name: 'Invalid' },
+          null,
+        ],
+      }),
+    );
 
     const results = await jamendoProvider.search('rock');
 
@@ -49,28 +51,34 @@ describe('Jamendo provider', () => {
   });
 
   it('maps album summaries from the Jamendo albums endpoint', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [{
-        id: '9',
-        name: 'Album',
-        artist_id: '7',
-        artist_name: 'Artist',
-        image: 'https://usercontent.jamendo.com/album.jpg',
-        releasedate: '2025-06-01',
-      }],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            id: '9',
+            name: 'Album',
+            artist_id: '7',
+            artist_name: 'Artist',
+            image: 'https://usercontent.jamendo.com/album.jpg',
+            releasedate: '2025-06-01',
+          },
+        ],
+      }),
+    );
 
-    await expect(jamendoProvider.getAlbums()).resolves.toEqual([{
-      id: 'jamendo-9',
-      name: 'Album',
-      artist: 'Artist',
-      artistId: 'jamendo-artist-7',
-      coverArt: 'https://usercontent.jamendo.com/album.jpg',
-      songCount: 0,
-      duration: 0,
-      year: 2025,
-      genre: '',
-    }]);
+    await expect(jamendoProvider.getAlbums()).resolves.toEqual([
+      {
+        id: 'jamendo-9',
+        name: 'Album',
+        artist: 'Artist',
+        artistId: 'jamendo-artist-7',
+        coverArt: 'https://usercontent.jamendo.com/album.jpg',
+        songCount: 0,
+        duration: 0,
+        year: 2025,
+        genre: '',
+      },
+    ]);
     expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain('/api/music/jamendo/albums');
   });
   it('drops unresolved records instead of inventing playable metadata', async () => {
@@ -86,16 +94,20 @@ describe('Jamendo provider', () => {
     // emptiness has to be retried rather than believed.
     vi.mocked(fetch)
       .mockResolvedValueOnce(Response.json({ headers: { status: 'success', code: 0 }, results: [] }))
-      .mockResolvedValueOnce(Response.json({
-        results: [{
-          id: '9',
-          name: 'Album',
-          artist_id: '7',
-          artist_name: 'Artist',
-          image: 'https://usercontent.jamendo.com/album.jpg',
-          releasedate: '2025-06-01',
-        }],
-      }));
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [
+            {
+              id: '9',
+              name: 'Album',
+              artist_id: '7',
+              artist_name: 'Artist',
+              image: 'https://usercontent.jamendo.com/album.jpg',
+              releasedate: '2025-06-01',
+            },
+          ],
+        }),
+      );
 
     const albums = await jamendoProvider.getAlbums();
 

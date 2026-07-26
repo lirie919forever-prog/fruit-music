@@ -28,15 +28,19 @@ interface CCMixterUpload {
   file_page_url?: string;
 }
 
-type CCMixterProvider = MusicProvider & Required<Pick<MusicProvider,
-  | 'getAlbumsWithStatus'
-  | 'getArtistsWithStatus'
-  | 'getSongsByTagWithStatus'
-  | 'getTrendingWithStatus'
-  | 'searchWithStatus'
-  | 'getAlbumById'
-  | 'getArtistById'
->>;
+type CCMixterProvider = MusicProvider &
+  Required<
+    Pick<
+      MusicProvider,
+      | 'getAlbumsWithStatus'
+      | 'getArtistsWithStatus'
+      | 'getSongsByTagWithStatus'
+      | 'getTrendingWithStatus'
+      | 'searchWithStatus'
+      | 'getAlbumById'
+      | 'getArtistById'
+    >
+  >;
 
 async function ccFetch<T>(path: string, params: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
   return providerFetch<T>('ccMixter', path.split('/').pop() || 'request', path, params, signal);
@@ -45,12 +49,7 @@ async function ccFetch<T>(path: string, params: Record<string, string> = {}, sig
 function parseDuration(ps?: string): number {
   if (!ps) return 0;
   const parts = ps.split(':').map(Number);
-  if (
-    !parts.every(Number.isFinite) ||
-    parts.some((part) => part < 0) ||
-    parts.length < 2 ||
-    parts.length > 3
-  ) {
+  if (!parts.every(Number.isFinite) || parts.some((part) => part < 0) || parts.length < 2 || parts.length > 3) {
     return 0;
   }
   if (parts.slice(1).some((part) => part >= 60)) return 0;
@@ -83,9 +82,15 @@ function uploadToSong(u: CCMixterUpload): Song | null {
     return null;
   }
 
-  const coverArt = u.upload_extra?.cover || u.upload_pic || createDeterministicCover(u.user_name || u.upload_name || 'cc', 40);
-  const tags = u.upload_tags?.split(',').map(t => t.trim()).filter(Boolean) || [];
-  const genre = tags.find(t => !['media', 'remix', 'ccplus', 'audio', 'mp3', 'flac', 'non_commercial'].includes(t)) || '';
+  const coverArt =
+    u.upload_extra?.cover || u.upload_pic || createDeterministicCover(u.user_name || u.upload_name || 'cc', 40);
+  const tags =
+    u.upload_tags
+      ?.split(',')
+      .map((t) => t.trim())
+      .filter(Boolean) || [];
+  const genre =
+    tags.find((t) => !['media', 'remix', 'ccplus', 'audio', 'mp3', 'flac', 'non_commercial'].includes(t)) || '';
 
   return {
     id: `ccmixter-${u.upload_id}`,
@@ -120,10 +125,14 @@ export const ccmixterProvider: CCMixterProvider = {
   },
 
   async getSongsByTagWithStatus(tag: string, limit = 50, signal?: AbortSignal): Promise<ProviderCatalogResult<Song>> {
-    const data = await ccFetch<{ results: CCMixterUpload[]; degraded?: boolean }>(`${PROXY_BASE}/tracks`, {
-      tags: tag,
-      limit: String(limit),
-    }, signal);
+    const data = await ccFetch<{ results: CCMixterUpload[]; degraded?: boolean }>(
+      `${PROXY_BASE}/tracks`,
+      {
+        tags: tag,
+        limit: String(limit),
+      },
+      signal,
+    );
     const results = Array.isArray(data?.results)
       ? data.results.map(uploadToSong).filter((s): s is Song => s !== null)
       : [];
@@ -230,19 +239,27 @@ export const ccmixterProvider: CCMixterProvider = {
 
   async getArtistSongs(artistId: string, signal?: AbortSignal): Promise<Song[]> {
     const userName = artistId.replace('ccmixter-artist-', '');
-    const data = await ccFetch<{ results: CCMixterUpload[] }>(`${PROXY_BASE}/tracks`, {
-      user_name: userName,
-      limit: '50',
-    }, signal);
+    const data = await ccFetch<{ results: CCMixterUpload[] }>(
+      `${PROXY_BASE}/tracks`,
+      {
+        user_name: userName,
+        limit: '50',
+      },
+      signal,
+    );
     if (!Array.isArray(data?.results)) return [];
     return data.results.map(uploadToSong).filter((s): s is Song => s !== null);
   },
 
   async searchWithStatus(query: string, signal?: AbortSignal): Promise<ProviderCatalogResult<Song>> {
-    const data = await ccFetch<{ results: CCMixterUpload[]; degraded?: boolean }>(`${PROXY_BASE}/tracks`, {
-      search: query,
-      limit: '30',
-    }, signal);
+    const data = await ccFetch<{ results: CCMixterUpload[]; degraded?: boolean }>(
+      `${PROXY_BASE}/tracks`,
+      {
+        search: query,
+        limit: '30',
+      },
+      signal,
+    );
     const results = Array.isArray(data?.results)
       ? data.results.map(uploadToSong).filter((s): s is Song => s !== null)
       : [];

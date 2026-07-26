@@ -3,8 +3,22 @@ import type { ViewType } from '@/types/music';
 export const DEFAULT_VIEW: ViewType = 'albums';
 
 export const renderableViews = [
-  'new', 'albums', 'artists', 'search', 'favorites', 'history', 'playlist',
-  'now-playing', 'pop', 'jp', 'billboard', 'uk', 'trending', 'remixes', 'jazz', 'classical',
+  'new',
+  'albums',
+  'artists',
+  'search',
+  'favorites',
+  'history',
+  'playlist',
+  'now-playing',
+  'pop',
+  'jp',
+  'billboard',
+  'uk',
+  'trending',
+  'remixes',
+  'jazz',
+  'classical',
 ] as const satisfies readonly ViewType[];
 
 const renderableViewSet = new Set<string>(renderableViews);
@@ -37,16 +51,20 @@ export function parseItem(value: string | null): NavigationItem | null {
 export function parseView(value: string | string[] | null | undefined): ViewType {
   const candidate = Array.isArray(value) ? value[0] : value;
   if (candidate === 'jpop') return 'jp';
-  return candidate && renderableViewSet.has(candidate) ? candidate as ViewType : DEFAULT_VIEW;
+  return candidate && renderableViewSet.has(candidate) ? (candidate as ViewType) : DEFAULT_VIEW;
 }
 
-export function parseNavigation(search: string | URLSearchParams): { view: ViewType; query: string; item: NavigationItem | null } {
+export function parseNavigation(search: string | URLSearchParams): {
+  view: ViewType;
+  query: string;
+  item: NavigationItem | null;
+} {
   const params = typeof search === 'string' ? new URLSearchParams(search) : search;
   const view = parseView(params.get('view'));
   const item = parseItem(params.get('item'));
   return {
     view,
-    query: view === 'search' ? params.get('q') ?? '' : '',
+    query: view === 'search' ? (params.get('q') ?? '') : '',
     item,
   };
 }

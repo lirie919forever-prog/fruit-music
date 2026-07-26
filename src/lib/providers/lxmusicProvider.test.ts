@@ -28,9 +28,7 @@ describe('LX Music provider', () => {
   });
 
   it('returns empty array for no result array', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      Response.json({ code: 0, data: { total: 0, result: [] } })
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ code: 0, data: { total: 0, result: [] } }));
     const result = await lxmusicProvider.search('nonexistent');
     expect(result).toEqual([]);
   });
@@ -54,7 +52,7 @@ describe('LX Music provider', () => {
             },
           ],
         },
-      })
+      }),
     );
 
     const result = await lxmusicProvider.search('晴天');
@@ -77,7 +75,9 @@ describe('LX Music provider', () => {
       metadataVerified: false,
       licenseName: 'Source terms',
     });
-    expect(result[0].path).toContain('/api/music/lxmusic/url?id=lxmusic-wy_1_186016&level=320&platform=wy&rawId=186016&type=1');
+    expect(result[0].path).toContain(
+      '/api/music/lxmusic/url?id=lxmusic-wy_1_186016&level=320&platform=wy&rawId=186016&type=1',
+    );
   });
 
   it('falls back to 320k when no privilege data', async () => {
@@ -90,7 +90,7 @@ describe('LX Music provider', () => {
             { id: '1', name: 'Song', ar: [{ name: 'A' }], al: { name: 'Al' }, dt: 180000, platform: 'tx', type: 1 },
           ],
         },
-      })
+      }),
     );
     const result = await lxmusicProvider.search('song');
     expect(result[0].bitRate).toBe(320);
@@ -103,11 +103,9 @@ describe('LX Music provider', () => {
         code: 0,
         data: {
           total: 1,
-          result: [
-            { id: '99', name: 'Noplat', ar: [{ name: 'A' }], al: { name: 'Al' }, dt: 100000, type: 1 },
-          ],
+          result: [{ id: '99', name: 'Noplat', ar: [{ name: 'A' }], al: { name: 'Al' }, dt: 100000, type: 1 }],
         },
-      })
+      }),
     );
     const result = await lxmusicProvider.search('noplat');
     expect(result[0].id).toBe('lxmusic-wy_1_99');
@@ -128,10 +126,16 @@ describe('LX Music provider', () => {
         data: {
           total: 60,
           result: Array.from({ length: 60 }, (_, i) => ({
-            id: String(i), name: `Song ${i}`, ar: [{ name: 'A' }], al: { name: 'Al' }, dt: 180000, platform: 'wy', type: 1,
+            id: String(i),
+            name: `Song ${i}`,
+            ar: [{ name: 'A' }],
+            al: { name: 'Al' },
+            dt: 180000,
+            platform: 'wy',
+            type: 1,
           })),
         },
-      })
+      }),
     );
     const result = await lxmusicProvider.getTrending(50);
     expect(result).toHaveLength(50);
@@ -140,10 +144,29 @@ describe('LX Music provider', () => {
 
   it('getStreamUrl returns song.path', async () => {
     const song = {
-      id: 'lxmusic-test', title: 'Test', artist: 'A', artistId: 'aid', album: 'Alb', albumId: 'alid',
-      coverArt: '/p', duration: 10, track: 0, year: 0, genre: '', path: '/api/music/lxmusic/url?id=x',
-      bitRate: 320, contentType: 'audio/mpeg', suffix: 'mp3', size: 0,
-      provider: 'LX Music' as const, sourceUrl: '', creatorUrl: '', licenseName: '', licenseUrl: '', attributionUrl: '', metadataVerified: true,
+      id: 'lxmusic-test',
+      title: 'Test',
+      artist: 'A',
+      artistId: 'aid',
+      album: 'Alb',
+      albumId: 'alid',
+      coverArt: '/p',
+      duration: 10,
+      track: 0,
+      year: 0,
+      genre: '',
+      path: '/api/music/lxmusic/url?id=x',
+      bitRate: 320,
+      contentType: 'audio/mpeg',
+      suffix: 'mp3',
+      size: 0,
+      provider: 'LX Music' as const,
+      sourceUrl: '',
+      creatorUrl: '',
+      licenseName: '',
+      licenseUrl: '',
+      attributionUrl: '',
+      metadataVerified: true,
     };
     expect(await lxmusicProvider.getStreamUrl(song)).toBe(song.path);
   });
@@ -154,11 +177,9 @@ describe('LX Music provider', () => {
         code: 0,
         data: {
           total: 1,
-          result: [
-            { id: '5', name: 'NoArtist', ar: [], al: { name: 'Al' }, dt: 100000, platform: 'kg', type: 1 },
-          ],
+          result: [{ id: '5', name: 'NoArtist', ar: [], al: { name: 'Al' }, dt: 100000, platform: 'kg', type: 1 }],
         },
-      })
+      }),
     );
     const result = await lxmusicProvider.search('noartist');
     expect(result[0].artist).toBe('Unknown');
@@ -172,10 +193,18 @@ describe('LX Music provider', () => {
         data: {
           total: 1,
           result: [
-            { id: '10', name: 'Song', ar: [{ name: 'A', id: 9527 }], al: { name: 'Al', id: 'alb1' }, dt: 100000, platform: 'kw', type: 1 },
+            {
+              id: '10',
+              name: 'Song',
+              ar: [{ name: 'A', id: 9527 }],
+              al: { name: 'Al', id: 'alb1' },
+              dt: 100000,
+              platform: 'kw',
+              type: 1,
+            },
           ],
         },
-      })
+      }),
     );
     const result = await lxmusicProvider.search('song');
     expect(result[0].artistId).toBe('lxmusic-artist-kw_9527');
@@ -189,10 +218,18 @@ describe('LX Music provider', () => {
         data: {
           total: 1,
           result: [
-            { id: '11', name: 'Collab', ar: [{ name: 'A' }, { name: 'B' }], al: { name: 'Al' }, dt: 100000, platform: 'mg', type: 1 },
+            {
+              id: '11',
+              name: 'Collab',
+              ar: [{ name: 'A' }, { name: 'B' }],
+              al: { name: 'Al' },
+              dt: 100000,
+              platform: 'mg',
+              type: 1,
+            },
           ],
         },
-      })
+      }),
     );
     const result = await lxmusicProvider.search('collab');
     expect(result[0].artist).toBe('A / B');

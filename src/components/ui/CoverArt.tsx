@@ -15,7 +15,15 @@ export function isOptimizedArtwork(src: string): boolean {
   }
 }
 
-export function CoverArt({ src, alt, onError, sizes = '(max-width: 640px) 50vw, 200px', loading, priority, ...props }: Omit<ImageProps, 'src' | 'alt'> & { src?: string; alt: string }) {
+export function CoverArt({
+  src,
+  alt,
+  onError,
+  sizes = '(max-width: 640px) 50vw, 200px',
+  loading,
+  priority,
+  ...props
+}: Omit<ImageProps, 'src' | 'alt'> & { src?: string; alt: string }) {
   const safeSrc = safeCoverArt(src);
   // The generated data-URI covers are already the exact bytes to display, and
   // the optimizer refuses a data: source anyway.

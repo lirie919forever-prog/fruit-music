@@ -1,6 +1,6 @@
-import type { NextConfig } from "next";
-import path from "node:path";
-import { ARTWORK_REMOTE_PATTERNS } from "./src/lib/artworkHosts";
+import type { NextConfig } from 'next';
+import path from 'node:path';
+import { ARTWORK_REMOTE_PATTERNS } from './src/lib/artworkHosts';
 
 const nextConfig: NextConfig = {
   turbopack: {

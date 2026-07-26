@@ -1,9 +1,6 @@
 import type { Song } from '@/types/music';
 
-export function interleaveSongGroups(
-  groups: Array<Song[] | undefined>,
-  limit = Number.POSITIVE_INFINITY,
-): Song[] {
+export function interleaveSongGroups(groups: Array<Song[] | undefined>, limit = Number.POSITIVE_INFINITY): Song[] {
   const populatedGroups = groups.filter((group): group is Song[] => Boolean(group?.length));
   const maxLength = Math.max(0, ...populatedGroups.map((group) => group.length));
   const seen = new Set<string>();
@@ -30,7 +27,8 @@ export function uniqueAlbumSongs(songs: Song[], limit = Number.POSITIVE_INFINITY
   const seen = new Set<string>();
   return songs.filter((song) => {
     const albumName = song.album.trim().toLowerCase();
-    const genericAlbum = albumName === 'unknown' || albumName === 'unknown album' || albumName === 'untitled' || albumName === 'n/a';
+    const genericAlbum =
+      albumName === 'unknown' || albumName === 'unknown album' || albumName === 'untitled' || albumName === 'n/a';
     if (!song.albumId || genericAlbum || seen.has(song.albumId) || seen.size >= limit) return false;
     seen.add(song.albumId);
     return true;

@@ -21,11 +21,18 @@ describe('getCategoryState', () => {
       degradedProviders: [],
       totalFailure: true,
     });
-    expect(getCategoryState([])).toEqual({ songs: [], failedProviders: [], degradedProviders: [], totalFailure: false });
+    expect(getCategoryState([])).toEqual({
+      songs: [],
+      failedProviders: [],
+      degradedProviders: [],
+      totalFailure: false,
+    });
   });
 
   it('treats degraded providers as unavailable without discarding available tracks', () => {
-    expect(getCategoryState({ results: [song], failedProviders: [], degradedProviders: ['ccMixter'], providerCount: 2 })).toEqual({
+    expect(
+      getCategoryState({ results: [song], failedProviders: [], degradedProviders: ['ccMixter'], providerCount: 2 }),
+    ).toEqual({
       songs: [song],
       failedProviders: [],
       degradedProviders: ['ccMixter'],

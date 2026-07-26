@@ -8,11 +8,7 @@ export function hasNextInQueue(state: Pick<PlayerState, 'queue' | 'queueIndex' |
   return (shuffle && queue.length > 1) || queueIndex < queue.length - 1 || repeat === 'all';
 }
 
-export function isNaturalTrackEnd(
-  position: number,
-  decodedDuration: number,
-  expectedDuration = 0,
-): boolean {
+export function isNaturalTrackEnd(position: number, decodedDuration: number, expectedDuration = 0): boolean {
   if (!Number.isFinite(position) || !Number.isFinite(decodedDuration) || decodedDuration <= 0) return false;
 
   // A materially shorter decoded duration is usually the signature of a

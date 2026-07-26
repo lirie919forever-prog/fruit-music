@@ -1,13 +1,17 @@
 import { isAllowedArtworkHost } from '@/lib/artworkHosts';
 
 function escapeXml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&apos;',
-  })[character] ?? character);
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&apos;',
+      })[character] ?? character,
+  );
 }
 
 /**

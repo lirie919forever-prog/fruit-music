@@ -13,15 +13,25 @@ import type { Song } from '@/types/music';
  * on `.toLowerCase()`, or renders with no key.
  */
 const REQUIRED_STRINGS = [
-  'id', 'title', 'artist', 'artistId', 'album', 'albumId',
-  'coverArt', 'path', 'provider', 'licenseName',
+  'id',
+  'title',
+  'artist',
+  'artistId',
+  'album',
+  'albumId',
+  'coverArt',
+  'path',
+  'provider',
+  'licenseName',
 ] as const;
 
 export function isSong(value: unknown): value is Song {
   if (typeof value !== 'object' || value === null) return false;
   const song = value as Record<string, unknown>;
-  return REQUIRED_STRINGS.every((field) => typeof song[field] === 'string')
-    && song.id !== ''
-    && typeof song.duration === 'number'
-    && Number.isFinite(song.duration);
+  return (
+    REQUIRED_STRINGS.every((field) => typeof song[field] === 'string') &&
+    song.id !== '' &&
+    typeof song.duration === 'number' &&
+    Number.isFinite(song.duration)
+  );
 }

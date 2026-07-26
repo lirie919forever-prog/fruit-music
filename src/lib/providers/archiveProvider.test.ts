@@ -24,50 +24,58 @@ describe('Archive provider', () => {
   });
 
   it('drops records with missing subject metadata', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [{
-        identifier: 'concert-2',
-        title: 'Movement II',
-        creator: 'Orchestra',
-        filename: 'movement.mp3',
-        duration: 125,
-        size: 1024,
-        bitRate: 192,
-        contentType: 'audio/mpeg',
-        suffix: 'mp3',
-        streamUrl: '/api/music/archive/stream/concert-2?file=movement.mp3',
-        sourceUrl: 'https://archive.org/details/concert-2',
-        creatorUrl: '',
-        licenseName: 'CC BY',
-        licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
-        attributionUrl: 'https://archive.org/details/concert-2',
-      }],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            identifier: 'concert-2',
+            title: 'Movement II',
+            creator: 'Orchestra',
+            filename: 'movement.mp3',
+            duration: 125,
+            size: 1024,
+            bitRate: 192,
+            contentType: 'audio/mpeg',
+            suffix: 'mp3',
+            streamUrl: '/api/music/archive/stream/concert-2?file=movement.mp3',
+            sourceUrl: 'https://archive.org/details/concert-2',
+            creatorUrl: '',
+            licenseName: 'CC BY',
+            licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+            attributionUrl: 'https://archive.org/details/concert-2',
+          },
+        ],
+      }),
+    );
 
     await expect(archiveProvider.search('classical')).resolves.toEqual([]);
   });
 
   it('resolves an exact shared track identity', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [{
-        identifier: 'concert-1',
-        title: 'Movement I',
-        creator: 'Orchestra',
-        subject: ['classical'],
-        filename: 'movement.mp3',
-        duration: 125,
-        size: 1024,
-        bitRate: 192,
-        contentType: 'audio/mpeg',
-        suffix: 'mp3',
-        streamUrl: '/api/music/archive/stream/concert-1?file=movement.mp3',
-        sourceUrl: 'https://archive.org/details/concert-1',
-        creatorUrl: '',
-        licenseName: 'CC BY',
-        licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
-        attributionUrl: 'https://archive.org/details/concert-1',
-      }],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            identifier: 'concert-1',
+            title: 'Movement I',
+            creator: 'Orchestra',
+            subject: ['classical'],
+            filename: 'movement.mp3',
+            duration: 125,
+            size: 1024,
+            bitRate: 192,
+            contentType: 'audio/mpeg',
+            suffix: 'mp3',
+            streamUrl: '/api/music/archive/stream/concert-1?file=movement.mp3',
+            sourceUrl: 'https://archive.org/details/concert-1',
+            creatorUrl: '',
+            licenseName: 'CC BY',
+            licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+            attributionUrl: 'https://archive.org/details/concert-1',
+          },
+        ],
+      }),
+    );
 
     await expect(archiveProvider.getSongById?.('archive-concert-1~movement.mp3')).resolves.toMatchObject({
       id: 'archive-concert-1~movement.mp3',
@@ -77,26 +85,30 @@ describe('Archive provider', () => {
   });
 
   it('preserves the concrete file identity in the song ID', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [{
-        identifier: 'concert-1',
-        title: 'Movement I',
-        creator: '東京楽団',
-        subject: ['classical'],
-        filename: 'Disc 1/01 Movement I.mp3',
-        duration: 125,
-        size: 1024,
-        bitRate: 192,
-        contentType: 'audio/mpeg',
-        suffix: 'mp3',
-        streamUrl: '/api/music/archive/stream/concert-1?file=Disc%201%2F01%20Movement%20I.mp3',
-        sourceUrl: 'https://archive.org/details/concert-1',
-        creatorUrl: '',
-        licenseName: 'CC BY',
-        licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
-        attributionUrl: 'https://archive.org/details/concert-1',
-      }],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            identifier: 'concert-1',
+            title: 'Movement I',
+            creator: '東京楽団',
+            subject: ['classical'],
+            filename: 'Disc 1/01 Movement I.mp3',
+            duration: 125,
+            size: 1024,
+            bitRate: 192,
+            contentType: 'audio/mpeg',
+            suffix: 'mp3',
+            streamUrl: '/api/music/archive/stream/concert-1?file=Disc%201%2F01%20Movement%20I.mp3',
+            sourceUrl: 'https://archive.org/details/concert-1',
+            creatorUrl: '',
+            licenseName: 'CC BY',
+            licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+            attributionUrl: 'https://archive.org/details/concert-1',
+          },
+        ],
+      }),
+    );
 
     const songs = await archiveProvider.search('classical');
 

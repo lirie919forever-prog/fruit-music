@@ -10,9 +10,8 @@ export const CATALOG_STALE_TIME_MS = 60_000;
  * next opportunity instead of serving the gap back to the user.
  */
 export function catalogStaleTime(countResults: (data: unknown) => number) {
-  return <TQueryFnData, TData>(
-    query: Query<TQueryFnData, Error, TData, readonly unknown[]>,
-  ): number => (countResults(query.state.data) === 0 ? 0 : CATALOG_STALE_TIME_MS);
+  return <TQueryFnData, TData>(query: Query<TQueryFnData, Error, TData, readonly unknown[]>): number =>
+    countResults(query.state.data) === 0 ? 0 : CATALOG_STALE_TIME_MS;
 }
 
 export function countFederatedResults(data: unknown): number {

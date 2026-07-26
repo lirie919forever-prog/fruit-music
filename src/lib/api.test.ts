@@ -247,7 +247,6 @@ describe('album federation', () => {
     });
   });
 
-
   it('resolves a deep-linked album outside the catalog page by direct lookup', async () => {
     const deepLinked = {
       id: 'jamendo-25',

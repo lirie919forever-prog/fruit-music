@@ -3,7 +3,9 @@ import { isOptimizedArtwork } from './CoverArt';
 
 describe('artwork retry targeting', () => {
   it('retries only artwork served through the image proxy', () => {
-    expect(isOptimizedArtwork('http://localhost:3000/_next/image?url=https%3A%2F%2Fis1-ssl.mzstatic.com%2Fa.jpg')).toBe(true);
+    expect(isOptimizedArtwork('http://localhost:3000/_next/image?url=https%3A%2F%2Fis1-ssl.mzstatic.com%2Fa.jpg')).toBe(
+      true,
+    );
     expect(isOptimizedArtwork('/_next/image?url=https%3A%2F%2Fis1-ssl.mzstatic.com%2Fa.jpg')).toBe(true);
   });
 

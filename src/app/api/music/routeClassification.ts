@@ -26,7 +26,10 @@ const validBuckets = new Set<RouteBucket>([
   'itunes:stream',
 ]);
 
-export function classifyRoute(provider: string | undefined, resource: string | undefined): { bucket: RouteBucket; isStream: boolean } {
+export function classifyRoute(
+  provider: string | undefined,
+  resource: string | undefined,
+): { bucket: RouteBucket; isStream: boolean } {
   const bucket = `${provider}:${resource}` as RouteBucket;
   return validBuckets.has(bucket)
     ? { bucket, isStream: bucket.endsWith(':stream') }

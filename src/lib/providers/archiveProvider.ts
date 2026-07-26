@@ -44,13 +44,13 @@ function isArchiveDoc(doc: ArchiveDoc): boolean {
     doc.contentType === 'audio/mpeg' &&
     doc.licenseName &&
     doc.licenseUrl &&
-    doc.sourceUrl
+    doc.sourceUrl,
   );
 }
 
 function docToSong(doc: ArchiveDoc, index: number): Song {
   const genre = doc.subject[0] || '';
-  const year = typeof doc.year === 'string' ? parseInt(doc.year) || 0 : (doc.year || 0);
+  const year = typeof doc.year === 'string' ? parseInt(doc.year) || 0 : doc.year || 0;
 
   return {
     id: `archive-${doc.identifier}~${encodeURIComponent(doc.filename)}`,
@@ -81,10 +81,14 @@ function docToSong(doc: ArchiveDoc, index: number): Song {
 
 export const archiveProvider: MusicProvider = {
   async getSongsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<Song[]> {
-    const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
-      subject: tag,
-      limit: String(limit),
-    }, signal);
+    const data = await archiveFetch<{ results: ArchiveDoc[] }>(
+      `${PROXY_BASE}/tracks`,
+      {
+        subject: tag,
+        limit: String(limit),
+      },
+      signal,
+    );
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isArchiveDoc).map(docToSong);
   },
@@ -107,10 +111,14 @@ export const archiveProvider: MusicProvider = {
 
   async getArtistSongs(artistId: string, signal?: AbortSignal): Promise<Song[]> {
     const creator = decodeURIComponent(artistId.replace('archive-artist-', ''));
-    const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
-      creator,
-      limit: '20',
-    }, signal);
+    const data = await archiveFetch<{ results: ArchiveDoc[] }>(
+      `${PROXY_BASE}/tracks`,
+      {
+        creator,
+        limit: '20',
+      },
+      signal,
+    );
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isArchiveDoc).map(docToSong);
   },
@@ -119,10 +127,14 @@ export const archiveProvider: MusicProvider = {
     // Archive resolves one metadata request per result, so a large search page
     // costs more time than the federated search budget allows. A smaller page
     // keeps Archive contributing to results instead of always timing out.
-    const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
-      subject: query,
-      limit: '10',
-    }, signal);
+    const data = await archiveFetch<{ results: ArchiveDoc[] }>(
+      `${PROXY_BASE}/tracks`,
+      {
+        subject: query,
+        limit: '10',
+      },
+      signal,
+    );
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isArchiveDoc).map(docToSong);
   },
@@ -133,11 +145,15 @@ export const archiveProvider: MusicProvider = {
     if (separator <= 0) return null;
     const identifier = encoded.slice(0, separator);
     const filename = decodeURIComponent(encoded.slice(separator + 1));
-    const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
-      identifier,
-      filename,
-      limit: '1',
-    }, signal);
+    const data = await archiveFetch<{ results: ArchiveDoc[] }>(
+      `${PROXY_BASE}/tracks`,
+      {
+        identifier,
+        filename,
+        limit: '1',
+      },
+      signal,
+    );
     const doc = Array.isArray(data?.results)
       ? data.results.find((item) => item.identifier === identifier && item.filename === filename)
       : undefined;

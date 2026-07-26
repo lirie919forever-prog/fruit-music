@@ -40,7 +40,11 @@ export function FavoriteButton({ song, className = '' }: { song: Song; className
   );
 }
 
-export function ArtistLink({ song, onNavigateWithItem, className = '' }: TrackNavProps & { song: Song; className?: string }) {
+export function ArtistLink({
+  song,
+  onNavigateWithItem,
+  className = '',
+}: TrackNavProps & { song: Song; className?: string }) {
   if (!onNavigateWithItem) return <span className={className}>{song.artist}</span>;
   return (
     <button
@@ -103,7 +107,9 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
   // stall playback when its turn comes around.
   const playableTracks = playableSongs(tracks);
   const playableIndex = playableTracks.findIndex((track) => track.id === song.id);
-  const play = () => { if (!playbackUnavailable) playAlbum(playableTracks, playableIndex); };
+  const play = () => {
+    if (!playbackUnavailable) playAlbum(playableTracks, playableIndex);
+  };
 
   return (
     <article
@@ -111,7 +117,10 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
       aria-current={isActive ? 'true' : undefined}
     >
       {showIndex && (
-        <span className="hidden w-6 shrink-0 text-center text-[13px] tabular-nums text-[var(--salt-mist)] sm:block" aria-label={`Track ${index + 1}`}>
+        <span
+          className="hidden w-6 shrink-0 text-center text-[13px] tabular-nums text-[var(--salt-mist)] sm:block"
+          aria-label={`Track ${index + 1}`}
+        >
           {isActive && isPlaying ? <EqualizerGlyph /> : index + 1}
         </span>
       )}
@@ -121,7 +130,9 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
           type="button"
           onClick={play}
           disabled={playbackUnavailable}
-          aria-label={playbackUnavailable ? `${song.title} is unavailable for playback` : `Play ${song.title} by ${song.artist}`}
+          aria-label={
+            playbackUnavailable ? `${song.title} is unavailable for playback` : `Play ${song.title} by ${song.artist}`
+          }
           className="block max-w-full truncate text-left text-[13px] font-medium leading-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed"
           style={{ color: isActive ? 'var(--salt-primary)' : 'var(--salt-white)' }}
         >
@@ -129,16 +140,24 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
         </button>
         <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-tight text-[var(--salt-mist)]">
           <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="text-xs" />
-          <span aria-hidden className="shrink-0">·</span>
+          <span aria-hidden className="shrink-0">
+            ·
+          </span>
           <span className="shrink-0 truncate">{song.provider}</span>
         </span>
       </div>
       {playbackUnavailable && (
-        <span title="Playback unavailable" aria-label="Playback unavailable" className="shrink-0 text-[var(--salt-mist)]">
+        <span
+          title="Playback unavailable"
+          aria-label="Playback unavailable"
+          className="shrink-0 text-[var(--salt-mist)]"
+        >
           <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
         </span>
       )}
-      <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-[var(--salt-mist)] sm:block">{formatDuration(song.duration)}</span>
+      <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-[var(--salt-mist)] sm:block">
+        {formatDuration(song.duration)}
+      </span>
       <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
       {trailing}
     </article>
@@ -160,17 +179,34 @@ export function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 }
 
-export function SongRail({ songs, label, showIndex = true, onNavigateWithItem }: { songs: Song[]; label: string; showIndex?: boolean } & TrackNavProps) {
+export function SongRail({
+  songs,
+  label,
+  showIndex = true,
+  onNavigateWithItem,
+}: { songs: Song[]; label: string; showIndex?: boolean } & TrackNavProps) {
   return (
     <div aria-label={label} className="grid">
       {songs.map((song, index) => (
-        <SongCard key={song.id} song={song} index={index} tracks={songs} showIndex={showIndex} onNavigateWithItem={onNavigateWithItem} />
+        <SongCard
+          key={song.id}
+          song={song}
+          index={index}
+          tracks={songs}
+          showIndex={showIndex}
+          onNavigateWithItem={onNavigateWithItem}
+        />
       ))}
     </div>
   );
 }
 
-function ChartRow({ song, rank, tracks, onNavigateWithItem }: { song: Song; rank: number; tracks: Song[] } & TrackNavProps) {
+function ChartRow({
+  song,
+  rank,
+  tracks,
+  onNavigateWithItem,
+}: { song: Song; rank: number; tracks: Song[] } & TrackNavProps) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
   const currentSong = usePlayerStore((state) => state.currentSong);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
@@ -190,10 +226,22 @@ function ChartRow({ song, rank, tracks, onNavigateWithItem }: { song: Song; rank
       >
         {isActive && isPlaying ? <EqualizerGlyph /> : rank}
       </span>
-      <ArtworkPlayButton song={song} onPlay={() => playAlbum(playableTracks, playableIndex)} unavailable={unavailable} />
+      <ArtworkPlayButton
+        song={song}
+        onPlay={() => playAlbum(playableTracks, playableIndex)}
+        unavailable={unavailable}
+      />
       <div className="min-w-0 flex-1">
-        <p className={`truncate text-[13px] font-medium leading-tight ${isActive ? 'text-[var(--salt-primary)]' : 'text-[var(--salt-white)]'}`}>{song.title}</p>
-        <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="mt-0.5 block text-xs leading-tight text-[var(--salt-mist)]" />
+        <p
+          className={`truncate text-[13px] font-medium leading-tight ${isActive ? 'text-[var(--salt-primary)]' : 'text-[var(--salt-white)]'}`}
+        >
+          {song.title}
+        </p>
+        <ArtistLink
+          song={song}
+          onNavigateWithItem={onNavigateWithItem}
+          className="mt-0.5 block text-xs leading-tight text-[var(--salt-mist)]"
+        />
       </div>
       {unavailable && (
         <span

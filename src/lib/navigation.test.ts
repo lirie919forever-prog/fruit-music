@@ -38,12 +38,18 @@ describe('navigation parsing', () => {
   // id whose prefix is missing here parses to null, and the page silently
   // reopens the grid instead of the record the link named.
   it('parses the Apple catalog identities the deep links now produce', () => {
-    expect(parseNavigation('?view=albums&item=album%3Aitunes-album-1161503945').item)
-      .toEqual({ kind: 'album', id: 'itunes-album-1161503945' });
-    expect(parseNavigation('?view=artists&item=artist%3Aitunes-artist-479756766').item)
-      .toEqual({ kind: 'artist', id: 'itunes-artist-479756766' });
-    expect(parseNavigation('?view=now-playing&item=track%3Aitunes-1440872304').item)
-      .toEqual({ kind: 'track', id: 'itunes-1440872304' });
+    expect(parseNavigation('?view=albums&item=album%3Aitunes-album-1161503945').item).toEqual({
+      kind: 'album',
+      id: 'itunes-album-1161503945',
+    });
+    expect(parseNavigation('?view=artists&item=artist%3Aitunes-artist-479756766').item).toEqual({
+      kind: 'artist',
+      id: 'itunes-artist-479756766',
+    });
+    expect(parseNavigation('?view=now-playing&item=track%3Aitunes-1440872304').item).toEqual({
+      kind: 'track',
+      id: 'itunes-1440872304',
+    });
     // An album id is not an artist id, and the artist route must not accept one.
     expect(parseNavigation('?view=artists&item=artist%3Aitunes-album-1161503945').item).toBeNull();
   });
@@ -57,7 +63,9 @@ describe('navigation URL updates', () => {
   });
 
   it('writes a compatible item identity', () => {
-    expect(buildNavigationUrl(location, 'albums', '', { kind: 'album', id: 'jamendo-123' })).toBe('/?campaign=summer&view=albums&item=album%3Ajamendo-123#tracks');
+    expect(buildNavigationUrl(location, 'albums', '', { kind: 'album', id: 'jamendo-123' })).toBe(
+      '/?campaign=summer&view=albums&item=album%3Ajamendo-123#tracks',
+    );
   });
 
   it('writes the current search text', () => {

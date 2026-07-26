@@ -42,7 +42,9 @@ let store: PlayerStore;
 
 function Probe() {
   const api = usePlayerStoreApi();
-  useEffect(() => { store = api; }, [api]);
+  useEffect(() => {
+    store = api;
+  }, [api]);
   return null;
 }
 
@@ -175,8 +177,10 @@ describe('favorite toggle', () => {
 
     expect(store.getState().favorites.map((item) => item.id)).toEqual(['a']);
     await openMenu();
-    expect(screen.getByRole('menuitemcheckbox', { name: 'Remove from Favorites' }))
-      .toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Remove from Favorites' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
   });
 
   it('removes it again on a second toggle', async () => {

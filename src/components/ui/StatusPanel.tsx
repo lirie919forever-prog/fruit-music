@@ -35,14 +35,18 @@ export function StatusPanel({
     >
       <div className={centered ? 'mx-auto max-w-lg' : 'max-w-xl'}>
         {eyebrow && (
-          <p className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${tone === 'error' ? 'text-[var(--danger)]' : 'text-[var(--salt-primary)]'}`}>
+          <p
+            className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${tone === 'error' ? 'text-[var(--danger)]' : 'text-[var(--salt-primary)]'}`}
+          >
             {eyebrow}
           </p>
         )}
         <h2 className={`text-[17px] font-bold text-[var(--salt-white)] ${eyebrow ? 'mt-1.5' : ''}`}>{title}</h2>
         {body && <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--salt-mist)]">{body}</p>}
         {note && <p className="mt-2 text-xs text-[var(--salt-mist)]">{note}</p>}
-        {actions && <div className={`mt-4 flex flex-wrap items-center gap-2 ${centered ? 'justify-center' : ''}`}>{actions}</div>}
+        {actions && (
+          <div className={`mt-4 flex flex-wrap items-center gap-2 ${centered ? 'justify-center' : ''}`}>{actions}</div>
+        )}
       </div>
     </div>
   );

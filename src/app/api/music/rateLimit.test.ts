@@ -8,7 +8,7 @@ function request(ip: string): Request {
 }
 
 describe('per-client rate limiting', () => {
-  it('does not let one client exhaust another client\'s route bucket', () => {
+  it("does not let one client exhaust another client's route bucket", () => {
     const rateLimit = createRateLimiter({
       windowMs: 60_000,
       maxRequests: 1,

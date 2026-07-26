@@ -41,7 +41,9 @@ const onClose = vi.fn();
 
 function Probe() {
   const api = usePlayerStoreApi();
-  useEffect(() => { store = api; }, [api]);
+  useEffect(() => {
+    store = api;
+  }, [api]);
   return null;
 }
 
@@ -51,11 +53,16 @@ function Host() {
   return (
     <>
       <Probe />
-      <button type="button" onClick={() => setOpen(true)}>Open</button>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open
+      </button>
       {open && (
         <AddToPlaylistDialog
           song={song('a')}
-          onClose={() => { onClose(); setOpen(false); }}
+          onClose={() => {
+            onClose();
+            setOpen(false);
+          }}
         />
       )}
     </>

@@ -49,7 +49,10 @@ function SeekBar({
           className="player-range absolute inset-0"
         />
       </div>
-      <div className="flex justify-between text-[11px] tabular-nums text-[var(--pearl-dim)]" style={{ fontFamily: 'var(--font-mono)' }}>
+      <div
+        className="flex justify-between text-[11px] tabular-nums text-[var(--pearl-dim)]"
+        style={{ fontFamily: 'var(--font-mono)' }}
+      >
         <span>{formatTime(progress)}</span>
         <span>{formatTime(duration)}</span>
       </div>
@@ -57,7 +60,14 @@ function SeekBar({
   );
 }
 
-function PlaybackButton({ onClick, label, disabled = false, active = false, pressed, children }: {
+function PlaybackButton({
+  onClick,
+  label,
+  disabled = false,
+  active = false,
+  pressed,
+  children,
+}: {
   onClick: () => void;
   label: string;
   disabled?: boolean;
@@ -79,7 +89,11 @@ function PlaybackButton({ onClick, label, disabled = false, active = false, pres
   );
 }
 
-export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void }) {
+export function NowPlayingView({
+  onNavigateWithItem,
+}: {
+  onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
+}) {
   const currentSong = usePlayerStore((s) => s.currentSong);
   const queue = usePlayerStore((s) => s.queue);
   const queueIndex = usePlayerStore((s) => s.queueIndex);
@@ -111,7 +125,17 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
   if (!currentSong) {
     return (
       <div className="flex h-full flex-col items-center justify-center py-20 text-[var(--pearl-dim)]">
-        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mb-4 opacity-40">
+        <svg
+          width="64"
+          height="64"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="mb-4 opacity-40"
+        >
           <path d="M9 18V5l12-2v13" />
           <circle cx="6" cy="18" r="3" />
           <circle cx="18" cy="16" r="3" />
@@ -136,7 +160,9 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
         />
 
         <div className="w-full max-w-md px-4 text-center">
-          <h2 className="truncate text-2xl font-bold tracking-[-0.02em] text-[var(--salt-white)] sm:text-[28px]">{currentSong.title}</h2>
+          <h2 className="truncate text-2xl font-bold tracking-[-0.02em] text-[var(--salt-white)] sm:text-[28px]">
+            {currentSong.title}
+          </h2>
           {onNavigateWithItem ? (
             <button
               type="button"
@@ -145,14 +171,26 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
             >
               {currentSong.artist}
             </button>
-          ) : <p className="mt-1 truncate text-[17px] text-[var(--salt-primary)]">{currentSong.artist}</p>}
+          ) : (
+            <p className="mt-1 truncate text-[17px] text-[var(--salt-primary)]">{currentSong.artist}</p>
+          )}
           {/* Singles come back with the album named after the track, and
               repeating the title verbatim one line below it reads as a bug. */}
           {currentSong.album && currentSong.album !== currentSong.title && (
             <p className="mt-0.5 truncate text-[13px] text-[var(--salt-mist)]">{currentSong.album}</p>
           )}
-          <div className="mt-3"><Attribution song={currentSong} /></div>
-          {status === 'error' ? <p className="mt-2 text-xs text-[var(--danger)]" role="status">{error}</p> : <p className="mt-2 text-xs text-[var(--salt-mist)]" role="status">{status === 'loading' ? 'Loading verified audio…' : null}</p>}
+          <div className="mt-3">
+            <Attribution song={currentSong} />
+          </div>
+          {status === 'error' ? (
+            <p className="mt-2 text-xs text-[var(--danger)]" role="status">
+              {error}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-[var(--salt-mist)]" role="status">
+              {status === 'loading' ? 'Loading verified audio…' : null}
+            </p>
+          )}
         </div>
 
         <div className="w-full max-w-md px-4">
@@ -164,7 +202,9 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
             <BsShuffle size={20} />
           </PlaybackButton>
           <PlaybackButton onClick={previous} label="Previous">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" /></svg>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+            </svg>
           </PlaybackButton>
           <button
             onClick={togglePlay}
@@ -173,15 +213,24 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
             className="flex h-14 w-14 items-center justify-center rounded-full bg-[#d84f5f] text-white transition-colors hover:bg-[#bd3f4f]"
           >
             {isLoading ? (
-              <span aria-hidden className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <span
+                aria-hidden
+                className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent"
+              />
             ) : isPlaying ? (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
+              </svg>
             ) : (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5"><path d="M8 5v14l11-7z" /></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5">
+                <path d="M8 5v14l11-7z" />
+              </svg>
             )}
           </button>
           <PlaybackButton onClick={next} label="Next" disabled={!canGoNext}>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+            </svg>
           </PlaybackButton>
           <PlaybackButton
             onClick={toggleRepeat}
@@ -191,8 +240,15 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
           >
             {repeat === 'one' ? <BsRepeat1 size={20} /> : <BsRepeat size={20} />}
           </PlaybackButton>
-          <PlaybackButton onClick={() => toggleFavorite(currentSong)} label={`${isFavorite ? 'Remove' : 'Add'} ${currentSong.title} ${isFavorite ? 'from' : 'to'} favorites`} active={isFavorite} pressed={isFavorite}>
-            <span aria-hidden className="text-2xl leading-none">{isFavorite ? '♥' : '♡'}</span>
+          <PlaybackButton
+            onClick={() => toggleFavorite(currentSong)}
+            label={`${isFavorite ? 'Remove' : 'Add'} ${currentSong.title} ${isFavorite ? 'from' : 'to'} favorites`}
+            active={isFavorite}
+            pressed={isFavorite}
+          >
+            <span aria-hidden className="text-2xl leading-none">
+              {isFavorite ? '♥' : '♡'}
+            </span>
           </PlaybackButton>
         </div>
       </div>
@@ -201,39 +257,88 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
           flex child it drew an empty white column down the rest of the page. */}
       <div className="w-full shrink-0 self-start rounded-xl border border-[var(--glass-border)] bg-white px-3 py-3 lg:w-80">
         <div className="flex items-center justify-between gap-2 pb-1">
-          <div className="flex items-center gap-2 text-[13px] font-semibold text-[var(--salt-white)]"><HiQueueList className="h-4 w-4 text-[var(--salt-mist)]" /><span>Up Next ({queue.length})</span></div>
-          {queue.length > 1 && <button type="button" onClick={clearQueue} className="rounded-full px-2 py-1 text-[11px] font-semibold text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]">Clear</button>}
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-[var(--salt-white)]">
+            <HiQueueList className="h-4 w-4 text-[var(--salt-mist)]" />
+            <span>Up Next ({queue.length})</span>
+          </div>
+          {queue.length > 1 && (
+            <button
+              type="button"
+              onClick={clearQueue}
+              className="rounded-full px-2 py-1 text-[11px] font-semibold text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]"
+            >
+              Clear
+            </button>
+          )}
         </div>
         <div className="max-h-[320px] overflow-y-auto lg:max-h-[calc(100dvh-260px)]">
-          {queue.length ? queue.map((item, index) => (
-            <div
-              key={`${item.song.id}-${index}`}
-              className="flex items-center gap-1 border-b border-[var(--glass-border)] last:border-b-0"
-              style={{ background: index === queueIndex ? 'var(--glass-bg-hover)' : 'transparent' }}
-            >
-              <button
-                type="button"
-                onClick={() => playQueueIndex(index)}
-                aria-current={index === queueIndex ? 'true' : undefined}
-                className="flex h-12 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left text-[13px] transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
-                style={{ color: index === queueIndex ? 'var(--salt-primary)' : 'var(--salt-white)' }}
+          {queue.length ? (
+            queue.map((item, index) => (
+              <div
+                key={`${item.song.id}-${index}`}
+                className="flex items-center gap-1 border-b border-[var(--glass-border)] last:border-b-0"
+                style={{ background: index === queueIndex ? 'var(--glass-bg-hover)' : 'transparent' }}
               >
-                <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-[var(--salt-mist)]">{index + 1}</span>
-                <CoverArt src={item.song.coverArt} alt="" sizes="32px" className="h-8 w-8 shrink-0 rounded object-cover" />
-                <span className="min-w-0 flex-1 truncate font-medium">{item.song.title}</span>
-                <span className="shrink-0 text-[11px] tabular-nums text-[var(--salt-mist)]">{formatTime(item.song.duration)}</span>
-              </button>
-              {/* No favorite control here: at this panel's width six actions
+                <button
+                  type="button"
+                  onClick={() => playQueueIndex(index)}
+                  aria-current={index === queueIndex ? 'true' : undefined}
+                  className="flex h-12 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left text-[13px] transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+                  style={{ color: index === queueIndex ? 'var(--salt-primary)' : 'var(--salt-white)' }}
+                >
+                  <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-[var(--salt-mist)]">
+                    {index + 1}
+                  </span>
+                  <CoverArt
+                    src={item.song.coverArt}
+                    alt=""
+                    sizes="32px"
+                    className="h-8 w-8 shrink-0 rounded object-cover"
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium">{item.song.title}</span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-[var(--salt-mist)]">
+                    {formatTime(item.song.duration)}
+                  </span>
+                </button>
+                {/* No favorite control here: at this panel's width six actions
                   squeeze the title down to a few characters. The queue exists
                   to reorder and remove, and favoriting the playing track is
                   one reach away in the transport row above. */}
-              <div className="flex shrink-0 items-center">
-                <button type="button" onClick={() => reorderQueue(index, index - 1)} disabled={index === 0} aria-label={`Move ${item.song.title} earlier`} className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30">↑</button>
-                <button type="button" onClick={() => reorderQueue(index, index + 1)} disabled={index === queue.length - 1} aria-label={`Move ${item.song.title} later`} className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30">↓</button>
-                <button type="button" onClick={() => removeFromQueue(index)} aria-label={`Remove ${item.song.title} from queue`} className="h-7 w-6 rounded text-sm text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)]">×</button>
+                <div className="flex shrink-0 items-center">
+                  <button
+                    type="button"
+                    onClick={() => reorderQueue(index, index - 1)}
+                    disabled={index === 0}
+                    aria-label={`Move ${item.song.title} earlier`}
+                    className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => reorderQueue(index, index + 1)}
+                    disabled={index === queue.length - 1}
+                    aria-label={`Move ${item.song.title} later`}
+                    className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeFromQueue(index)}
+                    aria-label={`Remove ${item.song.title} from queue`}
+                    className="h-7 w-6 rounded text-sm text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)]"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
-            </div>
-          )) : <p className="px-3 py-8 text-center text-[13px] text-[var(--salt-mist)]">Your queue is empty. Choose a verified track to add it here.</p>}
+            ))
+          ) : (
+            <p className="px-3 py-8 text-center text-[13px] text-[var(--salt-mist)]">
+              Your queue is empty. Choose a verified track to add it here.
+            </p>
+          )}
         </div>
       </div>
     </div>

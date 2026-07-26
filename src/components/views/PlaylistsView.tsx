@@ -30,11 +30,7 @@ export function PlaylistsView({ onNavigateWithItem, onNavigate }: PlaylistsViewP
 
   if (openPlaylist) {
     return (
-      <PlaylistDetail
-        playlist={openPlaylist}
-        onBack={() => setOpenId(null)}
-        onNavigateWithItem={onNavigateWithItem}
-      />
+      <PlaylistDetail playlist={openPlaylist} onBack={() => setOpenId(null)} onNavigateWithItem={onNavigateWithItem} />
     );
   }
 
@@ -48,7 +44,9 @@ export function PlaylistsView({ onNavigateWithItem, onNavigate }: PlaylistsViewP
   return (
     <section className="space-y-4 pb-6">
       <div className="flex max-w-md items-center gap-2">
-        <label htmlFor="new-playlist" className="sr-only">New playlist name</label>
+        <label htmlFor="new-playlist" className="sr-only">
+          New playlist name
+        </label>
         <input
           id="new-playlist"
           value={newName}
@@ -78,7 +76,9 @@ export function PlaylistsView({ onNavigateWithItem, onNavigate }: PlaylistsViewP
           align="center"
           title="No playlists yet"
           body="Name one above, or use the ··· menu on any track to start a playlist from it."
-          actions={onNavigate ? <StatusButton onClick={() => onNavigate('trending')}>Browse trending</StatusButton> : undefined}
+          actions={
+            onNavigate ? <StatusButton onClick={() => onNavigate('trending')}>Browse trending</StatusButton> : undefined
+          }
         />
       ) : (
         <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
@@ -98,12 +98,21 @@ function PlaylistMosaic({ playlist }: { playlist: Playlist }) {
     return <span className="block h-full w-full bg-[var(--salt-ghost)]" />;
   }
   if (covers.length < 4) {
-    return <CoverArt src={covers[0].coverArt} alt="" loading="lazy" sizes="150px" className="h-full w-full object-cover" />;
+    return (
+      <CoverArt src={covers[0].coverArt} alt="" loading="lazy" sizes="150px" className="h-full w-full object-cover" />
+    );
   }
   return (
     <span className="grid h-full w-full grid-cols-2 grid-rows-2">
       {covers.map((song) => (
-        <CoverArt key={song.id} src={song.coverArt} alt="" loading="lazy" sizes="75px" className="h-full w-full object-cover" />
+        <CoverArt
+          key={song.id}
+          src={song.coverArt}
+          alt=""
+          loading="lazy"
+          sizes="75px"
+          className="h-full w-full object-cover"
+        />
       ))}
     </span>
   );
@@ -128,7 +137,10 @@ function PlaylistCard({ playlist, onOpen }: { playlist: Playlist; onOpen: () => 
               role="button"
               tabIndex={-1}
               aria-hidden
-              onClick={(event) => { event.stopPropagation(); playAlbum(ready, 0); }}
+              onClick={(event) => {
+                event.stopPropagation();
+                playAlbum(ready, 0);
+              }}
               className="absolute inset-0 flex items-center justify-center bg-black/35 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
             >
               <HiPlay className="h-7 w-7" />
@@ -163,7 +175,10 @@ function PlaylistDetail({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const ready = playableSongs(playlist.songs);
-  const totalSeconds = playlist.songs.reduce((sum, song) => sum + (Number.isFinite(song.duration) ? song.duration : 0), 0);
+  const totalSeconds = playlist.songs.reduce(
+    (sum, song) => sum + (Number.isFinite(song.duration) ? song.duration : 0),
+    0,
+  );
   const minutes = Math.round(totalSeconds / 60);
 
   const commitRename = () => {
@@ -190,20 +205,35 @@ function PlaylistDetail({
           <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[var(--salt-mist)]">Playlist</p>
           {renaming ? (
             <div className="mt-1 flex max-w-sm items-center gap-2">
-              <label htmlFor="rename-playlist" className="sr-only">Playlist name</label>
+              <label htmlFor="rename-playlist" className="sr-only">
+                Playlist name
+              </label>
               <input
                 id="rename-playlist"
                 autoFocus
                 value={draftName}
                 onChange={(event) => setDraftName(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') { event.preventDefault(); commitRename(); }
-                  if (event.key === 'Escape') { event.preventDefault(); setDraftName(playlist.name); setRenaming(false); }
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commitRename();
+                  }
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setDraftName(playlist.name);
+                    setRenaming(false);
+                  }
                 }}
                 maxLength={80}
                 className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--glass-border)] bg-white px-3 text-[15px] font-semibold text-[var(--salt-white)] outline-none focus:border-[var(--salt-primary)]"
               />
-              <button type="button" onClick={commitRename} className="h-9 shrink-0 rounded-full bg-[var(--salt-primary)] px-3 text-[13px] font-semibold text-white">Save</button>
+              <button
+                type="button"
+                onClick={commitRename}
+                className="h-9 shrink-0 rounded-full bg-[var(--salt-primary)] px-3 text-[13px] font-semibold text-white"
+              >
+                Save
+              </button>
             </div>
           ) : (
             <h2 className="mt-1 truncate text-xl font-bold text-[var(--salt-white)] sm:text-2xl">{playlist.name}</h2>
@@ -225,7 +255,12 @@ function PlaylistDetail({
             </button>
             <button
               type="button"
-              onClick={() => playAlbum([...ready].sort(() => Math.random() - 0.5), 0)}
+              onClick={() =>
+                playAlbum(
+                  [...ready].sort(() => Math.random() - 0.5),
+                  0,
+                )
+              }
               disabled={ready.length === 0}
               className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--glass-border)] px-4 text-[13px] font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] disabled:cursor-not-allowed disabled:text-[var(--salt-mist)]"
             >
@@ -235,7 +270,10 @@ function PlaylistDetail({
             {!renaming && (
               <button
                 type="button"
-                onClick={() => { setDraftName(playlist.name); setRenaming(true); }}
+                onClick={() => {
+                  setDraftName(playlist.name);
+                  setRenaming(true);
+                }}
                 className="inline-flex h-9 items-center rounded-full px-3 text-[13px] font-semibold text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)]"
               >
                 Rename
@@ -244,8 +282,19 @@ function PlaylistDetail({
             {confirmingDelete ? (
               <span className="inline-flex items-center gap-2 rounded-full bg-[#fdf5f5] px-3 py-1.5 text-[13px] text-[#77343d]">
                 Delete this playlist?
-                <button type="button" onClick={() => { deletePlaylist(playlist.id); onBack(); }} className="font-semibold underline">Delete</button>
-                <button type="button" onClick={() => setConfirmingDelete(false)} className="underline">Cancel</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    deletePlaylist(playlist.id);
+                    onBack();
+                  }}
+                  className="font-semibold underline"
+                >
+                  Delete
+                </button>
+                <button type="button" onClick={() => setConfirmingDelete(false)} className="underline">
+                  Cancel
+                </button>
               </span>
             ) : (
               <button
@@ -276,13 +325,36 @@ function PlaylistDetail({
               index={index}
               tracks={playlist.songs}
               onNavigateWithItem={onNavigateWithItem}
-              trailing={(
+              trailing={
                 <span className="flex shrink-0 items-center">
-                  <button type="button" onClick={() => reorderPlaylist(playlist.id, index, index - 1)} disabled={index === 0} aria-label={`Move ${song.title} earlier`} className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30">↑</button>
-                  <button type="button" onClick={() => reorderPlaylist(playlist.id, index, index + 1)} disabled={index === playlist.songs.length - 1} aria-label={`Move ${song.title} later`} className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30">↓</button>
-                  <button type="button" onClick={() => removeFromPlaylist(playlist.id, song.id)} aria-label={`Remove ${song.title} from ${playlist.name}`} className="h-7 w-6 rounded text-sm text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)]">×</button>
+                  <button
+                    type="button"
+                    onClick={() => reorderPlaylist(playlist.id, index, index - 1)}
+                    disabled={index === 0}
+                    aria-label={`Move ${song.title} earlier`}
+                    className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => reorderPlaylist(playlist.id, index, index + 1)}
+                    disabled={index === playlist.songs.length - 1}
+                    aria-label={`Move ${song.title} later`}
+                    className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeFromPlaylist(playlist.id, song.id)}
+                    aria-label={`Remove ${song.title} from ${playlist.name}`}
+                    className="h-7 w-6 rounded text-sm text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)]"
+                  >
+                    ×
+                  </button>
                 </span>
-              )}
+              }
             />
           ))}
         </div>

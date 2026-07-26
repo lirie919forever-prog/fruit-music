@@ -20,8 +20,9 @@ describe('providerFetch', () => {
       return Promise.reject(new DOMException('Aborted', 'AbortError'));
     });
 
-    await expect(providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks', {}, controller.signal))
-      .rejects.toMatchObject({ name: 'AbortError' });
+    await expect(
+      providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks', {}, controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' });
     expect(vi.mocked(fetch).mock.calls[0][1]).toMatchObject({ signal: expect.any(AbortSignal) });
   });
 
@@ -37,31 +38,39 @@ describe('providerFetch', () => {
     } as unknown as Response;
     vi.mocked(fetch).mockResolvedValue(response);
 
-    await expect(providerFetch(
-      'Jamendo',
-      'tracks',
-      '/api/music/jamendo/tracks',
-      {},
-      controller.signal
-    )).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(
+      providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks', {}, controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' });
   });
 
   it('keeps provider HTTP and invalid response classifications', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response('', { status: 503 }));
-    await expect(providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks')).rejects.toMatchObject({ code: 'not_configured', status: 503 });
+    await expect(providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks')).rejects.toMatchObject({
+      code: 'not_configured',
+      status: 503,
+    });
 
     vi.mocked(fetch).mockResolvedValueOnce(new Response('', { status: 504 }));
-    await expect(providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks')).rejects.toMatchObject({ code: 'timeout', status: 504 });
+    await expect(providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks')).rejects.toMatchObject({
+      code: 'timeout',
+      status: 504,
+    });
 
     vi.mocked(fetch).mockResolvedValueOnce(new Response('not-json', { status: 200 }));
-    await expect(providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks')).rejects.toMatchObject({ code: 'invalid_response', status: 200 });
+    await expect(providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks')).rejects.toMatchObject({
+      code: 'invalid_response',
+      status: 200,
+    });
   });
 
   it('converts its own deadline into a timeout ProviderError', async () => {
     vi.useFakeTimers();
-    vi.mocked(fetch).mockImplementation((_input, init) => new Promise((_resolve, reject) => {
-      init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
-    }));
+    vi.mocked(fetch).mockImplementation(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+        }),
+    );
 
     const request = providerFetch('Archive', 'tracks', '/api/music/archive/tracks');
     const result = expect(request).rejects.toMatchObject({ code: 'timeout', status: 504 });

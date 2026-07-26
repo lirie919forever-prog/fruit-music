@@ -53,13 +53,29 @@ class FakeHowl {
     for (const handler of list) handler();
   }
 
-  duration(): number { return this.durationValue; }
-  setDuration(value: number): void { this.durationValue = value; }
-  playing(): boolean { return this.playing_; }
-  play(): void { this.playCalls += 1; this.playing_ = true; this.fire('onplay'); }
-  pause(): void { this.playing_ = false; this.fire('onpause'); }
+  duration(): number {
+    return this.durationValue;
+  }
+  setDuration(value: number): void {
+    this.durationValue = value;
+  }
+  playing(): boolean {
+    return this.playing_;
+  }
+  play(): void {
+    this.playCalls += 1;
+    this.playing_ = true;
+    this.fire('onplay');
+  }
+  pause(): void {
+    this.playing_ = false;
+    this.fire('onpause');
+  }
   volume(): void {}
-  unload(): void { this.unloaded = true; this.playing_ = false; }
+  unload(): void {
+    this.unloaded = true;
+    this.playing_ = false;
+  }
 
   seek(position?: number): number {
     if (typeof position === 'number') this.seekValue = position;
@@ -115,14 +131,18 @@ let seekFn: (time: number) => void;
 // flushes effects before `render` returns, so the values are ready either way.
 function Probe() {
   const api = usePlayerStoreApi();
-  useEffect(() => { store = api; }, [api]);
+  useEffect(() => {
+    store = api;
+  }, [api]);
   return null;
 }
 
 /** Reaches the provider's own `seek`, which is what the scrubber calls. */
 function SeekProbe() {
   const { seek } = useAudio();
-  useEffect(() => { seekFn = seek; }, [seek]);
+  useEffect(() => {
+    seekFn = seek;
+  }, [seek]);
   return null;
 }
 
@@ -161,13 +181,17 @@ afterEach(() => {
 describe('load and play', () => {
   it('loads the resolved stream and starts playing once the track is ready', async () => {
     const view = mount();
-    act(() => { store.getState().playSong(song('a')); });
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
 
     const howl = await latestHowl();
     expect(howl.src).toEqual(['https://cdn.example/audio.mp3']);
     expect(store.getState().status).toBe('loading');
 
-    act(() => { howl.fire('onload'); });
+    act(() => {
+      howl.fire('onload');
+    });
 
     expect(store.getState()).toMatchObject({ duration: 100, isPlaying: true, status: 'playing' });
     view.unmount();
@@ -175,11 +199,15 @@ describe('load and play', () => {
 
   it('falls back to the catalog duration when the decoder reports none', async () => {
     const view = mount();
-    act(() => { store.getState().playSong(song('a', { duration: 42 })); });
+    act(() => {
+      store.getState().playSong(song('a', { duration: 42 }));
+    });
 
     const howl = await latestHowl();
     howl.setDuration(0);
-    act(() => { howl.fire('onload'); });
+    act(() => {
+      howl.fire('onload');
+    });
 
     expect(store.getState().duration).toBe(42);
     view.unmount();
@@ -188,15 +216,21 @@ describe('load and play', () => {
   it('refuses a track whose length neither the decoder nor the catalog knows', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = mount();
-    act(() => { store.getState().playSong(song('a', { duration: 0 })); });
+    act(() => {
+      store.getState().playSong(song('a', { duration: 0 }));
+    });
 
     // Every attempt reports a load with no duration, including the two retries
     // the ladder spends before giving up.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const howl = await latestHowl(attempt);
       howl.setDuration(0);
-      act(() => { howl.fire('onload'); });
-      await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+      act(() => {
+        howl.fire('onload');
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(700);
+      });
     }
 
     // A zero-length track cannot be scrubbed or ended, so it is a failure
@@ -214,16 +248,24 @@ describe('retry ladder', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = mount();
     FakeHowl.loadShouldFail = true;
-    act(() => { store.getState().playSong(song('a')); });
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
 
     await waitFor(() => expect(FakeHowl.instances).toHaveLength(1));
     // 300ms, then 600ms — two retries and no more.
-    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
     await waitFor(() => expect(FakeHowl.instances).toHaveLength(2));
-    await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700);
+    });
     await waitFor(() => expect(FakeHowl.instances).toHaveLength(3));
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
     expect(FakeHowl.instances).toHaveLength(3);
     expect(store.getState()).toMatchObject({
       status: 'error',
@@ -236,9 +278,13 @@ describe('retry ladder', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     streamUrl.mockRejectedValue(new Error('offline'));
     const view = mount();
-    act(() => { store.getState().playSong(song('a')); });
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
     expect(store.getState()).toMatchObject({
       status: 'error',
       error: 'The audio stream could not be resolved. Try again.',
@@ -250,18 +296,26 @@ describe('retry ladder', () => {
 describe('premature end recovery', () => {
   it('resumes from where a truncated stream stopped rather than skipping the rest', async () => {
     const view = mount();
-    act(() => { store.getState().playSong(song('a', { duration: 100 })); });
+    act(() => {
+      store.getState().playSong(song('a', { duration: 100 }));
+    });
 
     const first = await latestHowl();
-    act(() => { first.fire('onload'); });
+    act(() => {
+      first.fire('onload');
+    });
     // Stream dies a third of the way in: `onend` with the position nowhere
     // near the known length.
     first.seek(33);
-    act(() => { first.fire('onend'); });
+    act(() => {
+      first.fire('onend');
+    });
 
     expect(store.getState()).toMatchObject({ progress: 33, status: 'loading' });
     const second = await latestHowl(1);
-    act(() => { second.fire('onload'); });
+    act(() => {
+      second.fire('onload');
+    });
     // The replacement picks up at the recorded position instead of at zero.
     expect(second.seek()).toBeCloseTo(33, 0);
     view.unmount();
@@ -269,13 +323,19 @@ describe('premature end recovery', () => {
 
   it('stops trying after the recovery budget and does not advance the queue', async () => {
     const view = mount();
-    act(() => { store.getState().setQueue([song('a'), song('b')], 0); });
+    act(() => {
+      store.getState().setQueue([song('a'), song('b')], 0);
+    });
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const howl = await latestHowl(attempt);
-      act(() => { howl.fire('onload'); });
+      act(() => {
+        howl.fire('onload');
+      });
       howl.seek(10);
-      act(() => { howl.fire('onend'); });
+      act(() => {
+        howl.fire('onend');
+      });
     }
 
     await waitFor(() => expect(store.getState().status).toBe('error'));
@@ -286,12 +346,18 @@ describe('premature end recovery', () => {
 
   it('advances to the next track when the stream really did finish', async () => {
     const view = mount();
-    act(() => { store.getState().setQueue([song('a'), song('b')], 0); });
+    act(() => {
+      store.getState().setQueue([song('a'), song('b')], 0);
+    });
 
     const howl = await latestHowl();
-    act(() => { howl.fire('onload'); });
+    act(() => {
+      howl.fire('onload');
+    });
     howl.seek(100);
-    act(() => { howl.fire('onend'); });
+    act(() => {
+      howl.fire('onend');
+    });
 
     expect(store.getState().currentSong?.id).toBe('b');
     view.unmount();
@@ -302,10 +368,14 @@ describe('load timeout and auto-skip', () => {
   it('fails a load that never completes', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = mount();
-    act(() => { store.getState().playSong(song('a')); });
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
     await latestHowl();
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
 
     expect(store.getState()).toMatchObject({ status: 'error' });
     expect(store.getState().error).toContain('took too long to load');
@@ -315,13 +385,19 @@ describe('load timeout and auto-skip', () => {
   it('moves past a dead track when the queue has somewhere else to go', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = mount();
-    act(() => { store.getState().setQueue([song('a'), song('b')], 0); });
+    act(() => {
+      store.getState().setQueue([song('a'), song('b')], 0);
+    });
     await latestHowl();
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
     expect(store.getState().status).toBe('error');
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(1_600); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_600);
+    });
     expect(store.getState().currentSong?.id).toBe('b');
     view.unmount();
   });
@@ -329,10 +405,14 @@ describe('load timeout and auto-skip', () => {
   it('stays on a dead track that is the last thing in the queue', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = mount();
-    act(() => { store.getState().playSong(song('only')); });
+    act(() => {
+      store.getState().playSong(song('only'));
+    });
     await latestHowl();
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000 + 2_000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000 + 2_000);
+    });
 
     expect(store.getState()).toMatchObject({ status: 'error' });
     expect(store.getState().currentSong?.id).toBe('only');
@@ -342,16 +422,24 @@ describe('load timeout and auto-skip', () => {
   it('cancels a pending skip once the user takes over', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = mount();
-    act(() => { store.getState().setQueue([song('a'), song('b')], 0); });
+    act(() => {
+      store.getState().setQueue([song('a'), song('b')], 0);
+    });
     await latestHowl();
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
     expect(store.getState().status).toBe('error');
 
     // Pressing play moves status off 'error', which is the signal the timer
     // checks before firing.
-    act(() => { store.getState().togglePlay(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    act(() => {
+      store.getState().togglePlay();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
 
     expect(store.getState().currentSong?.id).toBe('a');
     view.unmount();
@@ -361,52 +449,81 @@ describe('load timeout and auto-skip', () => {
 describe('stale load tokens', () => {
   it('never lets a superseded load write to the store', async () => {
     const view = mount();
-    act(() => { store.getState().playSong(song('a')); });
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
     const stale = await latestHowl();
     stale.setDuration(11);
 
     // The track changes while the first Howl is still in flight.
-    act(() => { store.getState().playSong(song('b')); });
+    act(() => {
+      store.getState().playSong(song('b'));
+    });
     const fresh = await latestHowl(1);
     fresh.setDuration(22);
 
-    act(() => { stale.fire('onload'); });
+    act(() => {
+      stale.fire('onload');
+    });
     expect(store.getState().duration).not.toBe(11);
     // The abandoned instance is released rather than left holding a stream.
     expect(stale.unloaded).toBe(true);
 
-    act(() => { fresh.fire('onload'); });
+    act(() => {
+      fresh.fire('onload');
+    });
     expect(store.getState()).toMatchObject({ duration: 22, status: 'playing' });
     view.unmount();
   });
 
   it('ignores engine events from a Howl that is no longer the active one', async () => {
     const view = mount();
-    act(() => { store.getState().playSong(song('a')); });
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
     const first = await latestHowl();
-    act(() => { first.fire('onload'); });
+    act(() => {
+      first.fire('onload');
+    });
     expect(store.getState().isPlaying).toBe(true);
 
-    act(() => { store.getState().playSong(song('b')); });
+    act(() => {
+      store.getState().playSong(song('b'));
+    });
     const second = await latestHowl(1);
-    act(() => { second.fire('onload'); });
+    act(() => {
+      second.fire('onload');
+    });
 
     // The old instance reporting a pause must not stop the new track.
-    act(() => { first.fire('onpause'); });
+    act(() => {
+      first.fire('onpause');
+    });
     expect(store.getState()).toMatchObject({ currentSong: expect.objectContaining({ id: 'b' }), isPlaying: true });
     view.unmount();
   });
 
   it('drops a stream URL that resolves after the track has already moved on', async () => {
     let release: (url: string) => void = () => {};
-    streamUrl.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    streamUrl.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
     const view = mount();
 
-    act(() => { store.getState().playSong(song('a')); });
-    act(() => { store.getState().playSong(song('b')); });
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
+    act(() => {
+      store.getState().playSong(song('b'));
+    });
     const forB = await latestHowl();
 
-    act(() => { release('https://cdn.example/stale.mp3'); });
+    act(() => {
+      release('https://cdn.example/stale.mp3');
+    });
     await waitFor(() => expect(FakeHowl.instances).toHaveLength(1));
     expect(forB.src).toEqual(['https://cdn.example/audio.mp3']);
     view.unmount();
@@ -416,16 +533,22 @@ describe('stale load tokens', () => {
 describe('seeking', () => {
   it('accepts a seek on a track whose length only the catalog knows', async () => {
     const view = mount();
-    act(() => { store.getState().playSong(song('a', { duration: 240 })); });
+    act(() => {
+      store.getState().playSong(song('a', { duration: 240 }));
+    });
 
     const howl = await latestHowl();
     // The shape the fallback exists for: the decoder cannot report a length
     // while the first response is a 206, so only the catalog knows it is 4:00.
     howl.setDuration(0);
-    act(() => { howl.fire('onload'); });
+    act(() => {
+      howl.fire('onload');
+    });
     expect(store.getState().duration).toBe(240);
 
-    act(() => { seekFn(90); });
+    act(() => {
+      seekFn(90);
+    });
 
     // Bounding by the decoded duration alone made this a silent no-op: the
     // scrubber rendered a full-width 4:00 track and dragging it did nothing.
@@ -436,13 +559,19 @@ describe('seeking', () => {
 
   it('clamps a seek past the end to the length the progress bar is drawn from', async () => {
     const view = mount();
-    act(() => { store.getState().playSong(song('a', { duration: 240 })); });
+    act(() => {
+      store.getState().playSong(song('a', { duration: 240 }));
+    });
 
     const howl = await latestHowl();
     howl.setDuration(0);
-    act(() => { howl.fire('onload'); });
+    act(() => {
+      howl.fire('onload');
+    });
 
-    act(() => { seekFn(9_999); });
+    act(() => {
+      seekFn(9_999);
+    });
 
     expect(howl.seek()).toBe(240);
     view.unmount();

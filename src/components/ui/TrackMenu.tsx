@@ -76,14 +76,30 @@ export function TrackMenu({
   }, []);
 
   const actions: MenuAction[] = [
-    ...(unavailable ? [] : [
-      { key: 'next', label: 'Play next', icon: <HiChevronDoubleRight className="h-4 w-4" aria-hidden />, onSelect: () => playNext(song) },
-      { key: 'queue', label: 'Add to queue', icon: <HiPlus className="h-4 w-4" aria-hidden />, onSelect: () => addToQueue(song) },
-    ]),
+    ...(unavailable
+      ? []
+      : [
+          {
+            key: 'next',
+            label: 'Play next',
+            icon: <HiChevronDoubleRight className="h-4 w-4" aria-hidden />,
+            onSelect: () => playNext(song),
+          },
+          {
+            key: 'queue',
+            label: 'Add to queue',
+            icon: <HiPlus className="h-4 w-4" aria-hidden />,
+            onSelect: () => addToQueue(song),
+          },
+        ]),
     {
       key: 'favorite',
       label: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
-      icon: isFavorite ? <HiHeart className="h-4 w-4" aria-hidden /> : <HiOutlineHeart className="h-4 w-4" aria-hidden />,
+      icon: isFavorite ? (
+        <HiHeart className="h-4 w-4" aria-hidden />
+      ) : (
+        <HiOutlineHeart className="h-4 w-4" aria-hidden />
+      ),
       onSelect: () => toggleFavorite(song),
       checked: isFavorite,
     },
@@ -93,18 +109,38 @@ export function TrackMenu({
       icon: <HiQueueList className="h-4 w-4" aria-hidden />,
       onSelect: () => setPlaylistDialogOpen(true),
     },
-    ...(onNavigateWithItem ? [
-      { key: 'artist', label: 'Go to artist', icon: <HiUser className="h-4 w-4" aria-hidden />, onSelect: () => onNavigateWithItem('artists', { kind: 'artist', id: song.artistId }) },
-      ...(song.albumId ? [{ key: 'album', label: 'Go to album', icon: <HiSquares2X2 className="h-4 w-4" aria-hidden />, onSelect: () => onNavigateWithItem('albums', { kind: 'album', id: song.albumId }) }] : []),
-    ] : []),
-    ...(song.sourceUrl ? [{
-      key: 'source',
-      // The licence name is the point of this entry, not decoration: it is how
-      // a listener checks the terms the track is actually offered under.
-      label: `${song.provider} · ${song.licenseName || 'Provider terms'}`,
-      icon: <HiArrowTopRightOnSquare className="h-4 w-4" aria-hidden />,
-      href: song.sourceUrl,
-    }] : []),
+    ...(onNavigateWithItem
+      ? [
+          {
+            key: 'artist',
+            label: 'Go to artist',
+            icon: <HiUser className="h-4 w-4" aria-hidden />,
+            onSelect: () => onNavigateWithItem('artists', { kind: 'artist', id: song.artistId }),
+          },
+          ...(song.albumId
+            ? [
+                {
+                  key: 'album',
+                  label: 'Go to album',
+                  icon: <HiSquares2X2 className="h-4 w-4" aria-hidden />,
+                  onSelect: () => onNavigateWithItem('albums', { kind: 'album', id: song.albumId }),
+                },
+              ]
+            : []),
+        ]
+      : []),
+    ...(song.sourceUrl
+      ? [
+          {
+            key: 'source',
+            // The licence name is the point of this entry, not decoration: it is how
+            // a listener checks the terms the track is actually offered under.
+            label: `${song.provider} · ${song.licenseName || 'Provider terms'}`,
+            icon: <HiArrowTopRightOnSquare className="h-4 w-4" aria-hidden />,
+            href: song.sourceUrl,
+          },
+        ]
+      : []),
   ];
 
   // Measured after paint so the panel's real height decides whether it opens
@@ -117,9 +153,8 @@ export function TrackMenu({
     const rect = trigger.getBoundingClientRect();
     const height = panel.offsetHeight;
     const below = rect.bottom + 6;
-    const top = below + height > window.innerHeight - VIEWPORT_MARGIN
-      ? Math.max(VIEWPORT_MARGIN, rect.top - height - 6)
-      : below;
+    const top =
+      below + height > window.innerHeight - VIEWPORT_MARGIN ? Math.max(VIEWPORT_MARGIN, rect.top - height - 6) : below;
     const left = Math.min(
       Math.max(VIEWPORT_MARGIN, rect.right - MENU_WIDTH),
       window.innerWidth - MENU_WIDTH - VIEWPORT_MARGIN,
@@ -194,8 +229,14 @@ export function TrackMenu({
         aria-label={`More options for ${song.title}`}
         onClick={() => (open ? close() : openWith(0))}
         onKeyDown={(event) => {
-          if (event.key === 'ArrowDown') { event.preventDefault(); openWith(0); }
-          if (event.key === 'ArrowUp') { event.preventDefault(); openWith(actions.length - 1); }
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            openWith(0);
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            openWith(actions.length - 1);
+          }
         }}
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${open ? 'bg-[var(--glass-bg-hover)] text-[var(--salt-white)]' : ''} ${className}`}
       >
@@ -222,7 +263,8 @@ export function TrackMenu({
             const shared = {
               tabIndex: index === activeIndex ? 0 : -1,
               onMouseEnter: () => setActiveIndex(index),
-              className: 'flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] text-[var(--salt-white)] transition-colors hover:bg-[var(--glass-bg-hover)] focus:bg-[var(--glass-bg-hover)] focus:outline-none',
+              className:
+                'flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] text-[var(--salt-white)] transition-colors hover:bg-[var(--glass-bg-hover)] focus:bg-[var(--glass-bg-hover)] focus:outline-none',
             };
             if (action.href) {
               return (
@@ -230,7 +272,9 @@ export function TrackMenu({
                   key={action.key}
                   role="menuitem"
                   {...shared}
-                  ref={(node) => { itemsRef.current[index] = node; }}
+                  ref={(node) => {
+                    itemsRef.current[index] = node;
+                  }}
                   href={action.href}
                   target="_blank"
                   rel="noreferrer"
@@ -245,13 +289,20 @@ export function TrackMenu({
               <button
                 key={action.key}
                 {...shared}
-                ref={(node) => { itemsRef.current[index] = node; }}
+                ref={(node) => {
+                  itemsRef.current[index] = node;
+                }}
                 type="button"
                 role={action.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
                 aria-checked={action.checked}
-                onClick={() => { action.onSelect?.(); close(); }}
+                onClick={() => {
+                  action.onSelect?.();
+                  close();
+                }}
               >
-                <span className={`shrink-0 ${action.checked ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'}`}>{action.icon}</span>
+                <span className={`shrink-0 ${action.checked ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'}`}>
+                  {action.icon}
+                </span>
                 <span className="min-w-0 flex-1 truncate">{action.label}</span>
               </button>
             );
