@@ -19,14 +19,17 @@ import { getViewTitle } from '@/lib/theme';
 import { PlayerStoreProvider, usePlayerStore } from '@/store/playerStore';
 import type { ViewType } from '@/types/music';
 
+/**
+ * Said once, on every chart page. These are Apple's own published charts played
+ * through Apple's own preview clips, which are thirty seconds long — a fact the
+ * page has to state up front rather than let a listener discover when the audio
+ * stops a third of the way through.
+ */
+const CHART_NOTE = 'Apple’s published chart — each track plays as a 30-second preview';
+
 async function getPopSongs(signal?: AbortSignal) {
 	const { api } = await import('@/lib/api');
-	return api.getSongsByTag('pop', 50, signal);
-}
-
-async function getJpopSongs(signal?: AbortSignal) {
-	const { api } = await import('@/lib/api');
-	return api.getSongsByTag('jpop', 50, signal);
+	return api.getChartSongs('pop', signal);
 }
 
 async function getBillboardSongs(signal?: AbortSignal) {
@@ -71,7 +74,6 @@ function renderView(
 	onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void,
 	onNavigateToView: (view: ViewType) => void,
 ) {
-	const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
 	if (currentView === 'new') return <NewView onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'albums') return <AlbumGrid onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'artists') return <ArtistGrid onNavigateWithItem={onNavigateWithItem} />;
@@ -80,12 +82,10 @@ function renderView(
 	if (currentView === 'history') return <PersonalLibraryView kind="history" onNavigateWithItem={onNavigateWithItem} onNavigate={onNavigateToView} />;
 	if (currentView === 'playlist') return <PlaylistsView onNavigateWithItem={onNavigateWithItem} onNavigate={onNavigateToView} />;
 	if (currentView === 'now-playing') return <NowPlayingView onNavigateWithItem={onNavigateWithItem} />;
-	if (currentView === 'pop') return <CategoryGrid config={{ view: 'pop', title: 'Pop', description: 'Pop tracks from Jamendo', fetchFn: getPopSongs, queryKey: ['pop'] }} onNavigateWithItem={onNavigateWithItem} />;
-	if (currentView === 'billboard') return <CategoryGrid config={{ view: 'billboard', title: 'US Top Songs', description: 'Apple US chart metadata with optional configured playback', fetchFn: getBillboardSongs, queryKey: ['chart', 'billboard'] }} onNavigateWithItem={onNavigateWithItem} />;
-	if (currentView === 'uk') return <CategoryGrid config={{ view: 'uk', title: 'UK Top Songs', description: 'Apple UK chart metadata with optional configured playback', fetchFn: getUkChartSongs, queryKey: ['chart', 'uk'] }} onNavigateWithItem={onNavigateWithItem} />;
-	if (currentView === 'jp') return <CategoryGrid config={lxEnabled
-		? { view: 'jp', title: 'Japan Top Songs', description: 'Apple Japan chart metadata with optional configured playback', fetchFn: getJpChartSongs, queryKey: ['chart', 'jp'] }
-		: { view: 'jp', title: 'J-Pop', description: 'Verified J-Pop tracks from Jamendo', fetchFn: getJpopSongs, queryKey: ['jp'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'pop') return <CategoryGrid config={{ view: 'pop', title: 'Top Songs', description: CHART_NOTE, fetchFn: getPopSongs, queryKey: ['chart', 'pop'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'billboard') return <CategoryGrid config={{ view: 'billboard', title: 'US Top Songs', description: CHART_NOTE, fetchFn: getBillboardSongs, queryKey: ['chart', 'billboard'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'uk') return <CategoryGrid config={{ view: 'uk', title: 'UK Top Songs', description: CHART_NOTE, fetchFn: getUkChartSongs, queryKey: ['chart', 'uk'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'jp') return <CategoryGrid config={{ view: 'jp', title: 'Japan Top Songs', description: CHART_NOTE, fetchFn: getJpChartSongs, queryKey: ['chart', 'jp'] }} onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'trending') return <CategoryGrid config={{ view: 'trending', title: 'Trending', description: 'Featured Jamendo tracks and ccMixter remixes', fetchFn: getTrendingSongs, queryKey: ['trending'] }} onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'remixes') return <CategoryGrid config={{ view: 'remixes', title: 'Remixes', description: 'Creative remixes from ccMixter', fetchFn: getRemixSongs, queryKey: ['remixes'] }} onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'jazz') return <CategoryGrid config={{ view: 'jazz', title: 'Jazz', description: 'Jazz tracks from ccMixter', fetchFn: getJazzSongs, queryKey: ['jazz'] }} onNavigateWithItem={onNavigateWithItem} />;

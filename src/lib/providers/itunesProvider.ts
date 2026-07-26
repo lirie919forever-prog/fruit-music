@@ -1,0 +1,273 @@
+import type { MusicProvider } from './types';
+import { providerFetch } from './errors';
+import { safeCoverArt } from '@/lib/coverArt';
+import type { Album, Artist, Song } from '@/types/music';
+
+const PROXY_BASE = '/api/music/itunes';
+
+/**
+ * Apple serves every preview as a fixed-length clip rather than the full
+ * recording. `trackTimeMillis` is the length of the song you would buy, so
+ * writing it into `Song.duration` would put "3:48" beside a row that stops at
+ * thirty seconds. The duration reported here is the duration that actually
+ * plays; the full length is not shown at all rather than shown misleadingly.
+ */
+const PREVIEW_DURATION_SECONDS = 30;
+const PREVIEW_LICENSE = '30-second preview';
+
+/** Apple's artwork URLs carry their size in the filename, so any size is one substitution away. */
+const ARTWORK_SIZE = /\/\d+x\d+bb\.(jpg|png)$/;
+
+export interface ItunesTrack {
+  wrapperType?: string;
+  kind?: string;
+  trackId?: number;
+  trackName?: string;
+  artistId?: number;
+  artistName?: string;
+  collectionId?: number;
+  collectionName?: string;
+  artworkUrl100?: string;
+  previewUrl?: string;
+  trackNumber?: number;
+  releaseDate?: string;
+  primaryGenreName?: string;
+  trackViewUrl?: string;
+  artistViewUrl?: string;
+  collectionViewUrl?: string;
+  trackCount?: number;
+  trackTimeMillis?: number;
+}
+
+function artworkAt(url: string | undefined, size: number): string {
+  if (!url) return '/placeholder-album.svg';
+  return safeCoverArt(ARTWORK_SIZE.test(url) ? url.replace(ARTWORK_SIZE, `/${size}x${size}bb.$1`) : url);
+}
+
+function releaseYear(value: string | undefined): number {
+  return value ? Number(value.slice(0, 4)) || 0 : 0;
+}
+
+/**
+ * A record is only usable if it can actually be played and identified. Apple
+ * returns collection and artist wrappers inside track responses, and a handful
+ * of songs carry no preview at all; both are dropped rather than rendered as
+ * rows that fail when clicked.
+ */
+export function isPlayableTrack(item: ItunesTrack): boolean {
+  return item.wrapperType === 'track' && item.kind === 'song' &&
+    typeof item.trackId === 'number' && Boolean(item.trackName) &&
+    typeof item.artistId === 'number' && Boolean(item.artistName) &&
+    typeof item.collectionId === 'number' && Boolean(item.previewUrl);
+}
+
+export function itunesSongId(trackId: number | string): string {
+  return `itunes-${trackId}`;
+}
+
+export function trackToSong(item: ItunesTrack, index = 0): Song {
+  const trackId = String(item.trackId);
+  return {
+    id: itunesSongId(trackId),
+    title: item.trackName!,
+    artist: item.artistName!,
+    artistId: `itunes-artist-${item.artistId}`,
+    album: item.collectionName || item.trackName!,
+    albumId: `itunes-album-${item.collectionId}`,
+    coverArt: artworkAt(item.artworkUrl100, 600),
+    duration: PREVIEW_DURATION_SECONDS,
+    track: item.trackNumber ?? index + 1,
+    year: releaseYear(item.releaseDate),
+    genre: item.primaryGenreName || '',
+    path: `${PROXY_BASE}/stream/${trackId}`,
+    bitRate: 0,
+    contentType: 'audio/mp4',
+    suffix: 'm4a',
+    size: 0,
+    provider: 'Apple Preview',
+    sourceUrl: item.trackViewUrl || '',
+    creatorUrl: item.artistViewUrl || '',
+    licenseName: PREVIEW_LICENSE,
+    licenseUrl: 'https://www.apple.com/legal/internet-services/itunes/',
+    attributionUrl: item.trackViewUrl || '',
+    metadataVerified: true,
+  };
+}
+
+function collectionToAlbum(item: ItunesTrack): Album | null {
+  if (item.wrapperType !== 'collection' || typeof item.collectionId !== 'number' || !item.collectionName) return null;
+  return {
+    id: `itunes-album-${item.collectionId}`,
+    name: item.collectionName,
+    artist: item.artistName || 'Unknown',
+    artistId: `itunes-artist-${item.artistId}`,
+    coverArt: artworkAt(item.artworkUrl100, 600),
+    songCount: item.trackCount ?? 0,
+    duration: 0,
+    year: releaseYear(item.releaseDate),
+    genre: item.primaryGenreName || '',
+  };
+}
+
+async function itunesFetch(
+  resource: 'search' | 'lookup',
+  params: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<ItunesTrack[]> {
+  const data = await providerFetch<{ results?: ItunesTrack[] }>(
+    'Apple Preview',
+    resource,
+    `${PROXY_BASE}/${resource}`,
+    params,
+    signal,
+  );
+  return Array.isArray(data?.results) ? data.results : [];
+}
+
+function songsFrom(results: ItunesTrack[]): Song[] {
+  return results.filter(isPlayableTrack).map(trackToSong);
+}
+
+/**
+ * The browse shelves need a catalog with no query behind it. Apple has no
+ * "everything" endpoint, so the seeds below stand in for one: each is a broad
+ * term that returns a different slice of the catalog, and rotating through them
+ * gives the album and artist grids real variety instead of one genre repeated.
+ */
+const BROWSE_SEEDS = ['pop', 'rock', 'hip-hop', 'jazz', 'classical', 'electronic', 'r&b', 'country'];
+
+function seedFor(offset: number): string {
+  return BROWSE_SEEDS[offset % BROWSE_SEEDS.length];
+}
+
+/** Runs several seed queries at once and keeps whatever came back, so one failed seed does not empty the shelf. */
+async function gatherSeeds<T>(
+  count: number,
+  fetchSeed: (seed: string) => Promise<T[]>,
+): Promise<T[]> {
+  const settled = await Promise.allSettled(
+    Array.from({ length: count }, (_, index) => fetchSeed(seedFor(index))),
+  );
+  return settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
+}
+
+interface ItunesProvider extends MusicProvider {
+  getSongsByIds(trackIds: string[], signal?: AbortSignal): Promise<Song[]>;
+}
+
+export const itunesProvider: ItunesProvider = {
+  async search(query: string, signal?: AbortSignal): Promise<Song[]> {
+    if (!query.trim()) return [];
+    return songsFrom(await itunesFetch('search', { term: query, entity: 'song', limit: '40' }, signal));
+  },
+
+  async getSongsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<Song[]> {
+    return songsFrom(await itunesFetch('search', { term: tag, entity: 'song', limit: String(limit) }, signal));
+  },
+
+  /**
+   * What is actually trending, not what a search for "pop" returns.
+   *
+   * This reads the chart route rather than the search endpoint because Apple
+   * publishes a real most-played feed and a keyword search does not approximate
+   * one — it returns whatever matches the word, ordered by relevance, which on
+   * a discovery shelf reads as an arbitrary sample of the catalog.
+   */
+  async getTrending(limit = 50, signal?: AbortSignal): Promise<Song[]> {
+    const data = await providerFetch<{ results?: Song[]; error?: string }>(
+      'Apple Preview',
+      'trending',
+      '/api/music/charts',
+      { chart: 'pop' },
+      signal,
+    );
+    return Array.isArray(data?.results) ? data.results.slice(0, limit) : [];
+  },
+
+  async getAlbums(signal?: AbortSignal): Promise<Album[]> {
+    const results = await gatherSeeds(4, (seed) =>
+      itunesFetch('search', { term: seed, entity: 'album', limit: '25' }, signal));
+    return results.map(collectionToAlbum).filter((album): album is Album => album !== null);
+  },
+
+  async getAlbumById(albumId: string, signal?: AbortSignal): Promise<Album | null> {
+    const id = albumId.replace('itunes-album-', '');
+    const results = await itunesFetch('lookup', { id, entity: 'song', limit: '1' }, signal);
+    return results.map(collectionToAlbum).find((album): album is Album => album !== null) ?? null;
+  },
+
+  async getAlbumSongs(albumId: string, signal?: AbortSignal): Promise<Song[]> {
+    const id = albumId.replace('itunes-album-', '');
+    const results = await itunesFetch('lookup', { id, entity: 'song', limit: '200' }, signal);
+    return songsFrom(results).sort((left, right) => left.track - right.track);
+  },
+
+  async getArtists(signal?: AbortSignal): Promise<Artist[]> {
+    // Apple's artist records carry no artwork, so an artist is built from the
+    // cover of one of their releases rather than shown as an empty tile.
+    const results = await gatherSeeds(4, (seed) =>
+      itunesFetch('search', { term: seed, entity: 'album', limit: '25' }, signal));
+    const byArtist = new Map<string, Artist>();
+    for (const item of results) {
+      if (typeof item.artistId !== 'number' || !item.artistName) continue;
+      const id = `itunes-artist-${item.artistId}`;
+      const existing = byArtist.get(id);
+      if (existing) existing.albumCount += 1;
+      else byArtist.set(id, { id, name: item.artistName, coverArt: artworkAt(item.artworkUrl100, 600), albumCount: 1 });
+    }
+    return [...byArtist.values()];
+  },
+
+  async getArtistById(artistId: string, signal?: AbortSignal): Promise<Artist | null> {
+    const id = artistId.replace('itunes-artist-', '');
+    const results = await itunesFetch('lookup', { id, entity: 'song', limit: '25' }, signal);
+    const artist = results.find((item) => item.wrapperType === 'artist' && Boolean(item.artistName));
+    if (!artist) return null;
+    const cover = results.find(isPlayableTrack)?.artworkUrl100;
+    return {
+      id: artistId,
+      name: artist.artistName!,
+      coverArt: artworkAt(cover, 600),
+      albumCount: new Set(results.filter(isPlayableTrack).map((item) => item.collectionId)).size,
+    };
+  },
+
+  async getArtistSongs(artistId: string, signal?: AbortSignal): Promise<Song[]> {
+    const id = artistId.replace('itunes-artist-', '');
+    return songsFrom(await itunesFetch('lookup', { id, entity: 'song', limit: '50' }, signal));
+  },
+
+  async getSongById(songId: string, signal?: AbortSignal): Promise<Song | null> {
+    const id = songId.replace('itunes-', '');
+    const results = await itunesFetch('lookup', { id, entity: 'song', limit: '1' }, signal);
+    const track = results.find((item) => isPlayableTrack(item) && String(item.trackId) === id);
+    return track ? trackToSong(track) : null;
+  },
+
+  /**
+   * Resolves many track ids in one request. The chart feeds hand back Apple
+   * track ids, so a whole chart becomes a single lookup instead of one
+   * fuzzy-matched search per entry.
+   */
+  async getSongsByIds(trackIds: string[], signal?: AbortSignal): Promise<Song[]> {
+    if (!trackIds.length) return [];
+    const chunks: string[][] = [];
+    for (let index = 0; index < trackIds.length; index += 50) {
+      chunks.push(trackIds.slice(index, index + 50));
+    }
+    const settled = await Promise.allSettled(chunks.map((chunk) =>
+      itunesFetch('lookup', { id: chunk.join(','), entity: 'song', limit: '200' }, signal)));
+    const byId = new Map<string, Song>();
+    for (const result of settled) {
+      if (result.status !== 'fulfilled') continue;
+      for (const song of songsFrom(result.value)) byId.set(song.id, song);
+    }
+    // Chart order is the point of a chart, so results are re-sorted back into
+    // the order the ids arrived in rather than the order Apple returned them.
+    return trackIds.map((trackId) => byId.get(itunesSongId(trackId))).filter((song): song is Song => song !== undefined);
+  },
+
+  async getStreamUrl(song: Song): Promise<string> {
+    return song.path;
+  },
+};

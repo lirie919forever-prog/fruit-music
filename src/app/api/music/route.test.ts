@@ -654,4 +654,57 @@ describe('music media proxy', () => {
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({ error: 'Archive upstream error' });
   });
+
+  it('resolves an Apple preview from the lookup response rather than trusting a supplied URL', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({
+        results: [{ trackId: 101, previewUrl: 'https://audio-ssl.itunes.apple.com/preview.m4a' }],
+      }))
+      .mockResolvedValueOnce(new Response('audio', { status: 200, headers: { 'content-type': 'audio/mp4' } }));
+
+    const response = await GET(request('itunes/stream/101'), context(['itunes', 'stream', '101']));
+
+    expect(response.status).toBe(200);
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe('https://audio-ssl.itunes.apple.com/preview.m4a');
+  });
+
+  it('refuses an Apple preview served from an unapproved host', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      results: [{ trackId: 101, previewUrl: 'https://attacker.example/preview.m4a' }],
+    }));
+
+    const response = await GET(request('itunes/stream/101'), context(['itunes', 'stream', '101']));
+
+    expect(response.status).toBe(404);
+    // The lookup happened; the media fetch never did.
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an unsupported Apple entity and an oversized id list before fetching', async () => {
+    const badEntity = await GET(
+      request('itunes/search?term=jazz&entity=tvEpisode'),
+      context(['itunes', 'search']),
+    );
+    const tooManyIds = await GET(
+      request(`itunes/lookup?id=${Array.from({ length: 51 }, (_, index) => index + 1).join(',')}`),
+      context(['itunes', 'lookup']),
+    );
+
+    expect(badEntity.status).toBe(400);
+    expect(tooManyIds.status).toBe(400);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it('pins the Apple request to music and rejects a term the caller left empty', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ results: [] }));
+
+    const empty = await GET(request('itunes/search?term=%20'), context(['itunes', 'search']));
+    expect(empty.status).toBe(400);
+
+    await GET(request('itunes/search?term=jazz&media=movie'), context(['itunes', 'search']));
+
+    const url = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(url.searchParams.get('media')).toBe('music');
+    expect(url.searchParams.get('country')).toBe('us');
+  });
 });

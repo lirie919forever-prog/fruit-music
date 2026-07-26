@@ -18,9 +18,9 @@ const itemPattern = /^(album|artist|track):([a-z0-9][a-z0-9._~%\-]{0,127})$/i;
 
 function isProviderItemId(kind: NavigationItem['kind'], id: string): boolean {
   const prefixes = {
-    album: ['jamendo-', 'ccmixter-', 'archive-', 'lxmusic-'],
-    artist: ['jamendo-artist-', 'ccmixter-artist-', 'archive-artist-', 'lxmusic-artist-'],
-    track: ['jamendo-', 'ccmixter-', 'archive-', 'lxmusic-'],
+    album: ['jamendo-', 'ccmixter-', 'archive-', 'lxmusic-', 'itunes-'],
+    artist: ['jamendo-artist-', 'ccmixter-artist-', 'archive-artist-', 'lxmusic-artist-', 'itunes-artist-'],
+    track: ['jamendo-', 'ccmixter-', 'archive-', 'lxmusic-', 'itunes-'],
   }[kind];
   return prefixes.some((prefix) => id.toLowerCase().startsWith(prefix));
 }

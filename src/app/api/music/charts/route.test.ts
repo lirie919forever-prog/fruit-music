@@ -1,109 +1,126 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-beforeEach(() => {
-  vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'true');
-});
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
-describe('chart availability', () => {
-  it('does not contact upstream services when LX Music is disabled', async () => {
-    vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'false');
-    vi.stubEnv('LX_API_BASE', 'https://resolver.example.test');
-    vi.resetModules();
-    vi.stubGlobal('fetch', vi.fn());
+function feedEntry(id: string) {
+  return { id, name: `Track ${id}`, artistName: 'Artist' };
+}
 
-    const { GET } = await import('./route');
-    const response = await GET(new Request('https://marea.test/api/music/charts?chart=jp'));
+function lookupTrack(trackId: number, overrides: Record<string, unknown> = {}) {
+  return {
+    wrapperType: 'track',
+    kind: 'song',
+    trackId,
+    trackName: `Track ${trackId}`,
+    artistId: 9,
+    artistName: 'Artist',
+    collectionId: 5,
+    collectionName: 'Album',
+    previewUrl: `https://audio-ssl.itunes.apple.com/${trackId}.m4a`,
+    artworkUrl100: 'https://is1-ssl.mzstatic.com/image/thumb/a/100x100bb.jpg',
+    ...overrides,
+  };
+}
 
-    expect(response.status).toBe(503);
-    expect(fetch).not.toHaveBeenCalled();
+function routeFetch(feed: unknown, lookup: unknown) {
+  return vi.fn(async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('rss.marketingtools.apple.com')) return Response.json(feed);
+    if (url.includes('itunes.apple.com/lookup')) return Response.json(lookup);
+    throw new Error(`unexpected request: ${url}`);
   });
+}
 
-  it('rejects a same-title result from the wrong artist instead of fabricating a chart track', async () => {
-    vi.resetModules();
-    vi.stubEnv('LX_API_BASE', 'https://resolver.example.test');
-    vi.stubEnv('LX_RESOLVER_BASE', '');
-    vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(Response.json({ feed: { results: [{ id: 'apple-1', name: "It's Me", artistName: 'ILLIT' }] } }))
-      .mockResolvedValueOnce(Response.json({ data: [{ id: 'wrong', song: "It's Me", singer: '瑄瑄' }] })));
-
-    const { GET } = await import('./route');
-    const response = await GET(new Request('https://marea.test/api/music/charts?chart=jp'));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ unavailable: true });
-  });
-
-  it('keeps matched chart metadata visible when the optional playback resolver is unavailable', async () => {
-    vi.resetModules();
-    vi.stubEnv('LX_API_BASE', 'https://resolver.example.test');
-    vi.stubEnv('LX_RESOLVER_BASE', '');
-    vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(Response.json({ feed: { results: [{ id: 'apple-1', name: 'Brand New', artistName: 'Mrs. GREEN APPLE', artworkUrl100: 'https://is1-ssl.mzstatic.com/image.jpg' }] } }))
-      .mockResolvedValueOnce(Response.json({ data: [{ id: '123', song: 'Brand New', singer: 'Mrs. GREEN APPLE', album: 'Brand New' }] }))
-      .mockResolvedValueOnce(Response.json({ code: 1, msg: 'unavailable' })));
-
-    const { GET } = await import('./route');
-    const response = await GET(new Request('https://marea.test/api/music/charts?chart=jp'));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      name: 'J-Pop',
-      results: [{ title: 'Brand New', artist: 'Mrs. GREEN APPLE', playbackUnavailable: true }],
-    });
-  });
-
-  it('uses the Apple US chart identity rather than calling it Billboard', async () => {
-    vi.resetModules();
-    vi.stubEnv('LX_API_BASE', 'https://resolver.example.test');
-    vi.stubEnv('LX_RESOLVER_BASE', '');
-    vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(Response.json({ feed: { results: [{ id: 'apple-1', name: 'Track', artistName: 'Artist' }] } }))
-      .mockResolvedValueOnce(Response.json({ data: [{ id: '123', song: 'Track', singer: 'Artist' }] }))
-      .mockResolvedValueOnce(Response.json({ url: 'https://resolver.example.test/media/123.mp3' })));
+describe('chart pages', () => {
+  it('resolves a chart entry to a playable Apple preview', async () => {
+    vi.stubGlobal('fetch', routeFetch(
+      { feed: { results: [feedEntry('101')] } },
+      { results: [lookupTrack(101)] },
+    ));
 
     const { GET } = await import('./route');
     const response = await GET(new Request('https://marea.test/api/music/charts?chart=billboard'));
+
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ name: 'Apple US Top Songs' });
+    expect(await response.json()).toMatchObject({
+      name: 'Apple US Top Songs',
+      results: [{
+        id: 'itunes-101',
+        title: 'Track 101',
+        artist: 'Artist',
+        provider: 'Apple Preview',
+        path: '/api/music/itunes/stream/101',
+        licenseName: '30-second preview',
+      }],
+    });
   });
 
-  it('bounds concurrent chart enrichment requests', async () => {
-    vi.resetModules();
-    vi.stubEnv('LX_API_BASE', 'https://resolver.example.test');
-    vi.stubEnv('LX_RESOLVER_BASE', '');
-    const feedResults = Array.from({ length: 12 }, (_, index) => ({
-      id: `apple-${index}`,
-      name: 'Track',
-      artistName: 'Artist',
-    }));
-    let active = 0;
-    let maxActive = 0;
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
-      if (url.includes('rss.applemarketingtools.com')) {
-        return Response.json({ feed: { results: feedResults } });
-      }
+  it('preserves chart position when the lookup returns another order', async () => {
+    vi.stubGlobal('fetch', routeFetch(
+      { feed: { results: [feedEntry('1'), feedEntry('2'), feedEntry('3')] } },
+      { results: [lookupTrack(3), lookupTrack(1), lookupTrack(2)] },
+    ));
 
-      active++;
-      maxActive = Math.max(maxActive, active);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      active--;
-      if (url.includes('api.vkeys.cn')) {
-        return Response.json({ data: [{ id: '123', song: 'Track', singer: 'Artist' }] });
+    const { GET } = await import('./route');
+    const response = await GET(new Request('https://marea.test/api/music/charts?chart=uk'));
+    const body = await response.json() as { results: Array<{ id: string }> };
+
+    expect(body.results.map((song) => song.id)).toEqual(['itunes-1', 'itunes-2', 'itunes-3']);
+  });
+
+  it('omits an entry with no preview rather than listing something unplayable', async () => {
+    vi.stubGlobal('fetch', routeFetch(
+      { feed: { results: [feedEntry('1'), feedEntry('2')] } },
+      { results: [lookupTrack(1, { previewUrl: undefined }), lookupTrack(2)] },
+    ));
+
+    const { GET } = await import('./route');
+    const response = await GET(new Request('https://marea.test/api/music/charts?chart=jp'));
+    const body = await response.json() as { results: Array<{ id: string; playbackUnavailable?: boolean }> };
+
+    expect(body.results.map((song) => song.id)).toEqual(['itunes-2']);
+    expect(body.results.some((song) => song.playbackUnavailable)).toBe(false);
+  });
+
+  it('ignores a feed id that is not an Apple track id', async () => {
+    const fetchMock = routeFetch(
+      { feed: { results: [{ id: 'apple-1', name: 'Track' }] } },
+      { results: [] },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { GET } = await import('./route');
+    const response = await GET(new Request('https://marea.test/api/music/charts?chart=billboard'));
+
+    expect(response.status).toBe(502);
+    // Only the feed is fetched: with no usable ids there is nothing to look up.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an unknown chart', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    const { GET } = await import('./route');
+    const response = await GET(new Request('https://marea.test/api/music/charts?chart=mars'));
+
+    expect(response.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports the chart as unavailable rather than throwing when the lookup fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes('rss.marketingtools.apple.com')) {
+        return Response.json({ feed: { results: [feedEntry('101')] } });
       }
-      return Response.json({ url: 'https://resolver.example.test/media/123.mp3' });
+      return new Response('nope', { status: 500 });
     }));
 
     const { GET } = await import('./route');
     const response = await GET(new Request('https://marea.test/api/music/charts?chart=jp'));
-    const body = await response.json() as { results: unknown[] };
 
     expect(response.status).toBe(200);
-    expect(body.results).toHaveLength(12);
-    expect(maxActive).toBeLessThanOrEqual(5);
+    expect(await response.json()).toMatchObject({ unavailable: true });
   });
 });

@@ -33,6 +33,20 @@ describe('navigation parsing', () => {
     expect(parseNavigation('?view=now-playing&item=track%3A%2Fbad').item).toBeNull();
     expect(parseNavigation('?view=now-playing&item=track%3Aother-123').item).toBeNull();
   });
+
+  // A shared link to an Apple album or artist is only as good as this list: an
+  // id whose prefix is missing here parses to null, and the page silently
+  // reopens the grid instead of the record the link named.
+  it('parses the Apple catalog identities the deep links now produce', () => {
+    expect(parseNavigation('?view=albums&item=album%3Aitunes-album-1161503945').item)
+      .toEqual({ kind: 'album', id: 'itunes-album-1161503945' });
+    expect(parseNavigation('?view=artists&item=artist%3Aitunes-artist-479756766').item)
+      .toEqual({ kind: 'artist', id: 'itunes-artist-479756766' });
+    expect(parseNavigation('?view=now-playing&item=track%3Aitunes-1440872304').item)
+      .toEqual({ kind: 'track', id: 'itunes-1440872304' });
+    // An album id is not an artist id, and the artist route must not accept one.
+    expect(parseNavigation('?view=artists&item=artist%3Aitunes-album-1161503945').item).toBeNull();
+  });
 });
 
 describe('navigation URL updates', () => {

@@ -7,6 +7,9 @@ export type RouteBucket =
   | 'ccmixter:stream'
   | 'archive:tracks'
   | 'archive:stream'
+  | 'itunes:search'
+  | 'itunes:lookup'
+  | 'itunes:stream'
   | 'invalid';
 
 const validBuckets = new Set<RouteBucket>([
@@ -18,6 +21,9 @@ const validBuckets = new Set<RouteBucket>([
   'ccmixter:stream',
   'archive:tracks',
   'archive:stream',
+  'itunes:search',
+  'itunes:lookup',
+  'itunes:stream',
 ]);
 
 export function classifyRoute(provider: string | undefined, resource: string | undefined): { bucket: RouteBucket; isStream: boolean } {

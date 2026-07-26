@@ -370,7 +370,7 @@ function ChartPreview({ options, onNavigateWithItem }: { options: ChartOption[];
   );
 }
 
-function ExploreGrid({ lxEnabled }: { lxEnabled: boolean }) {
+function ExploreGrid() {
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
   const navigate = (view: ViewType) => {
     navigateTo(view);
@@ -382,7 +382,7 @@ function ExploreGrid({ lxEnabled }: { lxEnabled: boolean }) {
     { view: 'search', icon: <HiMagnifyingGlass />, label: 'Search' },
     { view: 'favorites', icon: <HiHeart />, label: 'Favorites' },
     { view: 'history', icon: <HiClock />, label: 'History' },
-    ...(lxEnabled ? [{ view: 'billboard' as const, icon: <HiChartBar />, label: 'Charts' }] : []),
+    { view: 'billboard', icon: <HiChartBar />, label: 'Charts' },
   ];
 
   return (
@@ -402,14 +402,13 @@ function ExploreGrid({ lxEnabled }: { lxEnabled: boolean }) {
   );
 }
 
-function useChart(key: string[], chart: ChartKey, enabled: boolean) {
+function useChart(key: string[], chart: ChartKey) {
   return useQuery({
     queryKey: key,
     queryFn: async ({ signal }): Promise<Song[]> => {
       const { api } = await import('@/lib/api');
       return api.getChartSongs(chart, signal);
     },
-    enabled,
     staleTime: catalogStaleTime(countListResults),
     retry: 1,
   });
@@ -461,16 +460,15 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
   const history = usePlayerStore((state) => state.history);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
-  const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
 
   const trending = useTrending();
   const pop = useJamendo(['new', 'featured'], 'pop');
   const jazz = useCCMixter(['new', 'jazz'], 'jazz');
   const remix = useCCMixter(['new', 'remix'], 'remix');
   const classical = useJamendo(['new', 'classical'], 'classical');
-  const billboard = useChart(['new', 'billboard'], 'billboard', lxEnabled);
-  const uk = useChart(['new', 'uk'], 'uk', lxEnabled);
-  const jp = useChart(['new', 'jp'], 'jp', lxEnabled);
+  const billboard = useChart(['new', 'billboard'], 'billboard');
+  const uk = useChart(['new', 'uk'], 'uk');
+  const jp = useChart(['new', 'jp'], 'jp');
 
   const verifiedMix = interleaveSongGroups([
     pop.data,
@@ -513,12 +511,10 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
   collectUnavailable(trending.data, issues);
   collectUnavailable(jazz.data, issues);
   collectUnavailable(remix.data, issues);
-  if (lxEnabled && (billboard.isError || uk.isError || jp.isError)) issues.add('LX Music');
+  if (billboard.isError || uk.isError || jp.isError) issues.add('Apple Preview');
   const unavailableSources = [...issues];
 
-  const relevantQueries = lxEnabled
-    ? [trending, pop, jazz, remix, classical, billboard, uk, jp]
-    : [trending, pop, jazz, remix, classical];
+  const relevantQueries = [trending, pop, jazz, remix, classical, billboard, uk, jp];
   const discoveryLoading = relevantQueries.some((query) => query.isPending || query.isFetching);
 
   const retrySources = () => {
@@ -604,10 +600,10 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
         </Shelf>
       )}
 
-      {lxEnabled && <ChartPreview options={chartOptions} onNavigateWithItem={onNavigateWithItem} />}
+      <ChartPreview options={chartOptions} onNavigateWithItem={onNavigateWithItem} />
 
       <Shelf title="Explore Marea">
-        <ExploreGrid lxEnabled={lxEnabled} />
+        <ExploreGrid />
       </Shelf>
     </div>
   );

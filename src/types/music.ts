@@ -17,7 +17,7 @@ export interface Artist {
   albumCount: number;
 }
 
-export type MusicProviderName = 'Jamendo' | 'ccMixter' | 'Archive' | 'LX Music';
+export type MusicProviderName = 'Jamendo' | 'ccMixter' | 'Archive' | 'LX Music' | 'Apple Preview';
 
 export interface Song {
   id: string;

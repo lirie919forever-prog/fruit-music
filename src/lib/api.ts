@@ -5,6 +5,7 @@ import {
   getMusicProviderForAlbumId,
   getMusicProviderForArtistId,
   getMusicProviderForSongId,
+  itunesProvider,
   jamendoProvider,
   lxmusicProvider,
 } from '@/lib/providers';
@@ -32,6 +33,9 @@ export interface FederatedResult<T> {
 }
 
 export type FederatedSearchResult = FederatedResult<Song>;
+
+/** The chart pages the server can build. Kept in sync with `CHARTS` in the charts route. */
+export type ChartKey = 'billboard' | 'uk' | 'jp' | 'pop';
 
 type CatalogProvider<T> = {
   name: string;
@@ -63,7 +67,12 @@ async function federateCatalog<T extends { id: string }>(
 }
 
 export async function searchFederated(query: string, signal?: AbortSignal): Promise<FederatedSearchResult> {
+  // Apple leads the list because it is the only source here that can answer a
+  // search for a mainstream release. The Creative Commons providers still run —
+  // they carry the full-length recordings Apple only previews — but a query for
+  // a song everybody knows used to return nothing at all.
   const providers: Array<CatalogProvider<Song>> = [
+    { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.search(query, signal) }) },
     { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.search(query, signal) }) },
     { name: 'ccMixter', get: () => ccmixterProvider.searchWithStatus(query, signal) },
     { name: 'Archive', get: async () => ({ results: await archiveProvider.search(query, signal) }) },
@@ -82,6 +91,7 @@ export function isServerConfigured(): boolean {
 export const api = {
   async getAlbums(signal?: AbortSignal): Promise<FederatedResult<Album>> {
     const providers: Array<CatalogProvider<Album>> = [
+      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.getAlbums(signal) }) },
       { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getAlbums(signal) }) },
       { name: 'ccMixter', get: () => ccmixterProvider.getAlbumsWithStatus(signal) },
     ];
@@ -90,6 +100,7 @@ export const api = {
 
   async getArtists(signal?: AbortSignal): Promise<FederatedResult<Artist>> {
     const providers: Array<CatalogProvider<Artist>> = [
+      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.getArtists(signal) }) },
       { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getArtists(signal) }) },
       { name: 'ccMixter', get: () => ccmixterProvider.getArtistsWithStatus(signal) },
     ];
@@ -146,25 +157,26 @@ export const api = {
 
   async getTrending(limit = 50, signal?: AbortSignal): Promise<FederatedResult<Song>> {
     const providers: Array<CatalogProvider<Song>> = [
+      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.getTrending(limit, signal) }) },
       { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getTrending(limit, signal) }) },
       { name: 'ccMixter', get: () => ccmixterProvider.getTrendingWithStatus(limit, signal) },
     ];
     return federateCatalog(providers, signal);
   },
 
-  async getChartSongs(chart: 'billboard' | 'uk' | 'jp', signal?: AbortSignal): Promise<Song[]> {
+  async getChartSongs(chart: ChartKey, signal?: AbortSignal): Promise<Song[]> {
     const data = await providerFetch<{ results?: Song[]; error?: string; unavailable?: boolean }>(
-      'LX Music',
+      'Apple Preview',
       'chart',
       '/api/music/charts',
       { chart },
       signal,
     );
     if (data.error) {
-      throw new ProviderError('LX Music', 'chart', data.unavailable ? 'not_configured' : 'upstream', data.unavailable ? 503 : 502, data.error);
+      throw new ProviderError('Apple Preview', 'chart', 'upstream', 502, data.error);
     }
     if (!Array.isArray(data.results)) {
-      throw new ProviderError('LX Music', 'chart', 'invalid_response');
+      throw new ProviderError('Apple Preview', 'chart', 'invalid_response');
     }
     return data.results;
   },

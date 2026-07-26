@@ -49,11 +49,9 @@ export const navigationSections: Array<{ title: string; items: NavItem[] }> = [
   ] },
   { title: 'Discover', items: [
     { view: 'new', label: 'New', icon: <IconSparkles /> },
-    ...(process.env.NEXT_PUBLIC_LX_ENABLED === 'true' ? [
-      { view: 'billboard' as const, label: 'US Charts', icon: <IconTrending /> },
-      { view: 'uk' as const, label: 'UK Charts', icon: <IconTrending /> },
-    ] : []),
-    { view: 'jp', label: 'J-Pop', icon: <IconJpop /> },
+    { view: 'billboard', label: 'US Charts', icon: <IconTrending /> },
+    { view: 'uk', label: 'UK Charts', icon: <IconTrending /> },
+    { view: 'jp', label: 'Japan Charts', icon: <IconJpop /> },
   ] },
   { title: 'Explore', items: [
     { view: 'remixes', label: 'Remixes', icon: <TbVinyl className="h-4 w-4" /> },

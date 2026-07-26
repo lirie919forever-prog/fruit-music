@@ -3,6 +3,14 @@ import { classifyRoute } from '../routeClassification';
 import { createRateLimiter } from '../rateLimit';
 
 const JAMENDO_API = 'https://api.jamendo.com/v3.0';
+const ITUNES_API = 'https://itunes.apple.com';
+// Every preview sampled across five unrelated searches came from this single
+// host, so the allowlist is a host rather than a suffix match. A preview served
+// from anywhere else is treated as unavailable rather than proxied blind.
+const ITUNES_PREVIEW_HOST = 'audio-ssl.itunes.apple.com';
+const ITUNES_ENTITIES = new Set(['song', 'album', 'musicArtist']);
+const ITUNES_COUNTRY = /^[a-z]{2}$/;
+const ITUNES_MAX_LOOKUP_IDS = 50;
 const REQUEST_TIMEOUT_MS = 15_000;
 const NUMERIC_ID = /^[1-9]\d{0,15}$/;
 const ARCHIVE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
@@ -677,6 +685,99 @@ async function handleArchive(req: NextRequest, resource: string | undefined, res
   return NextResponse.json({ error: `Unknown archive endpoint: ${resource ?? ''}` }, { status: 400 });
 }
 
+function itunesCountry(searchParams: URLSearchParams): NextResponse | string {
+  const raw = (searchParams.get('country') || 'us').toLowerCase();
+  if (!ITUNES_COUNTRY.test(raw)) return NextResponse.json({ error: 'Invalid country' }, { status: 400 });
+  return raw;
+}
+
+function itunesEntity(searchParams: URLSearchParams): NextResponse | string {
+  const raw = searchParams.get('entity') || 'song';
+  if (!ITUNES_ENTITIES.has(raw)) return NextResponse.json({ error: 'Invalid entity' }, { status: 400 });
+  return raw;
+}
+
+/**
+ * Resolves an iTunes track id to its preview URL.
+ *
+ * The stream route takes a track id rather than a preview URL so nothing
+ * client-supplied is ever fetched: the URL is read back from Apple's own lookup
+ * response and host-checked before a byte is proxied. That costs one extra
+ * upstream request per stream, which the CDN cache absorbs.
+ */
+async function itunesPreviewUrl(req: NextRequest, trackId: string, country: string): Promise<string | null> {
+  const lookup = await upstreamFetch(req, `${ITUNES_API}/lookup?id=${trackId}&entity=song&country=${country}`);
+  if (!lookup.ok) return null;
+  const data = await lookup.json() as { results?: Array<{ trackId?: number; previewUrl?: string }> };
+  const preview = data.results?.find((item) => String(item.trackId) === trackId)?.previewUrl;
+  if (typeof preview !== 'string') return null;
+  try {
+    const url = new URL(preview);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
+    return url.hostname.toLowerCase() === ITUNES_PREVIEW_HOST ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function handleItunes(req: NextRequest, resource: string | undefined, rest: string[]): Promise<NextResponse> {
+  const searchParams = new URLSearchParams(req.nextUrl.searchParams);
+  searchParams.delete('path');
+  const country = itunesCountry(searchParams);
+  if (country instanceof NextResponse) return country;
+
+  if (resource === 'stream') {
+    const trackId = numericId(rest[0], 'track ID');
+    if (trackId instanceof NextResponse) return trackId;
+    if (rest.length !== 1) return NextResponse.json({ error: 'Invalid track ID' }, { status: 400 });
+    try {
+      const preview = await itunesPreviewUrl(req, trackId, country);
+      if (!preview) return new NextResponse('Preview unavailable', { status: 404 });
+      return proxyStream(req, preview);
+    } catch (error) {
+      return providerFailure(error, 'Apple preview fetch failed');
+    }
+  }
+
+  if (resource !== 'search' && resource !== 'lookup') {
+    return NextResponse.json({ error: `Unknown Apple endpoint: ${resource ?? ''}` }, { status: 400 });
+  }
+
+  const entity = itunesEntity(searchParams);
+  if (entity instanceof NextResponse) return entity;
+  const limit = boundedLimit(searchParams, 25, 200);
+  if (limit instanceof NextResponse) return limit;
+
+  const url = new URL(`${ITUNES_API}/${resource}`);
+  url.searchParams.set('entity', entity);
+  url.searchParams.set('limit', limit);
+  url.searchParams.set('country', country);
+  url.searchParams.set('media', 'music');
+
+  if (resource === 'search') {
+    const term = searchParams.get('term')?.trim();
+    if (!term || term.length > 200) return NextResponse.json({ error: 'Invalid term' }, { status: 400 });
+    url.searchParams.set('term', term);
+  } else {
+    const ids = (searchParams.get('id') || '').split(',').map((value) => value.trim());
+    if (ids.length > ITUNES_MAX_LOOKUP_IDS || !ids.every((value) => NUMERIC_ID.test(value))) {
+      return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+    }
+    url.searchParams.set('id', ids.join(','));
+  }
+
+  try {
+    const upstream = await upstreamFetch(req, url.toString());
+    if (!upstream.ok) {
+      return NextResponse.json({ error: 'Apple upstream error' }, { status: upstream.status });
+    }
+    const data = await upstream.json() as { results?: unknown[] };
+    return catalogResponse({ results: Array.isArray(data.results) ? data.results : [] });
+  } catch (error) {
+    return providerFailure(error, 'Apple fetch failed');
+  }
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
@@ -691,6 +792,7 @@ export async function GET(
     case 'jamendo': return handleJamendo(req, resource, rest);
     case 'ccmixter': return handleCCMixter(req, resource, rest);
     case 'archive': return handleArchive(req, resource, rest);
+    case 'itunes': return handleItunes(req, resource, rest);
     default: return NextResponse.json({ error: `Unknown provider: ${provider ?? ''}` }, { status: 400 });
   }
 }

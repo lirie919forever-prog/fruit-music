@@ -6,6 +6,7 @@ import {
   getMusicProviderForAlbumId,
   getMusicProviderForArtistId,
   getMusicProviderForSongId,
+  itunesProvider,
   jamendoProvider,
 } from '@/lib/providers';
 import { api, searchFederated } from './api';
@@ -48,6 +49,12 @@ function artist(id: string): Artist {
 
 beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'false');
+  // Apple joins every federated call, so each test stubs it to silence rather
+  // than reach the network; the tests that care about it override these.
+  vi.spyOn(itunesProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(itunesProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(itunesProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(itunesProvider, 'getTrending').mockResolvedValue([]);
   vi.spyOn(jamendoProvider, 'search');
   vi.spyOn(ccmixterProvider, 'searchWithStatus');
   vi.spyOn(archiveProvider, 'search');
@@ -70,7 +77,7 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
     expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(3);
+    expect(state.providerCount).toBe(4);
   });
 
   it('distinguishes true empty results from total provider failure', async () => {
@@ -90,7 +97,7 @@ describe('provider federation', () => {
     await expect(searchFederated('missing')).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter', 'Archive'],
-      providerCount: 3,
+      providerCount: 4,
     });
   });
 
@@ -106,7 +113,7 @@ describe('provider federation', () => {
       results: [song('ccmixter-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 3,
+      providerCount: 4,
     });
   });
 
@@ -119,7 +126,7 @@ describe('provider federation', () => {
     await expect(api.getArtists()).resolves.toEqual({
       results: [artist('ccmixter-artist-user')],
       failedProviders: ['Jamendo'],
-      providerCount: 2,
+      providerCount: 3,
     });
   });
 
@@ -131,7 +138,7 @@ describe('provider federation', () => {
       results: [artist('jamendo-artist-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 2,
+      providerCount: 3,
     });
   });
 
@@ -142,7 +149,7 @@ describe('provider federation', () => {
     await expect(api.getTrending()).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter'],
-      providerCount: 2,
+      providerCount: 3,
     });
   });
 
@@ -154,7 +161,7 @@ describe('provider federation', () => {
       results: [song('jamendo-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 2,
+      providerCount: 3,
     });
   });
 
@@ -225,7 +232,7 @@ describe('album federation', () => {
       results: [availableAlbum],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 2,
+      providerCount: 3,
     });
   });
 
@@ -236,7 +243,7 @@ describe('album federation', () => {
     await expect(api.getAlbums()).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter'],
-      providerCount: 2,
+      providerCount: 3,
     });
   });
 
@@ -294,10 +301,13 @@ describe('album federation', () => {
     expect(getMusicProviderForSongId('jamendo-1')).toBe(jamendoProvider);
     expect(getMusicProviderForSongId('ccmixter-1')).toBe(ccmixterProvider);
     expect(getMusicProviderForSongId('archive-item')).toBe(archiveProvider);
+    expect(getMusicProviderForSongId('itunes-1440872304')).toBe(itunesProvider);
     expect(getMusicProviderForAlbumId('ccmixter-album-user')).toBe(ccmixterProvider);
     expect(getMusicProviderForAlbumId('archive-album-item')).toBe(archiveProvider);
+    expect(getMusicProviderForAlbumId('itunes-album-1440871397')).toBe(itunesProvider);
     expect(getMusicProviderForArtistId('ccmixter-artist-user')).toBe(ccmixterProvider);
     expect(getMusicProviderForArtistId('archive-artist-user')).toBe(archiveProvider);
+    expect(getMusicProviderForArtistId('itunes-artist-479756766')).toBe(itunesProvider);
 
     await expect(api.getStreamUrl(song('jamendo-7'))).resolves.toBe('/api/music/jamendo/stream/7');
     await expect(api.getStreamUrl(song('ccmixter-8'))).resolves.toBe('/api/music/ccmixter/stream/8');
