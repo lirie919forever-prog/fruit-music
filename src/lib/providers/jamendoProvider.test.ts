@@ -48,41 +48,31 @@ describe('Jamendo provider', () => {
     });
   });
 
-  it('accumulates album duration while deriving albums', async () => {
+  it('maps album summaries from the Jamendo albums endpoint', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [
-        {
-          id: '42',
-          name: 'One',
-          artist_name: 'Artist',
-          artist_id: '7',
-          album_name: 'Album',
-          album_id: '9',
-          duration: 62,
-          audio: 'https://example.com/one.mp3',
-          license_ccurl: 'https://creativecommons.org/licenses/by/4.0/',
-          shareurl: 'https://www.jamendo.com/track/42',
-        },
-        {
-          id: '43',
-          name: 'Two',
-          artist_name: 'Artist',
-          artist_id: '7',
-          album_name: 'Album',
-          album_id: '9',
-          duration: 38,
-          audio: 'https://example.com/two.mp3',
-          license_ccurl: 'https://creativecommons.org/licenses/by/4.0/',
-          shareurl: 'https://www.jamendo.com/track/43',
-        },
-      ],
+      results: [{
+        id: '9',
+        name: 'Album',
+        artist_id: '7',
+        artist_name: 'Artist',
+        image: 'https://example.com/album.jpg',
+        releasedate: '2025-06-01',
+      }],
     }));
 
-    await expect(jamendoProvider.getAlbums()).resolves.toMatchObject([
-      { id: 'jamendo-9', songCount: 2, duration: 100 },
-    ]);
+    await expect(jamendoProvider.getAlbums()).resolves.toEqual([{
+      id: 'jamendo-9',
+      name: 'Album',
+      artist: 'Artist',
+      artistId: 'jamendo-artist-7',
+      coverArt: 'https://example.com/album.jpg',
+      songCount: 0,
+      duration: 0,
+      year: 2025,
+      genre: '',
+    }]);
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain('/api/music/jamendo/albums');
   });
-
   it('drops unresolved records instead of inventing playable metadata', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ results: [{ id: '42' }] }));
 

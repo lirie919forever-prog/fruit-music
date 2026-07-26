@@ -42,3 +42,8 @@ next-env.d.ts
 
 .vercel
 .env*
+!.env.example
+
+# local browser-automation output
+/screenshots/
+/.playwright-mcp/

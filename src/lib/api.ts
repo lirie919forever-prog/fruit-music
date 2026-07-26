@@ -6,7 +6,10 @@ import {
   getMusicProviderForArtistId,
   getMusicProviderForSongId,
   jamendoProvider,
+  lxmusicProvider,
 } from '@/lib/providers';
+import type { ProviderCatalogResult } from '@/lib/providers/types';
+import { ProviderError, providerFetch } from '@/lib/providers/errors';
 
 function dedupeEntities<T extends { id: string }>(entities: T[]): T[] {
   const seen = new Set<string>();
@@ -21,36 +24,55 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError');
 }
 
-function dedupeSongs(songs: Song[]): Song[] {
-  return dedupeEntities(songs);
-}
-
 export interface FederatedResult<T> {
   results: T[];
   failedProviders: string[];
+  degradedProviders?: string[];
   providerCount: number;
 }
 
 export type FederatedSearchResult = FederatedResult<Song>;
 
-export async function searchFederated(query: string, signal?: AbortSignal): Promise<FederatedSearchResult> {
-  const providers = [
-    { name: 'Jamendo', search: () => jamendoProvider.search(query, signal) },
-    { name: 'ccMixter', search: () => ccmixterProvider.search(query, signal) },
-    { name: 'Archive', search: () => archiveProvider.search(query, signal) },
-  ];
-  const settled = await Promise.allSettled(providers.map((provider) => provider.search()));
+type CatalogProvider<T> = {
+  name: string;
+  get: () => Promise<ProviderCatalogResult<T>>;
+};
+
+async function federateCatalog<T extends { id: string }>(
+  providers: Array<CatalogProvider<T>>,
+  signal?: AbortSignal,
+): Promise<FederatedResult<T>> {
+  const settled = await Promise.allSettled(providers.map((provider) => provider.get()));
   throwIfAborted(signal);
   const failedProviders = settled.flatMap((result, index) =>
     result.status === 'rejected' ? [providers[index].name] : []
   );
-  const songs = settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  const degradedProviders = settled.flatMap((result, index) =>
+    result.status === 'fulfilled' && result.value.degraded ? [providers[index].name] : []
+  );
+  const results = dedupeEntities(settled.flatMap((result) =>
+    result.status === 'fulfilled' ? result.value.results : []
+  ));
 
   return {
-    results: dedupeSongs(songs),
+    results,
     failedProviders,
+    ...(degradedProviders.length > 0 ? { degradedProviders } : {}),
     providerCount: providers.length,
   };
+}
+
+export async function searchFederated(query: string, signal?: AbortSignal): Promise<FederatedSearchResult> {
+  const providers: Array<CatalogProvider<Song>> = [
+    { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.search(query, signal) }) },
+    { name: 'ccMixter', get: () => ccmixterProvider.searchWithStatus(query, signal) },
+    { name: 'Archive', get: async () => ({ results: await archiveProvider.search(query, signal) }) },
+  ];
+  const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
+  if (lxEnabled) {
+    providers.push({ name: 'LX Music', get: async () => ({ results: await lxmusicProvider.search(query, signal) }) });
+  }
+  return federateCatalog(providers, signal);
 }
 
 export function isServerConfigured(): boolean {
@@ -59,23 +81,46 @@ export function isServerConfigured(): boolean {
 
 export const api = {
   async getAlbums(signal?: AbortSignal): Promise<FederatedResult<Album>> {
-    const providers = [
-      { name: 'Jamendo', get: () => jamendoProvider.getAlbums(signal) },
-      { name: 'ccMixter', get: () => ccmixterProvider.getAlbums(signal) },
+    const providers: Array<CatalogProvider<Album>> = [
+      { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getAlbums(signal) }) },
+      { name: 'ccMixter', get: () => ccmixterProvider.getAlbumsWithStatus(signal) },
     ];
-    const settled = await Promise.allSettled(providers.map((provider) => provider.get()));
-    throwIfAborted(signal);
-    return { results: dedupeEntities(settled.flatMap((result) => result.status === 'fulfilled' ? result.value : [])), failedProviders: settled.flatMap((result, index) => result.status === 'rejected' ? [providers[index].name] : []), providerCount: providers.length };
+    return federateCatalog(providers, signal);
   },
 
   async getArtists(signal?: AbortSignal): Promise<FederatedResult<Artist>> {
-    const providers = [
-      { name: 'Jamendo', get: () => jamendoProvider.getArtists(signal) },
-      { name: 'ccMixter', get: () => ccmixterProvider.getArtists(signal) },
+    const providers: Array<CatalogProvider<Artist>> = [
+      { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getArtists(signal) }) },
+      { name: 'ccMixter', get: () => ccmixterProvider.getArtistsWithStatus(signal) },
     ];
-    const settled = await Promise.allSettled(providers.map((provider) => provider.get()));
-    throwIfAborted(signal);
-    return { results: dedupeEntities(settled.flatMap((result) => result.status === 'fulfilled' ? result.value : [])), failedProviders: settled.flatMap((result, index) => result.status === 'rejected' ? [providers[index].name] : []), providerCount: providers.length };
+    return federateCatalog(providers, signal);
+  },
+
+  // A direct provider lookup comes first because the federated catalog only
+  // returns one page per provider; a deep link to any record outside that page
+  // would otherwise report an unavailable album/artist that in fact exists.
+  async resolveAlbum(albumId: string, signal?: AbortSignal): Promise<Album | null> {
+    if (!albumId) return null;
+    const provider = getMusicProviderForAlbumId(albumId);
+    if (provider.getAlbumById) {
+      const album = await provider.getAlbumById(albumId, signal);
+      if (album) return album;
+      throwIfAborted(signal);
+    }
+    const result = await this.getAlbums(signal);
+    return result.results.find((album) => album.id === albumId) ?? null;
+  },
+
+  async resolveArtist(artistId: string, signal?: AbortSignal): Promise<Artist | null> {
+    if (!artistId) return null;
+    const provider = getMusicProviderForArtistId(artistId);
+    if (provider.getArtistById) {
+      const artist = await provider.getArtistById(artistId, signal);
+      if (artist) return artist;
+      throwIfAborted(signal);
+    }
+    const result = await this.getArtists(signal);
+    return result.results.find((artist) => artist.id === artistId) ?? null;
   },
 
   async getAlbumSongs(albumId: string, signal?: AbortSignal): Promise<Song[]> {
@@ -92,14 +137,41 @@ export const api = {
     return jamendoProvider.getSongsByTag(tag, limit, signal);
   },
 
+  async getCcmixterSongsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<FederatedResult<Song>> {
+    return federateCatalog([{
+      name: 'ccMixter',
+      get: () => ccmixterProvider.getSongsByTagWithStatus(tag, limit, signal),
+    }], signal);
+  },
+
   async getTrending(limit = 50, signal?: AbortSignal): Promise<FederatedResult<Song>> {
-    const providers = [
-      { name: 'Jamendo', get: () => jamendoProvider.getTrending(limit, signal) },
-      { name: 'ccMixter', get: () => ccmixterProvider.getTrending(limit, signal) },
+    const providers: Array<CatalogProvider<Song>> = [
+      { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getTrending(limit, signal) }) },
+      { name: 'ccMixter', get: () => ccmixterProvider.getTrendingWithStatus(limit, signal) },
     ];
-    const settled = await Promise.allSettled(providers.map((provider) => provider.get()));
-    throwIfAborted(signal);
-    return { results: dedupeSongs(settled.flatMap((result) => result.status === 'fulfilled' ? result.value : [])), failedProviders: settled.flatMap((result, index) => result.status === 'rejected' ? [providers[index].name] : []), providerCount: providers.length };
+    return federateCatalog(providers, signal);
+  },
+
+  async getChartSongs(chart: 'billboard' | 'uk' | 'jp', signal?: AbortSignal): Promise<Song[]> {
+    const data = await providerFetch<{ results?: Song[]; error?: string; unavailable?: boolean }>(
+      'LX Music',
+      'chart',
+      '/api/music/charts',
+      { chart },
+      signal,
+    );
+    if (data.error) {
+      throw new ProviderError('LX Music', 'chart', data.unavailable ? 'not_configured' : 'upstream', data.unavailable ? 503 : 502, data.error);
+    }
+    if (!Array.isArray(data.results)) {
+      throw new ProviderError('LX Music', 'chart', 'invalid_response');
+    }
+    return data.results;
+  },
+
+  async resolveSong(songId: string, signal?: AbortSignal): Promise<Song | null> {
+    const provider = getMusicProviderForSongId(songId);
+    return provider.getSongById ? provider.getSongById(songId, signal) : null;
   },
 
   async getStreamUrl(song: Song, signal?: AbortSignal): Promise<string> {
@@ -108,10 +180,14 @@ export const api = {
 
   normalizeCoverArt(id: string): string {
     if (!id) return '/placeholder-album.svg';
-    if (id.startsWith('http') || id.startsWith('data:') || id.startsWith('/')) return id;
-    return '/placeholder-album.svg';
+    if (id.startsWith('/') || id.startsWith('data:image/')) return id;
+    try {
+      const url = new URL(id);
+      return url.protocol === 'https:' ? url.toString() : '/placeholder-album.svg';
+    } catch {
+      return '/placeholder-album.svg';
+    }
   },
 
   isServerConfigured,
 };
-

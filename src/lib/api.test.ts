@@ -47,19 +47,23 @@ function artist(id: string): Artist {
 }
 
 beforeEach(() => {
+  vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'false');
   vi.spyOn(jamendoProvider, 'search');
-  vi.spyOn(ccmixterProvider, 'search');
+  vi.spyOn(ccmixterProvider, 'searchWithStatus');
   vi.spyOn(archiveProvider, 'search');
+  vi.spyOn(jamendoProvider, 'getAlbums');
+  vi.spyOn(ccmixterProvider, 'getAlbumsWithStatus');
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('provider federation', () => {
   it('keeps fallback results and reports a failed provider', async () => {
     vi.mocked(jamendoProvider.search).mockRejectedValue(new Error('unauthorized'));
-    vi.mocked(ccmixterProvider.search).mockResolvedValue([song('ccmixter-1')]);
+    vi.mocked(ccmixterProvider.searchWithStatus).mockResolvedValue({ results: [song('ccmixter-1')] });
     vi.mocked(archiveProvider.search).mockResolvedValue([]);
 
     const state = await searchFederated('ambient');
@@ -71,7 +75,7 @@ describe('provider federation', () => {
 
   it('distinguishes true empty results from total provider failure', async () => {
     vi.mocked(jamendoProvider.search).mockResolvedValue([]);
-    vi.mocked(ccmixterProvider.search).mockResolvedValue([]);
+    vi.mocked(ccmixterProvider.searchWithStatus).mockResolvedValue({ results: [] });
     vi.mocked(archiveProvider.search).mockResolvedValue([]);
 
     await expect(searchFederated('missing')).resolves.toMatchObject({
@@ -80,7 +84,7 @@ describe('provider federation', () => {
     });
 
     vi.mocked(jamendoProvider.search).mockRejectedValue(new Error('down'));
-    vi.mocked(ccmixterProvider.search).mockRejectedValue(new Error('down'));
+    vi.mocked(ccmixterProvider.searchWithStatus).mockRejectedValue(new Error('down'));
     vi.mocked(archiveProvider.search).mockRejectedValue(new Error('down'));
 
     await expect(searchFederated('missing')).resolves.toMatchObject({
@@ -90,9 +94,27 @@ describe('provider federation', () => {
     });
   });
 
-  it('reports degraded artists while retaining successful results', async () => {
+  it('reports degraded search providers while retaining their verified results', async () => {
+    vi.mocked(jamendoProvider.search).mockResolvedValue([]);
+    vi.mocked(ccmixterProvider.searchWithStatus).mockResolvedValue({
+      results: [song('ccmixter-1')],
+      degraded: true,
+    });
+    vi.mocked(archiveProvider.search).mockResolvedValue([]);
+
+    await expect(searchFederated('ambient')).resolves.toEqual({
+      results: [song('ccmixter-1')],
+      failedProviders: [],
+      degradedProviders: ['ccMixter'],
+      providerCount: 3,
+    });
+  });
+
+  it('reports failed artist providers while retaining successful results', async () => {
     vi.spyOn(jamendoProvider, 'getArtists').mockRejectedValue(new Error('down'));
-    vi.spyOn(ccmixterProvider, 'getArtists').mockResolvedValue([artist('ccmixter-artist-user')]);
+    vi.spyOn(ccmixterProvider, 'getArtistsWithStatus').mockResolvedValue({
+      results: [artist('ccmixter-artist-user')],
+    });
 
     await expect(api.getArtists()).resolves.toEqual({
       results: [artist('ccmixter-artist-user')],
@@ -101,14 +123,52 @@ describe('provider federation', () => {
     });
   });
 
+  it('reports degraded artist providers without discarding healthy results', async () => {
+    vi.spyOn(jamendoProvider, 'getArtists').mockResolvedValue([artist('jamendo-artist-1')]);
+    vi.spyOn(ccmixterProvider, 'getArtistsWithStatus').mockResolvedValue({ results: [], degraded: true });
+
+    await expect(api.getArtists()).resolves.toEqual({
+      results: [artist('jamendo-artist-1')],
+      failedProviders: [],
+      degradedProviders: ['ccMixter'],
+      providerCount: 2,
+    });
+  });
+
   it('reports total trending failure instead of silently returning empty', async () => {
     vi.spyOn(jamendoProvider, 'getTrending').mockRejectedValue(new Error('down'));
-    vi.spyOn(ccmixterProvider, 'getTrending').mockRejectedValue(new Error('down'));
+    vi.spyOn(ccmixterProvider, 'getTrendingWithStatus').mockRejectedValue(new Error('down'));
 
     await expect(api.getTrending()).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter'],
       providerCount: 2,
+    });
+  });
+
+  it('reports degraded trending providers without discarding healthy results', async () => {
+    vi.spyOn(jamendoProvider, 'getTrending').mockResolvedValue([song('jamendo-1')]);
+    vi.spyOn(ccmixterProvider, 'getTrendingWithStatus').mockResolvedValue({ results: [], degraded: true });
+
+    await expect(api.getTrending()).resolves.toEqual({
+      results: [song('jamendo-1')],
+      failedProviders: [],
+      degradedProviders: ['ccMixter'],
+      providerCount: 2,
+    });
+  });
+
+  it('preserves degradation for dedicated ccMixter categories', async () => {
+    vi.spyOn(ccmixterProvider, 'getSongsByTagWithStatus').mockResolvedValue({
+      results: [],
+      degraded: true,
+    });
+
+    await expect(api.getCcmixterSongsByTag('jazz')).resolves.toEqual({
+      results: [],
+      failedProviders: [],
+      degradedProviders: ['ccMixter'],
+      providerCount: 1,
     });
   });
 
@@ -122,6 +182,10 @@ describe('provider federation', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       throw new DOMException('Aborted', 'AbortError');
     });
+    vi.mocked(ccmixterProvider.searchWithStatus).mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      throw new DOMException('Aborted', 'AbortError');
+    });
 
     const pending = searchFederated('ambient', controller.signal);
     controller.abort();
@@ -131,7 +195,7 @@ describe('provider federation', () => {
 
   it('deduplicates federated results by stable ID', async () => {
     vi.mocked(jamendoProvider.search).mockResolvedValue([song('jamendo-1')]);
-    vi.mocked(ccmixterProvider.search).mockResolvedValue([song('jamendo-1')]);
+    vi.mocked(ccmixterProvider.searchWithStatus).mockResolvedValue({ results: [song('jamendo-1')] });
     vi.mocked(archiveProvider.search).mockResolvedValue([]);
 
     const state = await searchFederated('duplicate');
@@ -141,7 +205,91 @@ describe('provider federation', () => {
   });
 });
 
-describe('provider dispatch', () => {
+describe('album federation', () => {
+  it('reports degraded albums while retaining available results', async () => {
+    const availableAlbum = {
+      id: 'jamendo-album-1',
+      name: 'Available album',
+      artist: 'Artist',
+      artistId: 'jamendo-artist-1',
+      coverArt: '/placeholder-album.svg',
+      songCount: 1,
+      duration: 60,
+      year: 2024,
+      genre: 'ambient',
+    };
+    vi.mocked(jamendoProvider.getAlbums).mockResolvedValue([availableAlbum]);
+    vi.mocked(ccmixterProvider.getAlbumsWithStatus).mockResolvedValue({ results: [], degraded: true });
+
+    await expect(api.getAlbums()).resolves.toEqual({
+      results: [availableAlbum],
+      failedProviders: [],
+      degradedProviders: ['ccMixter'],
+      providerCount: 2,
+    });
+  });
+
+  it('reports all failed album providers instead of a silent empty state', async () => {
+    vi.mocked(jamendoProvider.getAlbums).mockRejectedValue(new Error('down'));
+    vi.mocked(ccmixterProvider.getAlbumsWithStatus).mockRejectedValue(new Error('down'));
+
+    await expect(api.getAlbums()).resolves.toMatchObject({
+      results: [],
+      failedProviders: ['Jamendo', 'ccMixter'],
+      providerCount: 2,
+    });
+  });
+
+
+  it('resolves a deep-linked album outside the catalog page by direct lookup', async () => {
+    const deepLinked = {
+      id: 'jamendo-25',
+      name: 'Mind Asylum',
+      artist: 'Skaut',
+      artistId: 'jamendo-artist-9',
+      coverArt: '/placeholder-album.svg',
+      songCount: 0,
+      duration: 0,
+      year: 2004,
+      genre: '',
+    };
+    vi.spyOn(jamendoProvider, 'getAlbumById').mockResolvedValue(deepLinked);
+    vi.mocked(jamendoProvider.getAlbums).mockResolvedValue([]);
+    vi.mocked(ccmixterProvider.getAlbumsWithStatus).mockResolvedValue({ results: [] });
+
+    await expect(api.resolveAlbum('jamendo-25')).resolves.toEqual(deepLinked);
+    expect(jamendoProvider.getAlbums).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the catalog listing when direct album lookup finds nothing', async () => {
+    const listed = {
+      id: 'ccmixter-album-user',
+      name: "User's Tracks",
+      artist: 'User',
+      artistId: 'ccmixter-artist-user',
+      coverArt: '/placeholder-album.svg',
+      songCount: 2,
+      duration: 120,
+      year: 0,
+      genre: '',
+    };
+    vi.spyOn(ccmixterProvider, 'getAlbumById').mockResolvedValue(null);
+    vi.mocked(jamendoProvider.getAlbums).mockResolvedValue([]);
+    vi.mocked(ccmixterProvider.getAlbumsWithStatus).mockResolvedValue({ results: [listed] });
+
+    await expect(api.resolveAlbum('ccmixter-album-user')).resolves.toEqual(listed);
+  });
+
+  it('resolves a deep-linked artist outside the catalog page by direct lookup', async () => {
+    const deepLinked = artist('jamendo-artist-602037');
+    vi.spyOn(jamendoProvider, 'getArtistById').mockResolvedValue(deepLinked);
+    vi.spyOn(jamendoProvider, 'getArtists').mockResolvedValue([]);
+    vi.spyOn(ccmixterProvider, 'getArtistsWithStatus').mockResolvedValue({ results: [] });
+
+    await expect(api.resolveArtist('jamendo-artist-602037')).resolves.toEqual(deepLinked);
+    expect(jamendoProvider.getArtists).not.toHaveBeenCalled();
+  });
+
   it('routes song, album, and artist IDs to their owner', async () => {
     expect(getMusicProviderForSongId('jamendo-1')).toBe(jamendoProvider);
     expect(getMusicProviderForSongId('ccmixter-1')).toBe(ccmixterProvider);

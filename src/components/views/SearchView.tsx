@@ -42,6 +42,7 @@ export function SearchView({ query, onQueryChange }: { query: string; onQueryCha
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
   const canSearch = debouncedQuery.trim().length >= 2;
+  const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -57,24 +58,26 @@ export function SearchView({ query, onQueryChange }: { query: string; onQueryCha
 
   const results = canSearch ? searchState?.results : undefined;
   const failedProviders = searchState?.failedProviders ?? [];
+  const degradedProviders = searchState?.degradedProviders ?? [];
+  const unavailableProviders = [...new Set([...failedProviders, ...degradedProviders])];
   const allProvidersFailed = searchState
-    ? failedProviders.length === searchState.providerCount
+    ? searchState.results.length === 0 && unavailableProviders.length === searchState.providerCount
     : false;
 
   return (
     <section className="space-y-6 pb-[120px]">
       <div className="relative max-w-xl">
-        <label htmlFor="music-search" className="sr-only">Search verified music</label>
+        <label htmlFor="music-search" className="sr-only">Search music</label>
         <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--pearl-dim)]"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-        <input id="music-search" ref={inputRef} type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search verified music…" className="h-12 w-full rounded-[18px] border border-[var(--glass-border)] bg-[rgba(255,255,255,0.76)] pl-12 pr-4 text-sm text-[var(--pearl-bright)] shadow-[inset_0_1px_0_white,0_8px_24px_rgba(48,119,157,0.08)] outline-none transition-[border-color,box-shadow,background] focus:border-[var(--biolum-primary)] focus:bg-white focus:ring-4 focus:ring-[var(--biolum-glow)]" />
+        <input id="music-search" ref={inputRef} type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search music…" className="h-12 w-full rounded-[18px] border border-[var(--glass-border)] bg-[rgba(255,255,255,0.76)] pl-12 pr-4 text-sm text-[var(--pearl-bright)] shadow-[inset_0_1px_0_white,0_8px_24px_rgba(48,119,157,0.08)] outline-none transition-[border-color,box-shadow,background] focus:border-[var(--biolum-primary)] focus:bg-white focus:ring-4 focus:ring-[var(--biolum-glow)]" />
       </div>
 
-      {!canSearch && <p className="py-12 text-center text-sm text-[var(--pearl-dim)]">{debouncedQuery ? 'Type at least 2 characters to search' : 'Search across verified Jamendo, ccMixter, and Archive tracks'}</p>}
+      {!canSearch && <p className="py-12 text-center text-sm text-[var(--pearl-dim)]">{debouncedQuery ? 'Type at least 2 characters to search' : lxEnabled ? 'Search across Jamendo, ccMixter, Archive, and LX Music tracks' : 'Search across verified Jamendo, ccMixter, and Archive tracks'}</p>}
       {isLoading && <SearchSkeleton />}
       {isError && <div className="flex flex-col items-center gap-3 py-10 text-[var(--danger)]"><p>{providerErrorMessage(error)}</p><button type="button" onClick={() => void refetch()} className="rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-sm text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Try again</button></div>}
-      {results && allProvidersFailed && !isLoading && <p className="py-10 text-center text-sm text-[var(--danger)]">Search providers are unavailable. Please try again.</p>}
-      {results && failedProviders.length > 0 && !allProvidersFailed && <p className="text-xs text-[var(--pearl-dim)]">{failedProviders.join(', ')} {failedProviders.length === 1 ? 'was' : 'were'} unavailable. Showing available results.</p>}
-      {results && !results.length && !allProvidersFailed && !isLoading && <p className="py-12 text-center text-sm text-[var(--pearl-dim)]">No verified tracks match “{debouncedQuery}”.</p>}
+      {results && allProvidersFailed && !isLoading && <div className="flex flex-col items-center gap-3 rounded-[24px] border border-[var(--glass-border)] bg-white/40 py-10 text-center text-sm text-[var(--danger)]"><p>Search providers are unavailable. Please try again.</p><button type="button" onClick={() => void refetch()} className="rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Try again</button></div>}
+      {results && unavailableProviders.length > 0 && !allProvidersFailed && <p className="text-xs text-[var(--pearl-dim)]">{unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'was' : 'were'} unavailable or degraded. Showing available results.</p>}
+      {results && !results.length && !allProvidersFailed && !isLoading && <p className="py-12 text-center text-sm text-[var(--pearl-dim)]">No tracks match “{debouncedQuery}”.</p>}
       {results && results.length > 0 && <div className="space-y-1"><p className="mb-2 text-xs uppercase tracking-widest text-[var(--pearl-dim)]">Tracks — {results.length} results</p>{results.map((song) => <SearchResultRow key={song.id} song={song} />)}</div>}
     </section>
   );
@@ -87,9 +90,14 @@ function SearchResultRow({ song }: { song: Song }) {
   const isActive = currentSong?.id === song.id;
 
   return (
-    <article className={`grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-transparent border-l-2 px-3 py-2 transition-[background,border-color,box-shadow] hover:border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)] ${isActive ? 'border-l-[var(--biolum-primary)] bg-[var(--glass-hover)] shadow-[0_5px_18px_rgba(42,132,179,0.08)]' : 'border-l-transparent'}`}>
-      <CoverArt src={song.coverArt} alt={song.album} loading="lazy" decoding="async" className="h-10 w-10 rounded-xl border border-white object-cover shadow-sm" />
-      <div className="min-w-0"><p className="truncate text-sm font-medium text-[var(--pearl-bright)]">{song.title}</p><p className="truncate text-xs text-[var(--pearl-dim)]">{song.artist}</p><div className="mt-1"><Attribution song={song} compact /></div></div>
+    <article className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-transparent border-l-2 px-3 py-2 transition-[background,border-color,box-shadow] hover:border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)] ${isActive ? 'border-l-[var(--biolum-primary)] bg-[var(--glass-hover)] shadow-[0_5px_18px_rgba(42,132,179,0.08)]' : 'border-l-transparent'}`}>
+      <div className="flex min-w-0 items-center gap-3">
+        <button type="button" onClick={() => playSong(song)} aria-label={`Play ${song.title} by ${song.artist}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">
+          <CoverArt src={song.coverArt} alt={song.album} loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded-xl border border-white object-cover shadow-sm" />
+          <span className="min-w-0"><span className="block truncate text-sm font-medium text-[var(--pearl-bright)]">{song.title}</span><span className="block truncate text-xs text-[var(--pearl-dim)]">{song.artist}</span></span>
+        </button>
+        <span className="hidden min-w-0 sm:block"><Attribution song={song} compact /></span>
+      </div>
       <div className="flex items-center gap-1"><span className="hidden text-xs tabular-nums text-[var(--pearl-dim)] sm:inline">{formatDuration(song.duration)}</span><button type="button" onClick={() => addToQueue(song)} aria-label={`Add ${song.title} to queue`} className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--glass-border)] bg-white/60 text-[var(--salt-primary)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">＋</button><button type="button" onClick={() => playSong(song)} aria-label={`Play ${song.title} by ${song.artist}`} className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(145deg,#2494ce,#0d73ae)] text-white shadow-[0_5px_14px_rgba(25,126,184,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">▶</button></div>
     </article>
   );

@@ -61,6 +61,7 @@ export function getDominantColorFromImageUrl(imageUrl: string): Promise<string> 
 }
 
 const viewTitles: Record<ViewType, string> = {
+  new: 'New',
   albums: 'Albums',
   artists: 'Artists',
   search: 'Search',
@@ -70,6 +71,8 @@ const viewTitles: Record<ViewType, string> = {
   'now-playing': 'Now Playing',
   pop: 'Pop',
   jp: 'J-Pop',
+  billboard: 'US Charts',
+  uk: 'UK Charts',
   trending: 'Trending',
   remixes: 'Remixes',
   jazz: 'Jazz',

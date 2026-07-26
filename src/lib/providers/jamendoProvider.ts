@@ -18,6 +18,7 @@
 import type { MusicProvider } from './types';
 import { providerFetch } from './errors';
 import { normalizeCreativeCommonsLicense } from '@/lib/licenses';
+import { safeCoverArt } from '@/lib/coverArt';
 import type { Album, Artist, Song } from '@/types/music';
 
 const PROXY_BASE = '/api/music/jamendo';
@@ -59,6 +60,16 @@ interface JamendoArtist {
   joindate?: string;
 }
 
+interface JamendoAlbum {
+  id?: string;
+  name?: string;
+  artist_id?: string;
+  artist_name?: string;
+  image?: string;
+  releasedate?: string;
+  shareurl?: string;
+}
+
 function isJamendoId(value: unknown): value is string {
   return typeof value === 'string' && /^[1-9]\d{0,15}$/.test(value);
 }
@@ -74,6 +85,10 @@ function isJamendoArtist(artist: JamendoArtist): artist is JamendoArtist & { id:
   return isJamendoId(artist?.id);
 }
 
+function isJamendoAlbum(album: JamendoAlbum): album is JamendoAlbum & { id: string } {
+  return isJamendoId(album?.id);
+}
+
 export function jamendoTrackToSong(t: JamendoTrack & { id: string; audio: string; duration: number }): Song {
   const artistId = isJamendoId(t.artist_id) ? t.artist_id : '0';
   const albumId = isJamendoId(t.album_id) ? t.album_id : t.id;
@@ -87,7 +102,7 @@ export function jamendoTrackToSong(t: JamendoTrack & { id: string; audio: string
     artistId: `jamendo-artist-${artistId}`,
     album: decodeHtml(t.album_name || 'Unknown'),
     albumId: `jamendo-${albumId}`,
-    coverArt: t.image || '/placeholder-album.svg',
+    coverArt: safeCoverArt(t.image),
     duration: Number.isFinite(t.duration) ? Math.max(0, Math.round(t.duration!)) : 0,
     track: Number.isFinite(t.position) ? Math.max(0, Math.round(t.position!)) : 0,
     year: 0,
@@ -107,49 +122,68 @@ export function jamendoTrackToSong(t: JamendoTrack & { id: string; audio: string
   };
 }
 
+function jamendoAlbumToAlbum(album: JamendoAlbum & { id: string }): Album {
+  return {
+    id: `jamendo-${album.id}`,
+    name: decodeHtml(album.name || 'Unknown'),
+    artist: decodeHtml(album.artist_name || 'Unknown'),
+    artistId: `jamendo-artist-${isJamendoId(album.artist_id) ? album.artist_id : '0'}`,
+    coverArt: safeCoverArt(album.image),
+    songCount: 0,
+    duration: 0,
+    year: Number(album.releasedate?.slice(0, 4)) || 0,
+    genre: '',
+  };
+}
+
 function jamendoArtistToArtist(a: JamendoArtist & { id: string }): Artist {
   return {
     id: `jamendo-artist-${a.id}`,
     name: decodeHtml(a.name || 'Unknown'),
-    coverArt: a.image || '/placeholder-album.svg',
+    coverArt: safeCoverArt(a.image),
     albumCount: a.albums_count || 0,
   };
 }
 
-export const jamendoProvider: MusicProvider = {
+type JamendoProvider = MusicProvider & Required<Pick<MusicProvider,
+  | 'getAlbumById'
+  | 'getArtistById'
+  | 'getSongById'
+>>;
+
+export const jamendoProvider: JamendoProvider = {
   async getAlbums(signal?: AbortSignal): Promise<Album[]> {
-    // The /albums endpoint returns recently-released albums with no track counts.
-    // Instead, derive albums from the popular tracks list so counts are always accurate.
-    const data = await jamendoFetch<{ results: JamendoTrack[] }>(`${PROXY_BASE}/tracks`, {
-      limit: '200',
-      audioformat: 'mp31',
-      order: 'popularity_total',
+    const data = await jamendoFetch<{ results: JamendoAlbum[] }>(`${PROXY_BASE}/albums`, {
+      limit: '100',
+      order: 'releasedate_desc',
     }, signal);
     if (!Array.isArray(data?.results)) return [];
 
-    const seen = new Map<string, Album>();
-    for (const t of data.results.filter(isJamendoTrack)) {
-      const albumId = isJamendoId(t.album_id) ? t.album_id : t.id;
-      const artistId = isJamendoId(t.artist_id) ? t.artist_id : '0';
-      if (!seen.has(albumId)) {
-        seen.set(albumId, {
-          id: `jamendo-${albumId}`,
-          name: decodeHtml(t.album_name || 'Unknown'),
-          artist: decodeHtml(t.artist_name || 'Unknown'),
-          artistId: `jamendo-artist-${artistId}`,
-          coverArt: t.image || '/placeholder-album.svg',
-          songCount: 0,
-          duration: 0,
-          year: 0,
-          genre: '',
-        });
-      }
-      const album = seen.get(albumId)!;
-      album.songCount += 1;
-      album.duration += t.duration;
-    }
+    return data.results.filter(isJamendoAlbum).map(jamendoAlbumToAlbum);
+  },
 
-    return Array.from(seen.values());
+  // Deep links can target records outside the paged catalog listing, so the
+  // detail lookup queries the provider by id instead of scanning that page.
+  async getAlbumById(albumId: string, signal?: AbortSignal): Promise<Album | null> {
+    const rawId = albumId.replace('jamendo-', '');
+    if (!isJamendoId(rawId)) return null;
+    const data = await jamendoFetch<{ results: JamendoAlbum[] }>(`${PROXY_BASE}/albums`, {
+      id: rawId,
+      limit: '1',
+    }, signal);
+    const album = Array.isArray(data?.results) ? data.results.find(isJamendoAlbum) : undefined;
+    return album ? jamendoAlbumToAlbum(album) : null;
+  },
+
+  async getArtistById(artistId: string, signal?: AbortSignal): Promise<Artist | null> {
+    const rawId = artistId.replace('jamendo-artist-', '');
+    if (!isJamendoId(rawId)) return null;
+    const data = await jamendoFetch<{ results: JamendoArtist[] }>(`${PROXY_BASE}/artists`, {
+      id: rawId,
+      limit: '1',
+    }, signal);
+    const artist = Array.isArray(data?.results) ? data.results.find(isJamendoArtist) : undefined;
+    return artist ? jamendoArtistToArtist(artist) : null;
   },
 
   async getArtists(signal?: AbortSignal): Promise<Artist[]> {
@@ -191,6 +225,18 @@ export const jamendoProvider: MusicProvider = {
     }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isJamendoTrack).map(jamendoTrackToSong);
+  },
+
+  async getSongById(songId: string, signal?: AbortSignal): Promise<Song | null> {
+    const rawId = songId.replace('jamendo-', '');
+    if (!isJamendoId(rawId)) return null;
+    const data = await jamendoFetch<{ results: JamendoTrack[] }>(`${PROXY_BASE}/tracks`, {
+      id: rawId,
+      limit: '1',
+      audioformat: 'mp31',
+    }, signal);
+    const track = Array.isArray(data?.results) ? data.results.find(isJamendoTrack) : undefined;
+    return track ? jamendoTrackToSong(track) : null;
   },
 
   async getStreamUrl(song: Song): Promise<string> {

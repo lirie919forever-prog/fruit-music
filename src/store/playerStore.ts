@@ -132,7 +132,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
 
   setCurrentSong: (song) => set(queueState([song])),
   setQueue: (songs, startIndex = 0) => set(queueState(songs, startIndex)),
-  playSong: (song) => set({ ...queueState([song]), currentView: 'now-playing' }),
+  playSong: (song) => set(queueState([song])),
   addToQueue: (song) => set((state) => ({ queue: [...state.queue, { song, addedBy: 'user' }] })),
   playNext: (song) => set((state) => {
     const insertAt = state.queueIndex === null ? state.queue.length : state.queueIndex + 1;
@@ -222,7 +222,6 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
       status: 'loading',
       error: null,
       transportCommand: null,
-      currentView: 'now-playing',
     });
   },
 
@@ -368,7 +367,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
     ...(status === 'error' || status === 'idle' ? { activeSongId: null, isPlaying: false, playbackIntent: false } : {}),
   }),
 
-  playAlbum: (songs, startIndex = 0) => set({ ...queueState(songs, startIndex), currentView: 'now-playing' }),
+  playAlbum: (songs, startIndex = 0) => set(queueState(songs, startIndex)),
   }), {
     name: 'marea-player-v1',
     storage: createJSONStorage(() => typeof window === 'undefined' ? noopStorage : window.localStorage),

@@ -14,9 +14,20 @@ describe('navigation parsing', () => {
     expect(parseView('playlist')).toBe('albums');
   });
 
-  it('reads search text only for the search view', () => {
-    expect(parseNavigation('?view=search&q=ocean')).toEqual({ view: 'search', query: 'ocean' });
-    expect(parseNavigation('?view=artists&q=ocean')).toEqual({ view: 'artists', query: '' });
+  it('accepts the J-Pop alias and canonicalizes it to jp', () => {
+    expect(parseView('jpop')).toBe('jp');
+    expect(parseNavigation('?view=jpop')).toMatchObject({ view: 'jp', item: null });
+  });
+
+  it('parses compatible item identities and rejects incompatible ones', () => {
+    expect(parseNavigation('?view=now-playing&item=track%3Ajamendo-123')).toMatchObject({
+      view: 'now-playing',
+      item: { kind: 'track', id: 'jamendo-123' },
+    });
+    expect(parseNavigation('?view=jp&item=track%3Ajamendo-123').item).toEqual({ kind: 'track', id: 'jamendo-123' });
+    expect(parseNavigation('?view=albums&item=album%3Ajamendo-123').item).toEqual({ kind: 'album', id: 'jamendo-123' });
+    expect(parseNavigation('?view=now-playing&item=track%3A%2Fbad').item).toBeNull();
+    expect(parseNavigation('?view=now-playing&item=track%3Aother-123').item).toBeNull();
   });
 });
 
@@ -25,6 +36,10 @@ describe('navigation URL updates', () => {
 
   it('preserves unrelated URL state and removes stale search text', () => {
     expect(buildNavigationUrl(location, 'artists')).toBe('/?campaign=summer&view=artists#tracks');
+  });
+
+  it('writes a compatible item identity', () => {
+    expect(buildNavigationUrl(location, 'albums', '', { kind: 'album', id: 'jamendo-123' })).toBe('/?campaign=summer&view=albums&item=album%3Ajamendo-123#tracks');
   });
 
   it('writes the current search text', () => {

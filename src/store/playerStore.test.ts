@@ -194,9 +194,10 @@ describe('player queue', () => {
     expect(usePlayerStore.getState().volume).toBeCloseTo(0.23);
   });
 
-  it('plays a selected queue entry and clears stale timing state', () => {
-    usePlayerStore.getState().setQueue([song('a'), song('b')]);
-    usePlayerStore.setState({
+  it('plays a selected queue entry and preserves the current browse view', () => {
+    const store = createPlayerStore('jp');
+    store.getState().setQueue([song('a'), song('b')]);
+    store.setState({
       activeSongId: 'a',
       isPlaying: true,
       progress: 42,
@@ -205,9 +206,9 @@ describe('player queue', () => {
       transportCommand: { sequence: 1, type: 'seek', position: 42 },
     });
 
-    usePlayerStore.getState().playQueueIndex(1);
+    store.getState().playQueueIndex(1);
 
-    expect(usePlayerStore.getState()).toMatchObject({
+    expect(store.getState()).toMatchObject({
       queueIndex: 1,
       currentSong: expect.objectContaining({ id: 'b' }),
       activeSongId: null,
@@ -218,8 +219,14 @@ describe('player queue', () => {
       status: 'loading',
       error: null,
       transportCommand: null,
-      currentView: 'now-playing',
+      currentView: 'jp',
     });
+  });
+
+  it('preserves the browse view when starting an isolated track', () => {
+    const store = createPlayerStore('search');
+    store.getState().playSong(song('a'));
+    expect(store.getState()).toMatchObject({ currentSong: expect.objectContaining({ id: 'a' }), currentView: 'search', status: 'loading' });
   });
 
   it('does not restart a replacement track when playback was paused', () => {

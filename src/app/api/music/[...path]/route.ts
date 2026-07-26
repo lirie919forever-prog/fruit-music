@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { classifyRoute } from '../routeClassification';
+import { createRateLimiter } from '../rateLimit';
 
 const JAMENDO_API = 'https://api.jamendo.com/v3.0';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -12,7 +14,64 @@ const STREAM_RESPONSE_HEADERS = [
   'content-length',
   'content-range',
   'accept-ranges',
+  'etag',
+  'last-modified',
 ] as const;
+const CATALOG_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=600';
+const FULL_STREAM_CACHE_CONTROL = 'public, s-maxage=86400, stale-while-revalidate=604800';
+const CCMIXTER_MAX_REDIRECTS = 3;
+// ccMixter's media host rejects requests that arrive without the referer its
+// own pages send, so every track would otherwise fail with 403.
+const CCMIXTER_MEDIA_HEADERS = {
+  referer: 'https://ccmixter.org/',
+  'user-agent': 'Mozilla/5.0 (compatible; Marea/1.0; +https://ccmixter.org/)',
+} as const;
+// ccMixter's `f=json` mode returns the payload in an X-JSON response header
+// rather than the body, and it is the only mode carrying file and license
+// data. That header exceeds Node's default 16 KB cap after a few records, so
+// the server runs with --max-http-header-size raised (see package.json) and
+// requests a whole page at once. Where that cap is not in effect the page
+// shrinks on overflow instead of failing, at the cost of extra round trips.
+const CCMIXTER_PAGE_SIZE = 100;
+const CCMIXTER_MAX_RECORDS = 100;
+const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 120, maxEntries: 4_000 });
+
+function setCdnCacheHeaders(headers: Headers, value: string): void {
+  headers.set('Cache-Control', value);
+  headers.set('Vercel-CDN-Cache-Control', value);
+  headers.set('CDN-Cache-Control', value);
+}
+
+function catalogResponse(data: unknown): NextResponse {
+  const response = NextResponse.json(data);
+  // Providers intermittently answer a valid request with zero records. Caching
+  // that would pin an empty catalog in front of every client for the whole TTL,
+  // so only responses that actually carry records are cached.
+  setCdnCacheHeaders(
+    response.headers,
+    isEmptyCatalog(data) ? 'private, no-store' : CATALOG_CACHE_CONTROL,
+  );
+  return response;
+}
+
+function isEmptyCatalog(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  // Both the proxy's own `{ results }` envelope and Jamendo's upstream payload
+  // expose the records under `results`.
+  const results = (data as { results?: unknown }).results;
+  return Array.isArray(results) && results.length === 0;
+}
+
+function validMediaUrl(value: string): URL | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port && CCMIXTER_MEDIA_HOSTS.has(url.hostname.toLowerCase())
+      ? url
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 function requestSignal(request: Request): AbortSignal {
   return AbortSignal.any([
@@ -25,9 +84,95 @@ function upstreamFetch(request: Request, url: string, init: RequestInit = {}): P
   return fetch(url, { ...init, signal: requestSignal(request) });
 }
 
+interface StreamFetchResult {
+  response: Response;
+  controller: AbortController;
+  cleanup: () => void;
+}
+
+async function streamFetch(request: Request, url: string, init: RequestInit = {}): Promise<StreamFetchResult> {
+  const controller = new AbortController();
+  const abortFromRequest = () => controller.abort(request.signal.reason);
+  if (request.signal.aborted) abortFromRequest();
+  else request.signal.addEventListener('abort', abortFromRequest, { once: true });
+
+  const timeout = setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), REQUEST_TIMEOUT_MS);
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    clearTimeout(timeout);
+    request.signal.removeEventListener('abort', abortFromRequest);
+  };
+  try {
+    // The timeout only covers response headers. The body must remain alive for
+    // the full duration of a long audio track.
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    clearTimeout(timeout);
+    return { response, controller, cleanup };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+}
+
+function streamBody(
+  response: Response,
+  controller: AbortController,
+  cleanup: () => void,
+): ReadableStream<Uint8Array> | null {
+  if (!response.body) {
+    cleanup();
+    return null;
+  }
+  const reader = response.body.getReader();
+  let closed = false;
+  const finish = (abort: boolean) => {
+    if (closed) return;
+    closed = true;
+    cleanup();
+    if (abort) controller.abort(new DOMException('Stream closed', 'AbortError'));
+  };
+  return new ReadableStream({
+    async pull(streamController) {
+      try {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          finish(false);
+          streamController.close();
+        } else {
+          streamController.enqueue(chunk.value);
+        }
+      } catch (error) {
+        finish(true);
+        streamController.error(error);
+      }
+    },
+    async cancel(reason) {
+      finish(true);
+      await reader.cancel(reason);
+    },
+  });
+}
+
 function providerFailure(error: unknown, message: string): NextResponse {
   const status = error instanceof DOMException && error.name === 'TimeoutError' ? 504 : 502;
   return NextResponse.json({ error: message }, { status });
+}
+
+function validContentRange(value: string | null): boolean {
+  if (!value) return false;
+  const match = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(value.trim());
+  if (!match) return false;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  const total = match[3] === '*' ? 0 : Number(match[3]);
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && end >= start && (total === 0 || end < total);
+}
+
+function closeUpstream(response: Response, cleanup: () => void): void {
+  cleanup();
+  void response.body?.cancel().catch(() => undefined);
 }
 
 function numericId(value: string | undefined, label: string): NextResponse | string {
@@ -109,11 +254,24 @@ function archiveLicense(value: unknown): { name: string; url: string } | null {
   return null;
 }
 
-async function mapConcurrent<T, U>(items: T[], concurrency: number, mapper: (item: T) => Promise<U | null>): Promise<U[]> {
+/**
+ * Maps items concurrently, stopping as soon as `wanted` results are collected.
+ *
+ * Archive enrichment costs one upstream metadata request per candidate, and the
+ * candidate pool is several times the requested limit. Without the early exit a
+ * single search issues dozens of extra requests, which starves the connection
+ * pool and makes unrelated provider requests fail.
+ */
+async function mapConcurrent<T, U>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<U | null>,
+  wanted = Number.POSITIVE_INFINITY,
+): Promise<U[]> {
   const output: U[] = [];
   let cursor = 0;
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (cursor < items.length) {
+    while (cursor < items.length && output.length < wanted) {
       const index = cursor++;
       try {
         const value = await mapper(items[index]);
@@ -121,7 +279,7 @@ async function mapConcurrent<T, U>(items: T[], concurrency: number, mapper: (ite
       } catch { /* An invalid Archive candidate is omitted, not fabricated. */ }
     }
   }));
-  return output;
+  return output.slice(0, wanted === Number.POSITIVE_INFINITY ? undefined : wanted);
 }
 
 function boundedLimit(
@@ -158,27 +316,82 @@ async function proxyStream(
   request: NextRequest,
   streamUrl: string,
   init: RequestInit = {},
+  validateRedirect?: (url: string) => URL | null,
+  upstreamHeaders?: Record<string, string>,
 ): Promise<NextResponse> {
   const requestHeaders = new Headers();
   const range = request.headers.get('range');
   const ifRange = request.headers.get('if-range');
   if (range) requestHeaders.set('range', range);
   if (ifRange) requestHeaders.set('if-range', ifRange);
+  // Some providers reject media requests that omit the headers their own site
+  // sends. These are set by the route, never forwarded from the browser.
+  for (const [name, value] of Object.entries(upstreamHeaders ?? {})) {
+    requestHeaders.set(name, value);
+  }
 
   try {
-    const upstream = await upstreamFetch(request, streamUrl, {
-      ...init,
-      headers: requestHeaders,
-    });
+    let url = streamUrl;
+    let redirects = 0;
+    let upstream: Response;
+    let cleanupStream: (() => void) | undefined;
+    let upstreamController: AbortController | undefined;
+    while (true) {
+      const fetched = await streamFetch(request, url, {
+        ...init,
+        headers: requestHeaders,
+      });
+      upstream = fetched.response;
+      cleanupStream = fetched.cleanup;
+      upstreamController = fetched.controller;
+      if (!validateRedirect || ![301, 302, 303, 307, 308].includes(upstream.status)) break;
+      if (redirects >= CCMIXTER_MAX_REDIRECTS) {
+        closeUpstream(upstream, cleanupStream!);
+        return new NextResponse('Stream unavailable', { status: 502 });
+      }
+      const location = upstream.headers.get('location');
+      let redirect: URL | null = null;
+      try {
+        redirect = location ? validateRedirect(new URL(location, url).toString()) : null;
+      } catch {
+        closeUpstream(upstream, cleanupStream!);
+        return new NextResponse('Stream unavailable', { status: 502 });
+      }
+      if (!redirect) {
+        closeUpstream(upstream, cleanupStream!);
+        return new NextResponse('Stream unavailable', { status: 502 });
+      }
+      closeUpstream(upstream, cleanupStream!);
+      url = redirect.toString();
+      redirects += 1;
+    }
+
+    if (upstream.ok) {
+      const contentType = upstream.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase();
+      if (!contentType || (contentType !== 'application/octet-stream' && !contentType.startsWith('audio/'))) {
+        closeUpstream(upstream, cleanupStream!);
+        return NextResponse.json({ error: 'Upstream returned invalid media' }, { status: 502 });
+      }
+    }
+    if (upstream.status === 206 && !validContentRange(upstream.headers.get('content-range'))) {
+      closeUpstream(upstream, cleanupStream!);
+      return NextResponse.json({ error: 'Upstream returned an invalid range response' }, { status: 502 });
+    }
+
     const headers = new Headers();
     for (const name of STREAM_RESPONSE_HEADERS) {
       const value = upstream.headers.get(name);
       if (value !== null) headers.set(name, value);
     }
-    headers.set('Cache-Control', 'private, no-store');
+    if (range || upstream.status === 206) {
+      headers.set('Cache-Control', 'private, no-store');
+    } else if (upstream.ok) {
+      setCdnCacheHeaders(headers, FULL_STREAM_CACHE_CONTROL);
+    }
     headers.set('Vary', 'Range');
 
-    return new NextResponse(upstream.body, {
+    const body = streamBody(upstream, upstreamController!, cleanupStream!);
+    return new NextResponse(body, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers,
@@ -225,7 +438,7 @@ async function handleJamendo(req: NextRequest, resource: string | undefined, res
       );
     }
     if (data.headers) delete data.headers.next;
-    return NextResponse.json(data);
+    return catalogResponse(data);
   } catch (error) {
     return providerFailure(error, 'Jamendo fetch failed');
   }
@@ -249,17 +462,11 @@ async function handleCCMixter(req: NextRequest, resource: string | undefined, re
       const downloadUrl = mp3File?.download_url;
       if (!downloadUrl) return new NextResponse('Stream unavailable', { status: 404 });
 
-      const parsedUrl = new URL(downloadUrl);
-      if (
-        parsedUrl.protocol !== 'https:' ||
-        parsedUrl.username ||
-        parsedUrl.password ||
-        parsedUrl.port ||
-        !CCMIXTER_MEDIA_HOSTS.has(parsedUrl.hostname.toLowerCase())
-      ) {
+      const parsedUrl = validMediaUrl(downloadUrl);
+      if (!parsedUrl) {
         return new NextResponse('Stream unavailable', { status: 502 });
       }
-      return proxyStream(req, parsedUrl.toString(), { redirect: 'manual' });
+      return proxyStream(req, parsedUrl.toString(), { redirect: 'manual' }, validMediaUrl, CCMIXTER_MEDIA_HEADERS);
     } catch (error) {
       return providerFailure(error, 'ccMixter stream fetch failed');
     }
@@ -270,20 +477,64 @@ async function handleCCMixter(req: NextRequest, resource: string | undefined, re
     searchParams.delete('path');
     searchParams.set('format', 'json');
     searchParams.set('f', 'json');
-    // ccMixter can overflow response headers at 30+ results; retain the provider cap.
-    const limit = boundedLimit(searchParams, 25, 25, true);
+    const limit = boundedLimit(searchParams, CCMIXTER_PAGE_SIZE, CCMIXTER_MAX_RECORDS, true);
     if (limit instanceof NextResponse) return limit;
-    searchParams.set('limit', limit);
 
-    try {
-      const upstream = await upstreamFetch(req, `https://ccmixter.org/api/query?${searchParams.toString()}`);
-      if (!upstream.ok) {
-        return NextResponse.json({ error: 'ccMixter upstream error' }, { status: upstream.status });
+    const degraded = (reason: string) => NextResponse.json(
+      { results: [], degraded: true, provider: 'ccMixter', reason },
+      { status: 200, headers: { 'Cache-Control': 'private, no-store' } },
+    );
+
+    const wanted = Number(limit);
+    const results: unknown[] = [];
+    // Record size varies with each upload's description, so no fixed page size
+    // is universally safe. A page that overflows is retried smaller, and the
+    // records already collected are always preserved.
+    let pageSize = CCMIXTER_PAGE_SIZE;
+    let offset = 0;
+
+    const settle = (reason: string) =>
+      results.length > 0 ? catalogResponse({ results }) : degraded(reason);
+
+    while (results.length < wanted) {
+      const requested = Math.min(pageSize, wanted - results.length);
+      const pageParams = new URLSearchParams(searchParams);
+      pageParams.set('limit', String(requested));
+      pageParams.set('offset', String(offset));
+
+      let page: unknown[];
+      try {
+        const upstream = await upstreamFetch(req, `https://ccmixter.org/api/query?${pageParams.toString()}`);
+        if (!upstream.ok) return settle('upstream-unavailable');
+
+        const text = await upstream.text();
+        if (!text.trim()) {
+          if (pageSize === 1) return settle('upstream-empty-response');
+          pageSize = Math.max(1, Math.floor(pageSize / 2));
+          continue;
+        }
+
+        const parsed: unknown = JSON.parse(text);
+        if (!Array.isArray(parsed)) return settle('upstream-invalid-json');
+        page = parsed;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return providerFailure(error, 'ccMixter fetch failed');
+        }
+        // An oversized X-JSON header aborts the response before its body is
+        // readable. A smaller page keeps the same request viable.
+        if (pageSize === 1) return settle('upstream-unavailable');
+        pageSize = Math.max(1, Math.floor(pageSize / 2));
+        continue;
       }
-      return NextResponse.json({ results: await upstream.json() });
-    } catch (error) {
-      return providerFailure(error, 'ccMixter fetch failed');
+
+      results.push(...page);
+      // A short page means the upstream has no more records to give.
+      if (page.length < requested) break;
+      offset += page.length;
     }
+
+    return catalogResponse({ results });
   }
 
   return NextResponse.json({ error: `Unknown ccMixter endpoint: ${resource ?? ''}` }, { status: 400 });
@@ -313,6 +564,52 @@ async function handleArchive(req: NextRequest, resource: string | undefined, res
   }
 
   if (resource === 'tracks') {
+    const exactIdentifier = req.nextUrl.searchParams.get('identifier');
+    const exactFilename = req.nextUrl.searchParams.get('filename');
+    if (exactIdentifier || exactFilename) {
+      if (!exactIdentifier || !ARCHIVE_ID.test(exactIdentifier) || !exactFilename || exactFilename.length > 500 || !safeArchiveFilename(exactFilename)) {
+        return NextResponse.json({ error: 'Invalid exact Archive file identity' }, { status: 400 });
+      }
+      try {
+        const metadataResponse = await upstreamFetch(req, `https://archive.org/metadata/${encodeURIComponent(exactIdentifier)}`);
+        if (!metadataResponse.ok) return NextResponse.json({ results: [] }, { status: 200 });
+        const item = await metadataResponse.json() as { metadata?: Record<string, unknown>; files?: ArchiveFile[] };
+        const metadata = item.metadata || {};
+        const license = archiveLicense(metadata.licenseurl);
+        const file = item.files?.find((candidate) => candidate.name === exactFilename && playableArchiveFile(candidate));
+        const title = scalar(metadata.title);
+        const creatorName = scalar(metadata.creator);
+        const subjects = (Array.isArray(metadata.subject) ? metadata.subject : [metadata.subject]).map(scalar).filter(Boolean);
+        const duration = parseDuration(file?.length);
+        const size = Number(file?.size || 0);
+        if (!license || !file || !title || !creatorName || NON_MUSIC_ARCHIVE_TERMS.test([title, creatorName, ...subjects].join(' ')) || duration <= 0 || !Number.isFinite(size) || size <= 0) {
+          return NextResponse.json({ results: [] }, { status: 200 });
+        }
+        const playableFilename = file.name as string;
+        return catalogResponse({ results: [{
+          identifier: exactIdentifier,
+          title,
+          creator: creatorName,
+          subject: subjects,
+          year: scalar(metadata.year),
+          filename: playableFilename,
+          duration,
+          size,
+          bitRate: Number(file.bitrate || 0),
+          contentType: 'audio/mpeg',
+          suffix: 'mp3',
+          streamUrl: `/api/music/archive/stream/${encodeURIComponent(exactIdentifier)}?file=${encodeURIComponent(playableFilename)}`,
+          sourceUrl: `https://archive.org/details/${encodeURIComponent(exactIdentifier)}`,
+          creatorUrl: '',
+          licenseName: license.name,
+          licenseUrl: license.url,
+          attributionUrl: `https://archive.org/details/${encodeURIComponent(exactIdentifier)}`,
+        }] });
+      } catch (error) {
+        return providerFailure(error, 'Archive exact track fetch failed');
+      }
+    }
+
     const subject = req.nextUrl.searchParams.get('subject');
     const creator = req.nextUrl.searchParams.get('creator');
     if (subject && creator) return NextResponse.json({ error: 'Choose subject or creator' }, { status: 400 });
@@ -370,8 +667,8 @@ async function handleArchive(req: NextRequest, resource: string | undefined, res
           licenseUrl: license.url,
           attributionUrl: `https://archive.org/details/${encodeURIComponent(identifier)}`,
         };
-      });
-      return NextResponse.json({ results: results.slice(0, Number(limit)) });
+      }, Number(limit));
+      return catalogResponse({ results });
     } catch (error) {
       return providerFailure(error, 'Archive fetch failed');
     }
@@ -386,6 +683,9 @@ export async function GET(
 ): Promise<NextResponse> {
   const pathSegments = (await params).path || [];
   const [provider, resource, ...rest] = pathSegments;
+  const { bucket } = classifyRoute(provider, resource);
+  const limited = rateLimit(req, bucket);
+  if (limited) return limited;
 
   switch (provider) {
     case 'jamendo': return handleJamendo(req, resource, rest);

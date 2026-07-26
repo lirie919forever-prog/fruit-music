@@ -5,6 +5,7 @@ import { Howl } from 'howler';
 import { usePlayerStore, usePlayerStoreApi } from '@/store/playerStore';
 import { api } from '@/lib/api';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { getResumePosition, isNaturalTrackEnd } from '@/components/player/playbackRecovery';
 import type { Song } from '@/types/music';
 
 interface AudioContextType {
@@ -15,6 +16,9 @@ interface AudioContextType {
 
 const AudioCtx = createContext<AudioContextType | null>(null);
 const MAX_RETRIES = 2;
+const MAX_PREMATURE_END_RECOVERIES = 2;
+const UNLOCK_TIMEOUT_MS = 4_000;
+const LOAD_TIMEOUT_MS = 15_000;
 
 export function getHowlerFormat(song: Pick<Song, 'contentType' | 'suffix'>): string {
   const suffix = song.suffix.trim().toLowerCase().replace(/^\./, '');
@@ -37,6 +41,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const retryCountRef = useRef(0);
   const streamRequestIdRef = useRef(0);
   const attemptLoadRef = useRef<(() => void) | null>(null);
+  const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unlockHowlRef = useRef<Howl | null>(null);
+  const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentSong = usePlayerStore((state) => state.currentSong);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
@@ -86,14 +93,27 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     if (!rafRef.current) updateProgress();
   }, [updateProgress]);
 
+  const clearUnlockWait = useCallback(() => {
+    if (unlockTimerRef.current) clearTimeout(unlockTimerRef.current);
+    unlockTimerRef.current = null;
+    unlockHowlRef.current = null;
+  }, []);
+
+  const clearLoadWait = useCallback(() => {
+    if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+    loadTimerRef.current = null;
+  }, []);
+
   const stopEngine = useCallback(() => {
     loadIdRef.current += 1;
     attemptLoadRef.current = null;
     clearRetry();
+    clearUnlockWait();
+    clearLoadWait();
     stopProgress();
     unloadHowl(pendingHowlRef.current);
     unloadHowl(howlRef.current);
-  }, [clearRetry, stopProgress, unloadHowl]);
+  }, [clearLoadWait, clearRetry, clearUnlockWait, stopProgress, unloadHowl]);
 
   useEffect(() => {
     stopEngine();
@@ -107,7 +127,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
     const song = currentSong;
     const loadToken = loadIdRef.current;
+    clearUnlockWait();
     retryCountRef.current = 0;
+    let prematureEndRecoveries = 0;
     const shouldPlay = playerStore.getState().playbackIntent;
     setStatus(shouldPlay ? 'loading' : 'paused');
 
@@ -116,6 +138,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
     const fail = (message: string, failedHowl?: Howl) => {
       if (failedHowl && failedHowl !== pendingHowlRef.current && failedHowl !== howlRef.current) return;
+      clearLoadWait();
       const shouldRetry = isCurrent() && playerStore.getState().playbackIntent;
       if (failedHowl) unloadHowl(failedHowl);
       if (!shouldRetry) return;
@@ -156,9 +179,31 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           format: [getHowlerFormat(song)],
           html5: true,
           volume: playerStore.getState().volume,
-          onloaderror: () => fail('The audio stream could not be loaded. Try again.', howl),
-          onplayerror: () => fail('Playback was blocked or the audio stream failed. Try again.', howl),
+          onloaderror: () => {
+            clearLoadWait();
+            fail('The audio stream could not be loaded. Try again.', howl);
+          },
+          onplayerror: () => {
+            if (!isCurrent() || !playerStore.getState().playbackIntent) return;
+            clearUnlockWait();
+            unlockHowlRef.current = howl;
+            const retryAfterUnlock = () => {
+              if (unlockHowlRef.current !== howl) return;
+              clearUnlockWait();
+              if (isCurrent() && playerStore.getState().playbackIntent) howl.play();
+            };
+            howl.once('unlock', retryAfterUnlock);
+            unlockTimerRef.current = setTimeout(() => {
+              if (unlockHowlRef.current !== howl) return;
+              clearUnlockWait();
+              if (isCurrent() && playerStore.getState().playbackIntent) {
+                unloadHowl(howl);
+                setStatus('error', 'The browser blocked audio playback. Press Play to try again.');
+              }
+            }, UNLOCK_TIMEOUT_MS);
+          },
           onload: () => {
+            clearLoadWait();
             if (
               !isCurrent() ||
               pendingHowlRef.current !== howl ||
@@ -171,14 +216,23 @@ export function AudioProvider({ children }: { children: ReactNode }) {
             pendingHowlRef.current = null;
             howlRef.current = howl;
             const loadedDuration = howl.duration();
-            if (!Number.isFinite(loadedDuration) || loadedDuration <= 0) {
+            // Some browsers cannot expose duration while the first response is
+            // a valid 206 range. Catalog metadata is verified and is a safe
+            // fallback until the media element learns the total duration.
+            const effectiveDuration = Number.isFinite(loadedDuration) && loadedDuration > 0
+              ? loadedDuration
+              : song.duration;
+            if (!Number.isFinite(effectiveDuration) || effectiveDuration <= 0) {
               fail('The provider returned audio without a valid duration.', howl);
               return;
             }
 
-            setDuration(loadedDuration);
+            setDuration(effectiveDuration);
             setStatus('ready');
-            if (playerStore.getState().playbackIntent) howl.play();
+            if (playerStore.getState().playbackIntent) {
+              if (prematureEndRecoveries > 0) howl.seek(getResumePosition(playerStore.getState().progress, loadedDuration));
+              howl.play();
+            }
           },
           onplay: () => {
             if (!isCurrent() || howlRef.current !== howl) return;
@@ -205,6 +259,26 @@ export function AudioProvider({ children }: { children: ReactNode }) {
             if (!isCurrent() || howlRef.current !== howl) return;
             stopProgress();
             const state = playerStore.getState();
+            const position = howl.seek();
+            const decodedDuration = howl.duration();
+            if (state.playbackIntent && !isNaturalTrackEnd(
+              typeof position === 'number' ? position : 0,
+              decodedDuration,
+              song.duration,
+            )) {
+              prematureEndRecoveries += 1;
+              const resumePosition = typeof position === 'number' ? position : state.progress;
+              unloadHowl(howl);
+              if (prematureEndRecoveries <= MAX_PREMATURE_END_RECOVERIES) {
+                setProgress(resumePosition);
+                setStatus('loading');
+                retryCountRef.current = 0;
+                attemptLoadRef.current?.();
+              } else {
+                setStatus('error', 'The audio stream ended before the track finished. Try again.');
+              }
+              return;
+            }
             if (state.repeat === 'one' && state.playbackIntent) {
               howl.seek(0);
               setProgress(0);
@@ -216,6 +290,20 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         });
 
         pendingHowlRef.current = howl;
+        clearLoadWait();
+        loadTimerRef.current = setTimeout(() => {
+          loadTimerRef.current = null;
+          if (
+            !isCurrent() ||
+            pendingHowlRef.current !== howl ||
+            !playerStore.getState().playbackIntent
+          ) {
+            return;
+          }
+          setStatus('error', 'The audio stream took too long to load. Press Play to try again.');
+          unloadHowl(howl);
+          clearLoadWait();
+        }, LOAD_TIMEOUT_MS);
       }).catch(() => {
         if (
           requestId === streamRequestIdRef.current &&
@@ -233,11 +321,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       loadIdRef.current += 1;
       attemptLoadRef.current = null;
       clearRetry();
+      clearUnlockWait();
+      clearLoadWait();
       stopProgress();
       unloadHowl(pendingHowlRef.current);
       unloadHowl(howlRef.current);
     };
-  }, [clearRetry, currentSong, playerStore, setDuration, setEnginePlaying, setPlaybackIntent, setProgress, setStatus, startProgress, stopEngine, stopProgress, unloadHowl]);
+  }, [clearLoadWait, clearRetry, clearUnlockWait, currentSong, playerStore, setDuration, setEnginePlaying, setPlaybackIntent, setProgress, setStatus, startProgress, stopEngine, stopProgress, unloadHowl]);
 
   useEffect(() => {
     const active = howlRef.current;
@@ -249,13 +339,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       }
     } else {
       clearRetry();
+      clearUnlockWait();
+      clearLoadWait();
       streamRequestIdRef.current += 1;
       retryCountRef.current = 0;
       unloadHowl(pendingHowlRef.current);
       if (active?.playing()) active.pause();
       stopProgress();
     }
-  }, [clearRetry, playbackIntent, playerStore, stopProgress, unloadHowl]);
+  }, [clearLoadWait, clearRetry, clearUnlockWait, playbackIntent, playerStore, stopProgress, unloadHowl]);
 
   useEffect(() => {
     howlRef.current?.volume(volume);

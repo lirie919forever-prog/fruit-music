@@ -175,7 +175,7 @@ export function NowPlayingView() {
           {queue.length > 1 && <button type="button" onClick={clearQueue} className="rounded-full border border-transparent px-3 py-1.5 text-[11px] text-[var(--salt-mist)] transition-colors hover:border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]">Clear queue</button>}
         </div>
         <div className="max-h-[300px] space-y-1 overflow-y-auto rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2 backdrop-blur-xl">
-          {queue.map((item, index) => (
+          {queue.length ? queue.map((item, index) => (
             <div
               key={`${item.song.id}-${index}`}
               className="flex items-center gap-1 rounded-xl px-1 py-1"
@@ -199,7 +199,7 @@ export function NowPlayingView() {
                 <button type="button" onClick={() => removeFromQueue(index)} aria-label={`Remove ${item.song.title} from queue`} className="h-7 w-6 rounded text-sm text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)]">×</button>
               </div>
             </div>
-          ))}
+          )) : <p className="px-3 py-8 text-center text-sm text-[var(--salt-mist)]">Your queue is empty. Choose a verified track to add it here.</p>}
         </div>
       </GlassPanel>
     </div>

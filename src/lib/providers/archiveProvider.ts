@@ -84,7 +84,6 @@ export const archiveProvider: MusicProvider = {
     const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
       subject: tag,
       limit: String(limit),
-      format: 'mp3',
     }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isArchiveDoc).map(docToSong);
@@ -117,12 +116,32 @@ export const archiveProvider: MusicProvider = {
   },
 
   async search(query: string, signal?: AbortSignal): Promise<Song[]> {
+    // Archive resolves one metadata request per result, so a large search page
+    // costs more time than the federated search budget allows. A smaller page
+    // keeps Archive contributing to results instead of always timing out.
     const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
       subject: query,
-      limit: '30',
+      limit: '10',
     }, signal);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isArchiveDoc).map(docToSong);
+  },
+
+  async getSongById(songId: string, signal?: AbortSignal): Promise<Song | null> {
+    const encoded = songId.replace('archive-', '');
+    const separator = encoded.indexOf('~');
+    if (separator <= 0) return null;
+    const identifier = encoded.slice(0, separator);
+    const filename = decodeURIComponent(encoded.slice(separator + 1));
+    const data = await archiveFetch<{ results: ArchiveDoc[] }>(`${PROXY_BASE}/tracks`, {
+      identifier,
+      filename,
+      limit: '1',
+    }, signal);
+    const doc = Array.isArray(data?.results)
+      ? data.results.find((item) => item.identifier === identifier && item.filename === filename)
+      : undefined;
+    return doc && isArchiveDoc(doc) ? docToSong(doc, 0) : null;
   },
 
   async getStreamUrl(song: Song): Promise<string> {

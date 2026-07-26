@@ -1,3 +1,22 @@
+const ARTWORK_HOSTS = new Set([
+  'usercontent.jamendo.com',
+  'ccmixter.org',
+  'www.ccmixter.org',
+  'api.vkeys.cn',
+  'is1-ssl.mzstatic.com',
+]);
+
+export function optimizedCoverArt(value: string | undefined, fallback = '/placeholder-album.svg'): string {
+  const safe = safeCoverArt(value, fallback);
+  if (safe.startsWith('/') || safe.startsWith('data:image/')) return safe;
+  try {
+    const url = new URL(safe);
+    if (!ARTWORK_HOSTS.has(url.hostname.toLowerCase())) return fallback;
+    return `/api/images?url=${encodeURIComponent(url.toString())}`;
+  } catch {
+    return fallback;
+  }
+}
 function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
     '&': '&amp;',
@@ -6,6 +25,18 @@ function escapeXml(value: string): string {
     '"': '&quot;',
     "'": '&apos;',
   })[character] ?? character);
+}
+
+
+export function safeCoverArt(value: string | undefined, fallback = '/placeholder-album.svg'): string {
+  if (!value) return fallback;
+  if (value.startsWith('/') || value.startsWith('data:image/')) return value;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.toString() : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export function createDeterministicCover(seed: string, hueOffset = 60): string {

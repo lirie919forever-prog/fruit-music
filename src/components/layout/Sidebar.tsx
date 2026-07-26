@@ -3,9 +3,14 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { usePlayerStore } from '@/store/playerStore';
 import type { ViewType } from '@/types/music';
+import { buildNavigationUrl } from '@/lib/navigation';
 import { HiMagnifyingGlass, HiXMark } from 'react-icons/hi2';
 import { TbVinyl, TbWaveSine } from 'react-icons/tb';
 import { GiViolin } from 'react-icons/gi';
+
+function IconSparkles() {
+  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m8 1 1.2 4.8L14 7l-4.8 1.2L8 13l-1.2-4.8L2 7l4.8-1.2L8 1Z" /><path d="m13 11 .4 1.6L15 13l-1.6.4L13 15l-.4-1.6L11 13l1.6-.4L13 11Z" /></svg>;
+}
 
 interface NavItem {
   view: ViewType;
@@ -19,10 +24,6 @@ function IconAlbums() {
 
 function IconArtists() {
   return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="5" r="3" /><path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" /></svg>;
-}
-
-function IconPop() {
-  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 1l1.5 3.5L13 5l-2.5 2.5.5 3.5L8 9.5 5 11l.5-3.5L3 5l3.5-.5z" /></svg>;
 }
 
 function IconJpop() {
@@ -46,9 +47,12 @@ export const navigationSections: Array<{ title: string; items: NavItem[] }> = [
     { view: 'search', label: 'Search', icon: <HiMagnifyingGlass className="h-4 w-4" /> },
   ] },
   { title: 'Discover', items: [
-    { view: 'pop', label: 'Pop', icon: <IconPop /> },
+    { view: 'new', label: 'New', icon: <IconSparkles /> },
+    ...(process.env.NEXT_PUBLIC_LX_ENABLED === 'true' ? [
+      { view: 'billboard' as const, label: 'US Charts', icon: <IconTrending /> },
+      { view: 'uk' as const, label: 'UK Charts', icon: <IconTrending /> },
+    ] : []),
     { view: 'jp', label: 'J-Pop', icon: <IconJpop /> },
-    { view: 'trending', label: 'Trending', icon: <IconTrending /> },
   ] },
   { title: 'Explore', items: [
     { view: 'remixes', label: 'Remixes', icon: <TbVinyl className="h-4 w-4" /> },
@@ -57,9 +61,18 @@ export const navigationSections: Array<{ title: string; items: NavItem[] }> = [
   ] },
 ];
 
-function NavSections({ onSelect }: { onSelect?: () => void }) {
+function NavSections({ onSelect, onNavigate }: { onSelect?: () => void; onNavigate?: (view: ViewType) => void }) {
   const currentView = usePlayerStore((state) => state.currentView);
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
+
+  const navigate = useCallback((view: ViewType) => {
+    if (onNavigate) {
+      onNavigate(view);
+      return;
+    }
+    setCurrentView(view);
+    window.history.pushState(null, '', buildNavigationUrl(window.location, view));
+  }, [onNavigate, setCurrentView]);
 
   return navigationSections.map((section) => (
     <div key={section.title} className="space-y-1">
@@ -69,7 +82,7 @@ function NavSections({ onSelect }: { onSelect?: () => void }) {
         return (
           <button
             key={item.view}
-            onClick={() => { setCurrentView(item.view); onSelect?.(); }}
+            onClick={() => { navigate(item.view); onSelect?.(); }}
             className="flex h-11 w-full items-center gap-3 rounded-2xl border px-3 text-sm transition-[color,background,border-color,box-shadow,transform] duration-200 hover:translate-x-0.5"
             style={{
               color: active ? 'var(--salt-primary)' : 'var(--salt-foam)',
@@ -87,16 +100,16 @@ function NavSections({ onSelect }: { onSelect?: () => void }) {
   ));
 }
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: (view: ViewType) => void }) {
   return (
-    <aside className="hidden h-dvh w-[220px] shrink-0 border-r border-[var(--glass-border)] bg-[rgba(255,255,255,0.68)] shadow-[10px_0_36px_rgba(65,130,166,0.08)] backdrop-blur-2xl md:flex md:flex-col">
-      <div className="px-5 pb-5 pt-7"><div className="flex items-center gap-3 text-[var(--salt-white)]"><span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[linear-gradient(145deg,#dff5ff,#ffffff)] text-[var(--salt-primary)] shadow-[0_8px_20px_rgba(48,145,198,0.16)]"><WaveIcon /></span><span className="text-xl font-bold tracking-[-0.03em]">Marea</span></div></div>
-      <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-2 pb-6"><NavSections /></nav>
+    <aside className="hidden h-dvh w-[252px] shrink-0 border-r border-[var(--glass-border)] bg-[rgba(255,255,255,0.74)] shadow-[10px_0_36px_rgba(65,130,166,0.08)] backdrop-blur-2xl md:flex md:flex-col">
+      <div className="px-7 pb-7 pt-8"><div className="flex items-center gap-3 text-[var(--salt-white)]"><span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[linear-gradient(145deg,#dff5ff,#ffffff)] text-[var(--salt-primary)] shadow-[0_8px_20px_rgba(48,145,198,0.16)]"><WaveIcon /></span><span className="text-xl font-bold tracking-[-0.03em]">Marea</span></div></div>
+      <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 pb-6"><NavSections onNavigate={onNavigate} /></nav>
     </aside>
   );
 }
 
-export function MobileNavigation() {
+export function MobileNavigation({ onNavigate }: { onNavigate?: (view: ViewType) => void }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -172,7 +185,7 @@ export function MobileNavigation() {
           <button tabIndex={-1} aria-label="Close navigation" onClick={closeNavigation} className="absolute inset-0 bg-[rgba(13,43,62,0.34)] backdrop-blur-sm" />
           <div className="absolute inset-y-0 left-0 w-[min(86vw,320px)] overflow-y-auto border-r border-[var(--glass-border)] bg-[rgba(247,252,255,0.96)] p-4 shadow-[18px_0_60px_rgba(25,74,102,0.2)] backdrop-blur-2xl">
             <div className="flex items-center justify-between pb-2"><div className="flex items-center gap-3 text-xl font-bold text-[var(--salt-white)]"><span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[var(--sea-deep)] text-[var(--salt-primary)]"><WaveIcon /></span>Marea</div><button ref={closeButtonRef} onClick={closeNavigation} aria-label="Close navigation" className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--salt-mist)] hover:bg-[var(--glass-bg-hover)]"><HiXMark className="h-6 w-6" /></button></div>
-            <nav className="space-y-4"><NavSections onSelect={closeNavigation} /></nav>
+            <nav className="space-y-4"><NavSections onSelect={closeNavigation} onNavigate={onNavigate} /></nav>
           </div>
         </div>
       )}

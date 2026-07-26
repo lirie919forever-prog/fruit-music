@@ -17,7 +17,7 @@ export interface Artist {
   albumCount: number;
 }
 
-export type MusicProviderName = 'Jamendo' | 'ccMixter' | 'Archive';
+export type MusicProviderName = 'Jamendo' | 'ccMixter' | 'Archive' | 'LX Music';
 
 export interface Song {
   id: string;
@@ -43,6 +43,7 @@ export interface Song {
   licenseUrl: string;
   attributionUrl: string;
   metadataVerified: boolean;
+  playbackUnavailable?: boolean;
 }
 
 export interface Playlist {
@@ -58,4 +59,4 @@ export interface QueueItem {
   addedBy: 'user' | 'autoplay';
 }
 
-export type ViewType = 'albums' | 'artists' | 'search' | 'favorites' | 'history' | 'playlist' | 'now-playing' | 'pop' | 'jp' | 'trending' | 'remixes' | 'jazz' | 'classical';
+export type ViewType = 'new' | 'albums' | 'artists' | 'search' | 'favorites' | 'history' | 'playlist' | 'now-playing' | 'pop' | 'jp' | 'billboard' | 'uk' | 'trending' | 'remixes' | 'jazz' | 'classical';
