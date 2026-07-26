@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { SongCard } from './SongCard';
+import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
 import type { NavigationItem } from '@/lib/navigation';
@@ -43,24 +44,25 @@ export function CategoryGrid({ config, onNavigateWithItem }: { config: CategoryC
   const hasUnavailableTracks = songs.some((song) => song.playbackUnavailable);
 
   if (isLoading) return <TrackSkeleton />;
-  if (isError) {
+  if (isError || allProvidersFailed) {
     return (
-      <div className="flex flex-col items-start gap-3 px-4 py-10 text-[var(--salt-mist)] sm:px-6">
-        <p>{providerErrorMessage(error)}</p>
-        <button type="button" onClick={() => void refetch()} className="rounded-full border border-[var(--glass-border-active)] bg-white/70 px-4 py-2 text-sm text-[var(--salt-primary)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Try again</button>
-      </div>
-    );
-  }
-  if (allProvidersFailed) {
-    return (
-      <div className="flex flex-col items-start gap-3 px-4 py-10 text-[var(--salt-mist)] sm:px-6">
-        <p>Category providers are unavailable. Please try again.</p>
-        <button type="button" onClick={() => void refetch()} className="rounded-full border border-[var(--glass-border-active)] bg-white/70 px-4 py-2 text-sm text-[var(--salt-primary)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Try again</button>
-      </div>
+      <StatusPanel
+        eyebrow={`${config.title} unavailable`}
+        title={isError ? providerErrorMessage(error) : 'Category providers are unavailable. Please try again.'}
+        tone="error"
+        actions={<StatusButton onClick={() => void refetch()}>Try again</StatusButton>}
+      />
     );
   }
   if (!songs?.length) {
-    return <div className="mx-4 my-8 rounded-[24px] border border-[var(--glass-border)] bg-white/45 px-5 py-8 text-[var(--salt-mist)] sm:mx-6"><p>No verified tracks are available for this category.</p>{unavailableProviders.length > 0 && <p className="mt-2 text-xs">Unavailable or degraded: {unavailableProviders.join(', ')}</p>}<button type="button" onClick={() => void refetch()} className="mt-4 rounded-full border border-[var(--glass-border-active)] bg-white/70 px-4 py-2 text-sm text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Refresh</button></div>;
+    return (
+      <StatusPanel
+        eyebrow={config.title}
+        title="No verified tracks are available for this category."
+        note={unavailableProviders.length > 0 ? `Unavailable or degraded: ${unavailableProviders.join(', ')}` : undefined}
+        actions={<StatusButton onClick={() => void refetch()}>Refresh</StatusButton>}
+      />
+    );
   }
 
   return (

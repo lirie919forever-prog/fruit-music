@@ -8,6 +8,7 @@ import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countFederatedResults } from '@/lib/catalogFreshness';
 import { HiPlay } from 'react-icons/hi2';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import type { ViewType } from '@/types/music';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Album } from '@/types/music';
@@ -107,18 +108,25 @@ function AlbumCard({ album, onNavigateWithItem }: { album: Album; onNavigateWith
 
 function EmptyAlbums({ providers, retry }: { providers: string[]; retry: () => void }) {
 	return (
-		<div className="mx-4 my-8 rounded-[28px] border border-[var(--glass-border)] bg-[rgba(255,255,255,0.46)] px-6 py-10 text-[var(--salt-mist)] shadow-[0_16px_40px_rgba(47,119,157,0.08)] sm:mx-6">
-			<p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--salt-primary)]">Albums are temporarily empty</p>
-			<h2 className="mt-2 text-xl font-semibold text-[var(--salt-white)]">No provider-backed albums are available right now.</h2>
-			<p className="mt-2 max-w-xl text-sm leading-6">The album view only shows records returned by configured music providers. No placeholder or unverified albums are inserted.</p>
-			{providers.length > 0 && <p className="mt-3 text-xs">Unavailable or degraded: {providers.join(', ')}</p>}
-			<button type="button" onClick={retry} className="mt-5 rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-sm font-semibold text-[var(--salt-white)] transition hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Refresh albums</button>
-		</div>
+		<StatusPanel
+			eyebrow="Albums are temporarily empty"
+			title="No provider-backed albums are available right now."
+			body="The album view only shows records returned by configured music providers. No placeholder or unverified albums are inserted."
+			note={providers.length > 0 ? `Unavailable or degraded: ${providers.join(', ')}` : undefined}
+			actions={<StatusButton onClick={retry}>Refresh albums</StatusButton>}
+		/>
 	);
 }
 
 function Failure({ message, retry }: { message: string; retry: () => void }) {
-	return <div className="flex flex-col items-start gap-3 px-4 py-10 text-[var(--salt-mist)] sm:px-6"><p>{message}</p><button type="button" onClick={retry} className="rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-sm text-[var(--salt-white)]">Try again</button></div>;
+	return (
+		<StatusPanel
+			eyebrow="Albums unavailable"
+			title={message}
+			tone="error"
+			actions={<StatusButton onClick={retry}>Try again</StatusButton>}
+		/>
+	);
 }
 
 function AlbumSkeleton() {

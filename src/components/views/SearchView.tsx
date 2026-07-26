@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { SongCard } from './SongCard';
+import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Song, ViewType } from '@/types/music';
@@ -66,12 +67,19 @@ export function SearchView({ query, onQueryChange, onNavigateWithItem }: { query
         <input id="music-search" ref={inputRef} type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search music…" className="h-10 w-full rounded-lg border border-[var(--glass-border)] bg-white pl-10 pr-4 text-[13px] text-[var(--pearl-bright)] outline-none transition-[border-color,box-shadow] focus:border-[var(--biolum-primary)] focus:ring-2 focus:ring-[var(--biolum-glow)]" />
       </div>
 
-      {!canSearch && <p className="py-12 text-center text-sm text-[var(--pearl-dim)]">{debouncedQuery ? 'Type at least 2 characters to search' : lxEnabled ? 'Search across Jamendo, ccMixter, Archive, and LX Music tracks' : 'Search across verified Jamendo, ccMixter, and Archive tracks'}</p>}
+      {!canSearch && <p className="py-12 text-center text-[13px] text-[var(--pearl-dim)]">{debouncedQuery ? 'Type at least 2 characters to search' : lxEnabled ? 'Search across Jamendo, ccMixter, Archive, and LX Music tracks' : 'Search across verified Jamendo, ccMixter, and Archive tracks'}</p>}
       {isLoading && <SearchSkeleton />}
-      {isError && <div className="flex flex-col items-center gap-3 py-10 text-[var(--danger)]"><p>{providerErrorMessage(error)}</p><button type="button" onClick={() => void refetch()} className="rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-sm text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Try again</button></div>}
-      {results && allProvidersFailed && !isLoading && <div className="flex flex-col items-center gap-3 rounded-[24px] border border-[var(--glass-border)] bg-white/40 py-10 text-center text-sm text-[var(--danger)]"><p>Search providers are unavailable. Please try again.</p><button type="button" onClick={() => void refetch()} className="rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Try again</button></div>}
+      {(isError || (results && allProvidersFailed && !isLoading)) && (
+        <StatusPanel
+          eyebrow="Search unavailable"
+          title={isError ? providerErrorMessage(error) : 'Search providers are unavailable. Please try again.'}
+          tone="error"
+          align="center"
+          actions={<StatusButton onClick={() => void refetch()}>Try again</StatusButton>}
+        />
+      )}
       {results && unavailableProviders.length > 0 && !allProvidersFailed && <p className="text-xs text-[var(--pearl-dim)]">{unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'was' : 'were'} unavailable or degraded. Showing available results.</p>}
-      {results && !results.length && !allProvidersFailed && !isLoading && <p className="py-12 text-center text-sm text-[var(--pearl-dim)]">No tracks match “{debouncedQuery}”.</p>}
+      {results && !results.length && !allProvidersFailed && !isLoading && <p className="py-12 text-center text-[13px] text-[var(--pearl-dim)]">No tracks match “{debouncedQuery}”.</p>}
       {results && results.length > 0 && (
         <div>
           <h2 className="mb-1 text-[17px] font-bold tracking-[-0.01em] text-[var(--salt-white)]">Tracks <span className="font-normal text-[var(--salt-mist)]">· {results.length}</span></h2>

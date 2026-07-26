@@ -11,7 +11,6 @@ import {
   HiHeart,
   HiLockClosed,
   HiMagnifyingGlass,
-  HiMusicalNote,
   HiPlay,
   HiSquares2X2,
   HiUserGroup,
@@ -21,6 +20,7 @@ import { ArtistLink, ChartRail, SongRail } from './SongCard';
 import { EditorialBanner } from './EditorialBanner';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { TrackMenu } from '@/components/ui/TrackMenu';
+import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { buildNavigationUrl, type NavigationItem } from '@/lib/navigation';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
 import { interleaveSongGroups, playableSongs, uniqueAlbumSongs } from './newViewModel';
@@ -152,25 +152,23 @@ function CatalogNotice({ issues, onRetry }: { issues: string[]; onRetry: () => v
 
 function EmptyDiscovery({ onNavigate }: { onNavigate: (view: ViewType) => void }) {
   return (
-    <section className="grid min-h-[220px] place-items-center rounded-xl border border-[var(--glass-border)] bg-white py-10 text-center" role="status">
-      <div className="max-w-lg px-4">
-        <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#eaf4f7] text-[var(--salt-primary)]">
-          <HiMusicalNote className="h-5 w-5" aria-hidden />
-        </span>
-        <h2 className="mt-3 text-[17px] font-bold text-[var(--salt-white)]">The live catalog is catching up</h2>
-        <p className="mt-1.5 text-[13px] text-[var(--salt-mist)]">Your saved music is still ready, or search for a specific artist or track.</p>
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          <button type="button" onClick={() => onNavigate('search')} className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--salt-primary)] px-4 text-[13px] font-semibold text-white">
+    <StatusPanel
+      align="center"
+      title="The live catalog is catching up"
+      body="Your saved music is still ready, or search for a specific artist or track."
+      actions={(
+        <>
+          <StatusButton onClick={() => onNavigate('search')}>
             <HiMagnifyingGlass className="h-4 w-4" aria-hidden />
             Search
-          </button>
-          <button type="button" onClick={() => onNavigate('favorites')} className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--glass-border-active)] px-4 text-[13px] font-semibold text-[var(--salt-primary)]">
+          </StatusButton>
+          <StatusButton variant="secondary" onClick={() => onNavigate('favorites')}>
             <HiHeart className="h-4 w-4" aria-hidden />
             Favorites
-          </button>
-        </div>
-      </div>
-    </section>
+          </StatusButton>
+        </>
+      )}
+    />
   );
 }
 

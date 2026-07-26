@@ -6,6 +6,7 @@ import { usePlayerStore } from '@/store/playerStore';
 import { SongRail } from './SongCard';
 import { playableSongs } from './newViewModel';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { api } from '@/lib/api';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
@@ -124,20 +125,13 @@ export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
 	if (isError || !resolvedMeta) {
 		const lowerTitle = kind === 'album' ? 'album' : 'artist';
 		return (
-			<div className="rounded-xl border border-[var(--glass-border)] bg-white px-6 py-10 text-[var(--salt-mist)]">
-				<p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--salt-primary)]">{title} unavailable</p>
-				<h2 className="mt-1.5 text-[17px] font-bold text-[var(--salt-white)]">This {lowerTitle} could not be loaded.</h2>
-				{error && <p className="mt-1.5 text-xs">{providerErrorMessage(error)}</p>}
-				<button
-					type="button"
-					onClick={() => {
-						void Promise.all([refetchMeta(), refetchTracks()]);
-					}}
-					className="mt-4 rounded-full border border-[var(--glass-border-active)] bg-white px-4 py-2 text-[13px] font-semibold text-[var(--salt-primary)]"
-				>
-					Retry
-				</button>
-			</div>
+			<StatusPanel
+				eyebrow={`${title} unavailable`}
+				title={`This ${lowerTitle} could not be loaded.`}
+				body={error ? providerErrorMessage(error) : undefined}
+				tone="error"
+				actions={<StatusButton onClick={() => void Promise.all([refetchMeta(), refetchTracks()])}>Retry</StatusButton>}
+			/>
 		);
 	}
 

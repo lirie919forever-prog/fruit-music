@@ -80,4 +80,43 @@ describe('Jamendo provider', () => {
 
     expect(results).toEqual([]);
   });
+
+  it('retries a listing once when Jamendo answers success with no results', async () => {
+    // Throttled requests come back 200 with an empty `results` array, so the
+    // emptiness has to be retried rather than believed.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ headers: { status: 'success', code: 0 }, results: [] }))
+      .mockResolvedValueOnce(Response.json({
+        results: [{
+          id: '9',
+          name: 'Album',
+          artist_id: '7',
+          artist_name: 'Artist',
+          image: 'https://example.com/album.jpg',
+          releasedate: '2025-06-01',
+        }],
+      }));
+
+    const albums = await jamendoProvider.getAlbums();
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    expect(albums).toHaveLength(1);
+    expect(albums[0].id).toBe('jamendo-9');
+  });
+
+  it('accepts a genuinely empty listing after one retry rather than looping', async () => {
+    // A fresh Response per call: a body can only be read once, so a shared
+    // instance would fail the retry on `Body already read` instead of emptiness.
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ results: [] }));
+
+    await expect(jamendoProvider.getAlbumSongs('jamendo-9')).resolves.toEqual([]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not spend a retry on a search that legitimately matches nothing', async () => {
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ results: [] }));
+
+    await expect(jamendoProvider.search('zzzznomatch')).resolves.toEqual([]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
 });

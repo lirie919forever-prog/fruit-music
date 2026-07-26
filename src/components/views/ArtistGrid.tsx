@@ -8,6 +8,7 @@ import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countFederatedResults } from '@/lib/catalogFreshness';
 import { HiPlay } from 'react-icons/hi2';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import type { ViewType } from '@/types/music';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Artist } from '@/types/music';
@@ -28,12 +29,13 @@ export function ArtistGrid({ onNavigateWithItem }: { onNavigateWithItem?: (view:
 	if (isError) return <Failure message={providerErrorMessage(error)} retry={() => void refetch()} />;
 	if (allProvidersFailed) return <Failure message="Artist providers are unavailable. Please try again." retry={() => void refetch()} />;
 	if (!artists?.length) return (
-		<div className="mx-4 my-8 rounded-[28px] border border-[var(--glass-border)] bg-[rgba(255,255,255,0.46)] px-6 py-10 text-[var(--salt-mist)] shadow-[0_16px_40px_rgba(47,119,157,0.08)] sm:mx-6">
-			<p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--salt-primary)]">Artists are temporarily empty</p>
-			<h2 className="mt-2 text-xl font-semibold text-[var(--salt-white)]">No provider-backed artists are available right now.</h2>
-			<p className="mt-2 text-sm leading-6">Only verified artists returned by configured music providers are shown.</p>
-			<button type="button" onClick={() => void refetch()} className="mt-5 rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-sm text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Refresh artists</button>
-		</div>
+		<StatusPanel
+			eyebrow="Artists are temporarily empty"
+			title="No provider-backed artists are available right now."
+			body="Only verified artists returned by configured music providers are shown."
+			note={unavailableProviders.length > 0 ? `Unavailable or degraded: ${unavailableProviders.join(', ')}` : undefined}
+			actions={<StatusButton onClick={() => void refetch()}>Refresh artists</StatusButton>}
+		/>
 	);
 
 	return (
@@ -106,7 +108,14 @@ function ArtistCard({ artist, onNavigateWithItem }: { artist: Artist; onNavigate
 }
 
 function Failure({ message, retry }: { message: string; retry: () => void }) {
-	return <div className="flex flex-col items-start gap-3 px-4 py-10 text-[var(--salt-mist)] sm:px-6"><p>{message}</p><button type="button" onClick={retry} className="rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-sm text-[var(--salt-white)]">Try again</button></div>;
+	return (
+		<StatusPanel
+			eyebrow="Artists unavailable"
+			title={message}
+			tone="error"
+			actions={<StatusButton onClick={retry}>Try again</StatusButton>}
+		/>
+	);
 }
 
 function ArtistSkeleton() {

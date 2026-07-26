@@ -16,7 +16,7 @@
  */
 
 import type { MusicProvider } from './types';
-import { providerFetch } from './errors';
+import { externalAbortError, providerFetch } from './errors';
 import { normalizeCreativeCommonsLicense } from '@/lib/licenses';
 import { safeCoverArt } from '@/lib/coverArt';
 import type { Album, Artist, Song } from '@/types/music';
@@ -32,8 +32,54 @@ function decodeHtml(s: string): string {
     .replace(/&#039;/g, "'");
 }
 
-async function jamendoFetch<T>(path: string, params: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
-  return providerFetch<T>('Jamendo', path.split('/').pop() || 'request', path, params, signal);
+const EMPTY_RETRY_DELAY_MS = 600;
+
+function hasEmptyResults(payload: unknown): boolean {
+  if (typeof payload !== 'object' || payload === null) return false;
+  const results = (payload as { results?: unknown }).results;
+  return Array.isArray(results) && results.length === 0;
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(externalAbortError(signal));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(externalAbortError(signal!));
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Jamendo answers a throttled request with `status: "success"` and an empty
+ * `results` array instead of an error status, so a starved page is
+ * indistinguishable from a genuinely empty one at the HTTP layer — and React
+ * Query, which only retries thrown errors, takes it as truth. Measured against
+ * one album id over four spaced requests: 1, 0, 1, 1 tracks.
+ *
+ * Listing calls therefore retry once when the payload comes back empty. Callers
+ * that can legitimately return nothing pass `retryWhenEmpty: false` so a search
+ * with no matches is not billed an extra round trip.
+ */
+async function jamendoFetch<T>(
+  path: string,
+  params: Record<string, string> = {},
+  signal?: AbortSignal,
+  retryWhenEmpty = true,
+): Promise<T> {
+  const operation = path.split('/').pop() || 'request';
+  const payload = await providerFetch<T>('Jamendo', operation, path, params, signal);
+  if (!retryWhenEmpty || !hasEmptyResults(payload)) return payload;
+  await delay(EMPTY_RETRY_DELAY_MS, signal);
+  return providerFetch<T>('Jamendo', operation, path, params, signal);
 }
 
 interface JamendoTrack {
@@ -153,9 +199,16 @@ type JamendoProvider = MusicProvider & Required<Pick<MusicProvider,
 
 export const jamendoProvider: JamendoProvider = {
   async getAlbums(signal?: AbortSignal): Promise<Album[]> {
+    // Ordered by popularity, not release date. Jamendo lists an album in this
+    // index as soon as it is registered, which is well before its tracks can be
+    // fetched by `album_id` — measured against ten albums per ordering with the
+    // empty-result retry applied, newest-first yielded 3 openable albums out of
+    // 10 against 9 out of 10 for popularity. A grid of albums that open is also
+    // simply the better browse surface; genuinely new releases still reach the
+    // New view, which is built from track feeds rather than the album index.
     const data = await jamendoFetch<{ results: JamendoAlbum[] }>(`${PROXY_BASE}/albums`, {
       limit: '100',
-      order: 'releasedate_desc',
+      order: 'popularity_total',
     }, signal);
     if (!Array.isArray(data?.results)) return [];
 
@@ -218,11 +271,13 @@ export const jamendoProvider: JamendoProvider = {
   },
 
   async search(query: string, signal?: AbortSignal): Promise<Song[]> {
+    // A query with no matches is a real answer here, so this one does not pay
+    // for the empty-result retry.
     const data = await jamendoFetch<{ results: JamendoTrack[] }>(`${PROXY_BASE}/tracks`, {
       search: query,
       limit: '50',
       audioformat: 'mp31',
-    }, signal);
+    }, signal, false);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isJamendoTrack).map(jamendoTrackToSong);
   },
