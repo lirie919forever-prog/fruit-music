@@ -4,8 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   HiArrowPath,
-  HiArrowRight,
   HiChartBar,
+  HiChevronRight,
   HiClock,
   HiExclamationTriangle,
   HiHeart,
@@ -13,24 +13,24 @@ import {
   HiMagnifyingGlass,
   HiMusicalNote,
   HiPlay,
-  HiPlus,
   HiSquares2X2,
   HiUserGroup,
 } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
-import { ArtistLink, ChartRail, FavoriteButton, SongRail, formatDuration } from './SongCard';
+import { ArtistLink, ChartRail, SongRail } from './SongCard';
 import { EditorialBanner } from './EditorialBanner';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { TrackMenu } from '@/components/ui/TrackMenu';
 import { buildNavigationUrl, type NavigationItem } from '@/lib/navigation';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
 import { interleaveSongGroups, playableSongs, uniqueAlbumSongs } from './newViewModel';
 import type { FederatedResult } from '@/lib/api';
 import type { Song, ViewType } from '@/types/music';
 
-interface SectionProps {
+interface ShelfProps {
   title: string;
-  description?: string;
   view?: ViewType;
+  action?: ReactNode;
   children: ReactNode;
 }
 
@@ -50,7 +50,13 @@ function navigateTo(view: ViewType): void {
   window.history.pushState(null, '', buildNavigationUrl(window.location, view));
 }
 
-function Section({ title, description, view, children }: SectionProps) {
+/**
+ * A browse shelf: a 17px title that is itself the link into the full view, and
+ * nothing else. Explanatory subtitles under every heading were costing a line of
+ * vertical space per section for text nobody needs twice — a shelf called "Jazz"
+ * does not need to say it contains jazz.
+ */
+function Shelf({ title, view, action, children }: ShelfProps) {
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
   const openSection = () => {
     if (!view) return;
@@ -59,22 +65,22 @@ function Section({ title, description, view, children }: SectionProps) {
   };
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-end justify-between gap-4 border-b border-[var(--glass-border)] pb-3">
-        <div className="min-w-0">
-          <h2 className="text-xl font-bold leading-tight text-[var(--salt-white)] sm:text-2xl">{title}</h2>
-          {description && <p className="mt-1 text-xs text-[var(--salt-mist)]">{description}</p>}
-        </div>
-        {view && (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        {view ? (
           <button
             type="button"
             onClick={openSection}
-            className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)]"
+            className="group -mx-1 flex min-w-0 items-center gap-0.5 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
           >
-            See all
-            <HiArrowRight className="h-4 w-4" aria-hidden />
+            <h2 className="min-w-0 truncate text-[17px] font-bold tracking-[-0.01em] text-[var(--salt-white)]">{title}</h2>
+            <HiChevronRight className="h-4 w-4 shrink-0 text-[var(--salt-mist)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--salt-primary)]" aria-hidden />
+            <span className="sr-only">See all</span>
           </button>
+        ) : (
+          <h2 className="min-w-0 truncate text-[17px] font-bold tracking-[-0.01em] text-[var(--salt-white)]">{title}</h2>
         )}
+        {action}
       </div>
       {children}
     </section>
@@ -85,8 +91,8 @@ function SectionLoading({ rows = 6 }: { rows?: number }) {
   return (
     <div className="grid gap-x-6 md:grid-cols-2 xl:grid-cols-3" aria-label="Loading music">
       {Array.from({ length: rows }, (_, index) => (
-        <div key={index} className="flex h-16 items-center gap-3 border-b border-[var(--glass-border)] px-1">
-          <div className="h-10 w-10 shrink-0 animate-pulse rounded-lg bg-[var(--salt-ghost)]" />
+        <div key={index} className="flex h-14 items-center gap-3 border-b border-[var(--glass-border)] px-1">
+          <div className="h-10 w-10 shrink-0 animate-pulse rounded bg-[var(--salt-ghost)]" />
           <div className="min-w-0 flex-1 space-y-2">
             <div className="h-3 w-3/4 animate-pulse rounded bg-[var(--salt-ghost)]" />
             <div className="h-2.5 w-1/2 animate-pulse rounded bg-[var(--salt-ghost)]" />
@@ -97,34 +103,23 @@ function SectionLoading({ rows = 6 }: { rows?: number }) {
   );
 }
 
-function DiscoveryIntro({ songs }: { songs: Song[] }) {
+/** Plays a whole shelf, mirroring the play button Apple reveals on shelf titles. */
+function PlayShelfButton({ songs, label }: { songs: Song[]; label: string }) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
   const readySongs = playableSongs(songs);
-  const sourceCount = new Set(songs.map((song) => song.provider)).size;
+  if (readySongs.length === 0) return null;
 
   return (
-    <section className="flex items-end justify-between gap-3 border-b border-[var(--glass-border)] pb-5 sm:gap-4 sm:pb-6">
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase text-[#bd3f4f]">Marea selection</p>
-        <h2 className="mt-1 text-3xl font-bold leading-tight text-[var(--salt-white)] sm:text-4xl">New and noteworthy</h2>
-        <p className="mt-2 text-sm text-[var(--salt-mist)]">
-          {songs.length > 0
-            ? `${songs.length} picks across ${sourceCount} ${sourceCount === 1 ? 'source' : 'sources'}`
-            : 'Fresh catalogs update here throughout the day'}
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={() => playAlbum(readySongs, 0)}
-        disabled={readySongs.length === 0}
-        aria-label="Play the new music mix"
-        title="Play the mix"
-        className="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-2 rounded-full bg-[#d84f5f] text-sm font-semibold text-white shadow-[0_8px_20px_rgba(184,55,73,0.2)] transition-colors hover:bg-[#bd3f4f] disabled:cursor-not-allowed disabled:bg-[#a7b3ba] disabled:shadow-none sm:w-fit sm:px-5"
-      >
-        <HiPlay className="h-4 w-4" aria-hidden />
-        <span className="hidden sm:inline">Play the mix</span>
-      </button>
-    </section>
+    <button
+      type="button"
+      onClick={() => playAlbum(readySongs, 0)}
+      aria-label={label}
+      title={label}
+      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-[#d84f5f] px-3 text-[13px] font-semibold text-white transition-colors hover:bg-[#bd3f4f]"
+    >
+      <HiPlay className="h-3.5 w-3.5" aria-hidden />
+      Play
+    </button>
   );
 }
 
@@ -135,9 +130,9 @@ function CatalogNotice({ issues, onRetry }: { issues: string[]; onRetry: () => v
     : `${issues.length} catalog feeds affected. Showing available music.`;
 
   return (
-    <div role="status" className="flex items-center gap-2 border-y border-[#dfb5b8] bg-[#fff6f6] px-3 py-2.5 text-sm text-[#77343d] sm:gap-3 sm:px-4 sm:py-3">
+    <div role="status" className="flex items-center gap-2 rounded-lg border border-[#e6c3c6] bg-[#fdf5f5] px-3 py-2 text-[13px] text-[#77343d] sm:gap-3">
       <span className="flex min-w-0 flex-1 items-center gap-2">
-        <HiExclamationTriangle className="h-5 w-5 shrink-0" aria-hidden />
+        <HiExclamationTriangle className="h-4 w-4 shrink-0" aria-hidden />
         <span className="min-w-0 sm:hidden">{mobileSummary}</span>
         <span className="hidden min-w-0 sm:inline">Affected feeds: {issues.join(', ')}. Available music remains in place.</span>
       </span>
@@ -146,10 +141,10 @@ function CatalogNotice({ issues, onRetry }: { issues: string[]; onRetry: () => v
         onClick={onRetry}
         aria-label="Retry unavailable sources"
         title="Retry unavailable sources"
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold hover:bg-[#f8e4e5] sm:w-auto sm:gap-2 sm:px-3"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold hover:bg-[#f6e3e4] sm:w-auto sm:gap-1.5 sm:px-3"
       >
         <HiArrowPath className="h-4 w-4" aria-hidden />
-        <span className="hidden sm:inline">Retry sources</span>
+        <span className="hidden sm:inline">Retry</span>
       </button>
     </div>
   );
@@ -157,19 +152,19 @@ function CatalogNotice({ issues, onRetry }: { issues: string[]; onRetry: () => v
 
 function EmptyDiscovery({ onNavigate }: { onNavigate: (view: ViewType) => void }) {
   return (
-    <section className="grid min-h-[260px] place-items-center border-y border-[var(--glass-border)] py-10 text-center" role="status">
-      <div className="max-w-lg">
-        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#eaf4f7] text-[var(--salt-primary)]">
-          <HiMusicalNote className="h-6 w-6" aria-hidden />
+    <section className="grid min-h-[220px] place-items-center rounded-xl border border-[var(--glass-border)] bg-white py-10 text-center" role="status">
+      <div className="max-w-lg px-4">
+        <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#eaf4f7] text-[var(--salt-primary)]">
+          <HiMusicalNote className="h-5 w-5" aria-hidden />
         </span>
-        <h2 className="mt-4 text-xl font-bold text-[var(--salt-white)]">The live catalog is catching up</h2>
-        <p className="mt-2 text-sm text-[var(--salt-mist)]">Your saved music is still ready, or search for a specific artist or track.</p>
-        <div className="mt-5 flex flex-wrap justify-center gap-2">
-          <button type="button" onClick={() => onNavigate('search')} className="inline-flex h-10 items-center gap-2 rounded-full bg-[var(--salt-primary)] px-4 text-sm font-semibold text-white">
+        <h2 className="mt-3 text-[17px] font-bold text-[var(--salt-white)]">The live catalog is catching up</h2>
+        <p className="mt-1.5 text-[13px] text-[var(--salt-mist)]">Your saved music is still ready, or search for a specific artist or track.</p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <button type="button" onClick={() => onNavigate('search')} className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--salt-primary)] px-4 text-[13px] font-semibold text-white">
             <HiMagnifyingGlass className="h-4 w-4" aria-hidden />
             Search
           </button>
-          <button type="button" onClick={() => onNavigate('favorites')} className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--glass-border-active)] px-4 text-sm font-semibold text-[var(--salt-primary)]">
+          <button type="button" onClick={() => onNavigate('favorites')} className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--glass-border-active)] px-4 text-[13px] font-semibold text-[var(--salt-primary)]">
             <HiHeart className="h-4 w-4" aria-hidden />
             Favorites
           </button>
@@ -179,62 +174,50 @@ function EmptyDiscovery({ onNavigate }: { onNavigate: (view: ViewType) => void }
   );
 }
 
-function DiscoverySongRow({ song, rank, playableTracks, onNavigateWithItem }: { song: Song; rank: number; playableTracks: Song[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
+function DiscoverySongRow({ song, playableTracks, onNavigateWithItem }: { song: Song; playableTracks: Song[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
-  const addToQueue = usePlayerStore((state) => state.addToQueue);
   const currentSong = usePlayerStore((state) => state.currentSong);
-  const isPlaying = usePlayerStore((state) => state.isPlaying);
   const playableIndex = playableTracks.findIndex((track) => track.id === song.id);
   const unavailable = playableIndex < 0;
   const active = currentSong?.id === song.id;
+  const play = () => { if (!unavailable) playAlbum(playableTracks, playableIndex); };
 
   return (
-    <article className={`grid h-16 grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 border-b border-[var(--glass-border)] px-1 transition-colors ${active ? 'bg-[#eef8fb]' : 'hover:bg-white/55'}`}>
-      <span className={`text-center text-xs font-semibold tabular-nums ${active ? 'text-[#bd3f4f]' : 'text-[var(--salt-mist)]'}`} aria-label={`Track ${rank}`}>
-        {active && isPlaying ? <span className="inline-block h-2 w-2 rounded-full bg-[#d84f5f]" aria-label="Playing" /> : rank}
-      </span>
-      <div className="flex min-w-0 items-center gap-3">
+    <article className={`flex h-14 items-center gap-3 border-b border-[var(--glass-border)] px-1 transition-colors ${active ? 'bg-[color-mix(in_srgb,var(--salt-primary)_7%,white)]' : 'hover:bg-[var(--glass-bg-hover)]'}`}>
+      <button
+        type="button"
+        onClick={play}
+        disabled={unavailable}
+        aria-label={unavailable ? `${song.title} is unavailable for playback` : `Play ${song.title} by ${song.artist}`}
+        className="group/art relative shrink-0 overflow-hidden rounded bg-[var(--salt-ghost)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed"
+      >
+        <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="40px" className="h-10 w-10 object-cover" />
+        <span aria-hidden className={`absolute inset-0 flex items-center justify-center bg-black/45 text-white transition-opacity ${unavailable ? 'opacity-0' : 'opacity-0 group-hover/art:opacity-100 group-focus-visible/art:opacity-100'}`}>
+          <HiPlay className="h-4 w-4" />
+        </span>
+      </button>
+      <div className="min-w-0 flex-1">
         <button
           type="button"
-          onClick={() => { if (!unavailable) playAlbum(playableTracks, playableIndex); }}
+          onClick={play}
           disabled={unavailable}
-          aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title} by ${song.artist}`}
-          className="shrink-0 rounded-lg disabled:cursor-not-allowed"
+          aria-label={unavailable ? `${song.title} is unavailable for playback` : `Play ${song.title} by ${song.artist}`}
+          className={`block max-w-full truncate text-left text-[13px] font-medium leading-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed ${active ? 'text-[var(--salt-primary)]' : 'text-[var(--salt-white)]'}`}
         >
-          <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="40px" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+          {song.title}
         </button>
-        <div className="min-w-0 flex-1">
-          <button
-            type="button"
-            onClick={() => { if (!unavailable) playAlbum(playableTracks, playableIndex); }}
-            disabled={unavailable}
-            aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title} by ${song.artist}`}
-            className={`block w-full truncate text-left text-sm font-semibold disabled:cursor-not-allowed ${active ? 'text-[#a93748]' : 'text-[var(--salt-white)]'}`}
-          >
-            {song.title}
-          </button>
-          <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="block text-xs text-[var(--salt-mist)]" />
-          <span className="hidden truncate text-[10px] text-[var(--salt-foam)] sm:block">{formatDuration(song.duration)} · {song.provider} - {song.licenseName || 'Provider terms'}</span>
-        </div>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-tight text-[var(--salt-mist)]">
+          <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="text-xs" />
+          <span aria-hidden className="shrink-0">·</span>
+          <span className="shrink-0 truncate">{song.provider}</span>
+        </span>
       </div>
-      <div className="flex items-center gap-1">
-        <FavoriteButton song={song} className="h-9 w-9" />
-        {unavailable ? (
-          <span title="Playback unavailable" aria-label="Playback unavailable" className="flex h-9 w-9 shrink-0 items-center justify-center text-[var(--salt-mist)]">
-            <HiLockClosed className="h-4 w-4" aria-hidden />
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => addToQueue(song)}
-            title="Add to queue"
-            aria-label={`Add ${song.title} to queue`}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--salt-primary)] transition-colors hover:bg-[#dceef5]"
-          >
-            <HiPlus className="h-5 w-5" aria-hidden />
-          </button>
-        )}
-      </div>
+      {unavailable && (
+        <span title="Playback unavailable" aria-label="Playback unavailable" className="shrink-0 text-[var(--salt-mist)]">
+          <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
+        </span>
+      )}
+      <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
     </article>
   );
 }
@@ -242,9 +225,9 @@ function DiscoverySongRow({ song, rank, playableTracks, onNavigateWithItem }: { 
 function DiscoverySongGrid({ songs, onNavigateWithItem }: { songs: Song[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
   const readySongs = playableSongs(songs);
   return (
-    <div className="grid gap-x-6 md:grid-cols-2 xl:grid-cols-3">
-      {songs.map((song, index) => (
-        <DiscoverySongRow key={song.id} song={song} rank={index + 1} playableTracks={readySongs} onNavigateWithItem={onNavigateWithItem} />
+    <div className="grid gap-x-8 md:grid-cols-2 xl:grid-cols-3">
+      {songs.map((song) => (
+        <DiscoverySongRow key={song.id} song={song} playableTracks={readySongs} onNavigateWithItem={onNavigateWithItem} />
       ))}
     </div>
   );
@@ -252,25 +235,28 @@ function DiscoverySongGrid({ songs, onNavigateWithItem }: { songs: Song[]; onNav
 
 function ReleaseRail({ songs, onNavigateWithItem }: { songs: Song[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
   return (
-    <div className="-mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-3" aria-label="New releases">
+    <div className="rail-scroll -mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-1" aria-label="New releases">
       {songs.map((song, index) => (
-        <article key={song.albumId} className="w-[152px] shrink-0 snap-start sm:w-[178px]">
+        <article key={song.albumId} className="w-[144px] shrink-0 snap-start sm:w-[168px]">
           <button
             type="button"
             onClick={() => onNavigateWithItem('albums', { kind: 'album', id: song.albumId })}
-            className="group block w-full rounded-lg text-left focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+            className="group block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
             aria-label={`Open ${song.album || song.title} by ${song.artist}`}
           >
-            <span className="relative block aspect-square overflow-hidden rounded-lg bg-[var(--salt-ghost)] shadow-[0_10px_26px_rgba(47,119,157,0.14)]">
+            <span className="relative block aspect-square overflow-hidden rounded-lg bg-[var(--salt-ghost)]">
               <CoverArt
                 src={song.coverArt}
                 alt=""
                 loading={index === 0 ? 'eager' : 'lazy'}
-                sizes="(max-width: 640px) 152px, 178px"
-                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.025]"
+                sizes="(max-width: 640px) 144px, 168px"
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               />
+              <span aria-hidden className="absolute inset-0 flex items-center justify-center bg-black/35 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                <HiPlay className="h-6 w-6" />
+              </span>
             </span>
-            <span className="mt-3 block truncate text-sm font-semibold text-[var(--salt-white)]">{song.album || song.title}</span>
+            <span className="mt-2 block truncate text-[13px] font-medium text-[var(--salt-white)]">{song.album || song.title}</span>
             <span className="mt-0.5 block truncate text-xs text-[var(--salt-mist)]">{song.artist}</span>
           </button>
         </article>
@@ -284,35 +270,38 @@ function MiniSongList({ songs, onNavigateWithItem }: { songs: Song[]; onNavigate
   const readySongs = playableSongs(songs);
 
   return (
-    <div className="mt-2">
+    <div>
       {songs.slice(0, 4).map((song) => {
         const index = readySongs.findIndex((track) => track.id === song.id);
         const unavailable = index < 0;
         return (
-          <div key={song.id} className="flex h-12 w-full min-w-0 items-center gap-2 border-b border-[var(--glass-border)]">
+          <div key={song.id} className="flex h-12 w-full min-w-0 items-center gap-2.5 border-b border-[var(--glass-border)] transition-colors last:border-b-0 hover:bg-[var(--glass-bg-hover)]">
             <button
               type="button"
               disabled={unavailable}
               onClick={() => { if (!unavailable) playAlbum(readySongs, index); }}
-              aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title}`}
-              className="shrink-0 disabled:cursor-not-allowed"
+              aria-label={unavailable ? `${song.title} is unavailable for playback` : `Play ${song.title}`}
+              className="group/art relative shrink-0 overflow-hidden rounded bg-[var(--salt-ghost)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed"
             >
-              <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="36px" className="h-9 w-9 shrink-0 rounded-lg object-cover" />
+              <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="36px" className="h-9 w-9 object-cover" />
+              <span aria-hidden className={`absolute inset-0 flex items-center justify-center bg-black/45 text-white transition-opacity ${unavailable ? 'opacity-0' : 'opacity-0 group-hover/art:opacity-100 group-focus-visible/art:opacity-100'}`}>
+                <HiPlay className="h-3.5 w-3.5" />
+              </span>
             </button>
             <div className="min-w-0 flex-1">
               <button
                 type="button"
                 disabled={unavailable}
                 onClick={() => { if (!unavailable) playAlbum(readySongs, index); }}
-                aria-label={unavailable ? `${song.title} playback unavailable` : `Play ${song.title}`}
-                className="block w-full truncate text-left text-xs font-semibold text-[var(--salt-white)] disabled:cursor-not-allowed"
+                aria-label={unavailable ? `${song.title} is unavailable for playback` : `Play ${song.title}`}
+                className="block w-full truncate text-left text-[13px] font-medium leading-tight text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed"
               >
                 {song.title}
               </button>
-              <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="block text-[11px] text-[var(--salt-mist)]" />
+              <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="mt-0.5 block text-xs leading-tight text-[var(--salt-mist)]" />
             </div>
-            <FavoriteButton song={song} className="h-8 w-8 shrink-0" />
-            {unavailable ? <HiLockClosed className="h-4 w-4 shrink-0 text-[var(--salt-mist)]" aria-hidden /> : <HiPlay className="h-4 w-4 shrink-0 text-[var(--salt-primary)]" aria-hidden />}
+            {unavailable && <HiLockClosed className="h-3.5 w-3.5 shrink-0 text-[var(--salt-mist)]" aria-hidden />}
+            <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
           </div>
         );
       })}
@@ -323,13 +312,16 @@ function MiniSongList({ songs, onNavigateWithItem }: { songs: Song[]; onNavigate
 function GenrePanel({ title, view, songs, onNavigateWithItem }: { title: string; view: ViewType; songs: Song[]; onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void }) {
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
   return (
-    <section className="min-w-0 border-t-2 border-[#c7dce6] pt-3">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="min-w-0 truncate text-base font-bold text-[var(--salt-white)]">{title}</h3>
-        <button type="button" onClick={() => { navigateTo(view); setCurrentView(view); }} aria-label={`Open ${title}`} className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-primary)] hover:bg-[var(--glass-bg-hover)]">
-          <HiArrowRight className="h-4 w-4" aria-hidden />
-        </button>
-      </div>
+    <section className="min-w-0">
+      <button
+        type="button"
+        onClick={() => { navigateTo(view); setCurrentView(view); }}
+        className="group -mx-1 mb-1 flex w-full min-w-0 items-center gap-0.5 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+      >
+        <h3 className="min-w-0 truncate text-[15px] font-bold text-[var(--salt-white)]">{title}</h3>
+        <HiChevronRight className="h-4 w-4 shrink-0 text-[var(--salt-mist)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--salt-primary)]" aria-hidden />
+        <span className="sr-only">See all</span>
+      </button>
       <MiniSongList songs={songs} onNavigateWithItem={onNavigateWithItem} />
     </section>
   );
@@ -340,38 +332,43 @@ function ChartPreview({ options, onNavigateWithItem }: { options: ChartOption[];
   const selected = options.find((option) => option.key === activeKey) ?? options[0];
 
   return (
-    <Section title="Chart watch" description="A quick read on the US, UK, and Japan" view={selected.view}>
-      <div className="inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-[var(--glass-border)] bg-white/60 p-1" role="tablist" aria-label="Choose chart">
-        {options.map((option) => {
-          const active = option.key === selected.key;
-          return (
-            <button
-              key={option.key}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setActiveKey(option.key)}
-              className={`h-9 shrink-0 rounded-full px-4 text-xs font-semibold transition-colors ${active ? 'bg-[#17394f] text-white' : 'text-[var(--salt-mist)] hover:bg-white'}`}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
+    <Shelf
+      title="Chart watch"
+      view={selected.view}
+      action={(
+        <div className="inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-[var(--salt-ghost)] p-0.5" role="tablist" aria-label="Choose chart">
+          {options.map((option) => {
+            const active = option.key === selected.key;
+            return (
+              <button
+                key={option.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setActiveKey(option.key)}
+                className={`h-7 shrink-0 rounded-full px-3 text-xs font-semibold transition-colors ${active ? 'bg-white text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    >
       <div role="tabpanel" aria-label={`${selected.label} preview`}>
         {selected.isLoading ? <SectionLoading rows={6} /> : selected.songs.length > 0 ? (
           <ChartRail songs={selected.songs.slice(0, 6)} label={`${selected.label} chart`} onNavigateWithItem={onNavigateWithItem} />
         ) : (
-          <div className="flex min-h-32 flex-col items-center justify-center gap-3 border-y border-[var(--glass-border)] text-center text-sm text-[var(--salt-mist)]">
+          <div className="flex min-h-28 flex-col items-center justify-center gap-2.5 rounded-lg border border-[var(--glass-border)] bg-white text-center text-[13px] text-[var(--salt-mist)]">
             <p>{selected.isError ? `${selected.label} is temporarily unavailable.` : `No ${selected.label} entries are available.`}</p>
-            <button type="button" onClick={selected.refetch} className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-semibold text-[var(--salt-primary)] hover:bg-[var(--glass-bg-hover)]">
+            <button type="button" onClick={selected.refetch} className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold text-[var(--salt-primary)] hover:bg-[var(--glass-bg-hover)]">
               <HiArrowPath className="h-4 w-4" aria-hidden />
               Retry
             </button>
           </div>
         )}
       </div>
-    </Section>
+    </Shelf>
   );
 }
 
@@ -397,9 +394,9 @@ function ExploreGrid({ lxEnabled }: { lxEnabled: boolean }) {
           key={view}
           type="button"
           onClick={() => navigate(view)}
-          className="flex h-14 items-center gap-3 rounded-lg border border-[var(--glass-border)] bg-white/55 px-3 text-left text-sm font-semibold text-[var(--salt-white)] transition-colors hover:border-[var(--glass-border-active)] hover:bg-white"
+          className="flex h-12 items-center gap-2.5 rounded-lg border border-[var(--glass-border)] bg-white px-3 text-left text-[13px] font-semibold text-[var(--salt-white)] transition-colors hover:border-[var(--glass-border-active)] hover:bg-[var(--glass-bg-hover)]"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e7f2f6] text-lg text-[var(--salt-primary)]" aria-hidden>{icon}</span>
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#eaf4f7] text-[var(--salt-primary)]" aria-hidden>{icon}</span>
           <span className="truncate">{label}</span>
         </button>
       ))}
@@ -484,16 +481,6 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
     remix.data?.results,
     classical.data,
   ], 48);
-  const discoveryMix = interleaveSongGroups([
-    pop.data,
-    billboard.data,
-    trending.data?.results,
-    jp.data,
-    jazz.data?.results,
-    uk.data,
-    remix.data?.results,
-    classical.data,
-  ], 60);
   const spotlightSongs = interleaveSongGroups([
     pop.data,
     trending.data?.results,
@@ -558,17 +545,16 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
   ];
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] space-y-8 pb-8 pt-6 sm:space-y-12 sm:pt-8">
-      <DiscoveryIntro songs={discoveryMix} />
+    <div className="mx-auto w-full max-w-[1440px] space-y-7 pb-8 sm:space-y-9">
       <CatalogNotice issues={unavailableSources} onRetry={retrySources} />
 
       {spotlightSongs.length > 0 ? (
-        <Section title="In the spotlight" description="Editorial picks and chart movement">
+        <Shelf title="In the spotlight">
           <div ref={spotlightRailRef} className={spotlightSongs.length > 1
-            ? 'flex snap-x snap-mandatory scroll-pl-0 gap-3 overflow-x-auto pb-2 [overflow-anchor:none] lg:grid lg:grid-cols-[1.15fr_0.85fr] lg:gap-4 lg:overflow-visible lg:pb-0'
+            ? 'rail-scroll flex snap-x snap-mandatory scroll-pl-0 gap-3 overflow-x-auto [overflow-anchor:none] lg:grid lg:grid-cols-2 lg:gap-4 lg:overflow-visible'
             : 'grid'}>
             {spotlightSongs.map((song, index) => (
-              <div key={song.id} className={spotlightSongs.length > 1 ? 'w-[84%] max-w-[520px] shrink-0 snap-start lg:w-auto lg:max-w-none' : ''}>
+              <div key={song.id} className={spotlightSongs.length > 1 ? 'w-[88%] max-w-[480px] shrink-0 snap-start lg:w-auto lg:max-w-none' : ''}>
                 <EditorialBanner
                   song={song}
                   eyebrow={song.metadataVerified ? (index === 0 ? 'Marea pick' : 'New release') : 'Chart watch'}
@@ -581,47 +567,50 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
               </div>
             ))}
           </div>
-        </Section>
+        </Shelf>
       ) : discoveryLoading ? (
-        <Section title="In the spotlight" description="Loading the latest catalog updates">
+        <Shelf title="In the spotlight">
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="aspect-[16/9] animate-pulse rounded-lg bg-[var(--salt-ghost)]" />
-            <div className="aspect-[16/9] animate-pulse rounded-lg bg-[var(--salt-ghost)]" />
+            <div className="h-[184px] animate-pulse rounded-xl bg-[var(--salt-ghost)]" />
+            <div className="h-[184px] animate-pulse rounded-xl bg-[var(--salt-ghost)]" />
           </div>
-        </Section>
+        </Shelf>
       ) : <EmptyDiscovery onNavigate={navigate} />}
 
       {bestNewSongs.length > 0 && (
-        <Section title="Songs making waves" description="A cross-source queue, ready in one click" view="trending">
+        <Shelf title="Songs making waves" view="trending" action={<PlayShelfButton songs={bestNewSongs} label="Play the new music mix" />}>
           <DiscoverySongGrid songs={bestNewSongs} onNavigateWithItem={onNavigateWithItem} />
-        </Section>
+        </Shelf>
       )}
 
       {history.length > 0 && (
-        <Section title="Continue listening" description="Pick up where you left off" view="history">
-          <SongRail songs={history.slice(0, 8)} label="Recently played" onNavigateWithItem={onNavigateWithItem} />
-        </Section>
+        <Shelf title="Continue listening" view="history">
+          <SongRail songs={history.slice(0, 8)} label="Recently played" showIndex={false} onNavigateWithItem={onNavigateWithItem} />
+        </Shelf>
       )}
 
       {releaseSongs.length > 0 && (
-        <Section title="New records to explore" description="Open an album for its complete verified track list" view="albums">
+        <Shelf title="New records to explore" view="albums">
           <ReleaseRail songs={releaseSongs} onNavigateWithItem={onNavigateWithItem} />
-        </Section>
+        </Shelf>
       )}
 
       {genrePanels.length > 0 && (
-        <Section title="Fresh by genre" description="Four quick picks from each collection">
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+        <Shelf title="Fresh by genre">
+          {/* Four columns at the widest size because there are four genres: at
+              three, Classical drops onto a row of its own beside two empty
+              thirds. */}
+          <div className="grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-4">
             {genrePanels.map((panel) => <GenrePanel key={panel.view} {...panel} onNavigateWithItem={onNavigateWithItem} />)}
           </div>
-        </Section>
+        </Shelf>
       )}
 
       {lxEnabled && <ChartPreview options={chartOptions} onNavigateWithItem={onNavigateWithItem} />}
 
-      <Section title="Explore Marea">
+      <Shelf title="Explore Marea">
         <ExploreGrid lxEnabled={lxEnabled} />
-      </Section>
+      </Shelf>
     </div>
   );
 }

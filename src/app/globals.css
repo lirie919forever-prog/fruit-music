@@ -8,7 +8,7 @@
 }
 
 :root {
-  --sea-abyss: #f7fbff;
+  --sea-abyss: #fbfcfe;
   --sea-midnight: #eef8ff;
   --sea-deep: #dceffc;
   --sea-mid: #bfe3f7;
@@ -82,23 +82,27 @@ body {
   background-color: var(--sea-abyss);
 }
 
+/* Browse surfaces stay a near-flat near-white on purpose: cover art is the only
+   saturated thing on the page, and a tinted gradient behind it drags every
+   thumbnail toward the same blue. The sea palette now lives in the accents. */
 body {
   font-family: var(--font-ui);
   color: var(--salt-white);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-image:
-    radial-gradient(circle at 10% 4%, rgba(255, 255, 255, 0.96) 0%, transparent 32%),
-    radial-gradient(circle at 88% 8%, rgba(154, 220, 250, 0.34) 0%, transparent 34%),
-    radial-gradient(circle at 52% 105%, rgba(104, 192, 233, 0.24) 0%, transparent 42%),
-    linear-gradient(155deg, #ffffff 0%, #f1f9ff 48%, #e5f5ff 100%);
-  background-attachment: fixed;
+  background-color: var(--sea-abyss);
 }
 
-button,
-input,
-textarea,
-select { font: inherit; }
+/* Must stay inside `base`. Unlayered rules outrank every layered one no matter
+   the specificity, so as a bare selector this `font` shorthand silently beat
+   every text-size and font-weight utility applied to a button — which is most
+   of the interactive type in the app. */
+@layer base {
+  button,
+  input,
+  textarea,
+  select { font: inherit; }
+}
 
 button:focus-visible,
 [role='button']:focus-visible,
@@ -188,6 +192,11 @@ select:focus-visible {
   border-radius: 14px;
   animation: marea-pulse 1.8s ease-in-out infinite;
 }
+/* Horizontal shelves signal that they scroll by letting the next card peek in,
+   so the scrollbar underneath is redundant and reads as a stray rule. */
+.rail-scroll { scrollbar-width: none; }
+.rail-scroll::-webkit-scrollbar { height: 0; width: 0; }
+
 ::selection { background: rgba(67, 169, 222, 0.24); }
 
 @media (prefers-reduced-motion: reduce) {

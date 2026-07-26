@@ -1,9 +1,9 @@
 'use client';
 
-import { HiChevronDoubleRight } from 'react-icons/hi2';
+import { HiLockClosed, HiPlay } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { CoverArt } from '@/components/ui/CoverArt';
-import { Attribution } from '@/components/ui/Attribution';
+import { TrackMenu } from '@/components/ui/TrackMenu';
 import { playableSongs } from './newViewModel';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Song, ViewType } from '@/types/music';
@@ -16,7 +16,7 @@ interface SongCardProps extends TrackNavProps {
   song: Song;
   index: number;
   tracks: Song[];
-  showExplicit?: boolean;
+  showIndex?: boolean;
 }
 
 export function FavoriteButton({ song, className = '' }: { song: Song; className?: string }) {
@@ -30,7 +30,7 @@ export function FavoriteButton({ song, className = '' }: { song: Song; className
       onClick={() => toggleFavorite(song)}
       aria-label={`${favorite ? 'Remove' : 'Add'} ${song.title} ${favorite ? 'from' : 'to'} favorites`}
       aria-pressed={favorite}
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--salt-primary)] transition hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${className}`}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base leading-none transition hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${favorite ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'} ${className}`}
     >
       {favorite ? '♥' : '♡'}
     </button>
@@ -54,24 +54,44 @@ export function ArtistLink({ song, onNavigateWithItem, className = '' }: TrackNa
   );
 }
 
-function PlayNextButton({ song, className = '' }: { song: Song; className?: string }) {
-  const playNext = usePlayerStore((state) => state.playNext);
+/**
+ * Artwork that doubles as the play control. The play glyph only appears on
+ * hover/focus so a dense list is artwork and text at rest, the way a browse
+ * page should read — but it is a real button, so keyboard and touch both reach
+ * it without depending on hover.
+ */
+function ArtworkPlayButton({
+  song,
+  onPlay,
+  unavailable,
+  size = 'h-10 w-10',
+}: {
+  song: Song;
+  onPlay: () => void;
+  unavailable: boolean;
+  size?: string;
+}) {
   return (
     <button
       type="button"
-      onClick={() => playNext(song)}
-      title="Play next"
-      aria-label={`Play ${song.title} next`}
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--glass-border)] bg-white/60 text-[var(--salt-primary)] shadow-sm transition hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${className}`}
+      onClick={onPlay}
+      disabled={unavailable}
+      aria-label={unavailable ? `${song.title} is unavailable for playback` : `Play ${song.title} by ${song.artist}`}
+      className={`group/art relative shrink-0 overflow-hidden rounded bg-[var(--salt-ghost)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed ${size}`}
     >
-      <HiChevronDoubleRight className="h-4 w-4" aria-hidden />
+      <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="40px" className="h-full w-full object-cover" />
+      <span
+        aria-hidden
+        className={`absolute inset-0 flex items-center justify-center bg-black/45 text-white transition-opacity ${unavailable ? 'opacity-0' : 'opacity-0 group-hover/art:opacity-100 group-focus-visible/art:opacity-100'}`}
+      >
+        <HiPlay className="h-4 w-4" />
+      </span>
     </button>
   );
 }
 
-export function SongCard({ song, index, tracks, showExplicit = true, onNavigateWithItem }: SongCardProps) {
+export function SongCard({ song, index, tracks, showIndex = true, onNavigateWithItem }: SongCardProps) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
-  const addToQueue = usePlayerStore((state) => state.addToQueue);
   const currentSong = usePlayerStore((state) => state.currentSong);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const isActive = currentSong?.id === song.id;
@@ -84,65 +104,50 @@ export function SongCard({ song, index, tracks, showExplicit = true, onNavigateW
 
   return (
     <article
-      className={`grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 rounded-2xl px-3 py-2 transition duration-150 sm:grid-cols-[32px_44px_minmax(0,1fr)_56px_auto] ${isActive ? 'bg-[color-mix(in_srgb,var(--salt-primary)_10%,white)]' : 'hover:bg-[var(--glass-bg-hover)]'}`}
+      className={`flex h-14 items-center gap-3 border-b border-[var(--glass-border)] px-1 transition-colors last:border-b-0 ${isActive ? 'bg-[color-mix(in_srgb,var(--salt-primary)_7%,white)]' : 'hover:bg-[var(--glass-bg-hover)]'}`}
       aria-current={isActive ? 'true' : undefined}
     >
-      <span className="hidden text-center text-xs tabular-nums text-[var(--salt-mist)] sm:block" aria-label={`Track ${index + 1}`}>
-        {isActive && isPlaying ? '▶' : index + 1}
-      </span>
-      <div className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-2">
+      {showIndex && (
+        <span className="hidden w-6 shrink-0 text-center text-[13px] tabular-nums text-[var(--salt-mist)] sm:block" aria-label={`Track ${index + 1}`}>
+          {isActive && isPlaying ? <EqualizerGlyph /> : index + 1}
+        </span>
+      )}
+      <ArtworkPlayButton song={song} onPlay={play} unavailable={playbackUnavailable} />
+      <div className="min-w-0 flex-1">
         <button
           type="button"
           onClick={play}
-          aria-label={playbackUnavailable ? `${song.title} playback unavailable` : `Play ${song.title} by ${song.artist}`}
           disabled={playbackUnavailable}
-          className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={playbackUnavailable ? `${song.title} is unavailable for playback` : `Play ${song.title} by ${song.artist}`}
+          className="block max-w-full truncate text-left text-[13px] font-medium leading-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed"
+          style={{ color: isActive ? 'var(--salt-primary)' : 'var(--salt-white)' }}
         >
-          <CoverArt src={song.coverArt} alt={song.album} loading="lazy" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+          {song.title}
         </button>
-        <div className="min-w-0 flex-1">
-          <button
-            type="button"
-            onClick={play}
-            disabled={playbackUnavailable}
-            aria-label={playbackUnavailable ? `${song.title} playback unavailable` : `Play ${song.title} by ${song.artist}`}
-            className="block w-full truncate text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ color: isActive ? 'var(--salt-primary)' : 'var(--salt-white)' }}
-          >
-            {song.title}
-          </button>
-          <span className="block min-w-0 truncate text-xs text-[var(--salt-mist)]">
-            <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="inline text-xs text-[var(--salt-mist)]" />
-            {song.album ? ` · ${song.album}` : ''}
-          </span>
-        </div>
-        <span className="hidden min-w-0 sm:block"><Attribution song={song} compact /></span>
-        {playbackUnavailable && <span className="text-[10px] text-[var(--danger)] sm:hidden">Unavailable</span>}
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-tight text-[var(--salt-mist)]">
+          <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="text-xs" />
+          <span aria-hidden className="shrink-0">·</span>
+          <span className="shrink-0 truncate">{song.provider}</span>
+        </span>
       </div>
-      <span className="hidden text-right text-xs tabular-nums text-[var(--salt-mist)] sm:block">{formatDuration(song.duration)}</span>
-      <div className="flex items-center justify-end gap-1">
-        {showExplicit && <ExplicitBadge song={song} />}
-        <FavoriteButton song={song} />
-        {!playbackUnavailable && <PlayNextButton song={song} />}
-        <button
-          type="button"
-          onClick={() => addToQueue(song)}
-          aria-label={`Add ${song.title} to queue`}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--glass-border)] bg-white/60 text-[var(--salt-primary)] shadow-sm transition hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z" /></svg>
-        </button>
-        <button
-          type="button"
-          onClick={play}
-          aria-label={`Play ${song.title}`}
-          disabled={playbackUnavailable}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#2494ce,#0d73ae)] text-white shadow-[0_5px_14px_rgba(25,126,184,0.2)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>
-        </button>
-      </div>
+      {playbackUnavailable && (
+        <span title="Playback unavailable" aria-label="Playback unavailable" className="shrink-0 text-[var(--salt-mist)]">
+          <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
+        </span>
+      )}
+      <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-[var(--salt-mist)] sm:block">{formatDuration(song.duration)}</span>
+      <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
     </article>
+  );
+}
+
+function EqualizerGlyph() {
+  return (
+    <span aria-label="Now playing" className="inline-flex h-3 items-end justify-center gap-[2px] align-middle">
+      <span className="eq-bar-1 block h-full w-[2px] origin-bottom rounded-full bg-[var(--salt-primary)]" />
+      <span className="eq-bar-2 block h-full w-[2px] origin-bottom rounded-full bg-[var(--salt-primary)]" />
+      <span className="eq-bar-3 block h-full w-[2px] origin-bottom rounded-full bg-[var(--salt-primary)]" />
+    </span>
   );
 }
 
@@ -151,19 +156,12 @@ export function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 }
 
-function ExplicitBadge({ song }: { song: Song }) {
-  const isExplicit = /explicit/i.test(song.title) || /\(explicit\)/i.test(song.title);
-  if (!isExplicit) return null;
-  return <span className="hidden text-[10px] font-bold text-[var(--salt-foam)] sm:inline" aria-label="Explicit">E</span>;
-}
-
-export function SongRail({ songs, label, onNavigateWithItem }: { songs: Song[]; label: string } & TrackNavProps) {
+export function SongRail({ songs, label, showIndex = true, onNavigateWithItem }: { songs: Song[]; label: string; showIndex?: boolean } & TrackNavProps) {
   return (
-    <div className="grid gap-0.5 rounded-[24px] border border-[var(--glass-border)] bg-[rgba(255,255,255,0.52)] shadow-[0_12px_32px_rgba(47,117,155,0.06)]">
+    <div aria-label={label} className="grid">
       {songs.map((song, index) => (
-        <SongCard key={song.id} song={song} index={index} tracks={songs} onNavigateWithItem={onNavigateWithItem} />
+        <SongCard key={song.id} song={song} index={index} tracks={songs} showIndex={showIndex} onNavigateWithItem={onNavigateWithItem} />
       ))}
-      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -179,57 +177,50 @@ function ChartRow({ song, rank, tracks, onNavigateWithItem }: { song: Song; rank
 
   return (
     <article
-      className={`grid grid-cols-[32px_44px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl px-3 py-2 transition duration-150 ${isActive ? 'bg-[color-mix(in_srgb,var(--salt-primary)_10%,white)]' : 'hover:bg-[var(--glass-bg-hover)]'}`}
+      className={`flex h-14 items-center gap-3 border-b border-[var(--glass-border)] px-1 transition-colors last:border-b-0 ${isActive ? 'bg-[color-mix(in_srgb,var(--salt-primary)_7%,white)]' : 'hover:bg-[var(--glass-bg-hover)]'}`}
       aria-current={isActive ? 'true' : undefined}
     >
       <span
-        className={`text-center text-lg font-extrabold tabular-nums ${isActive && isPlaying ? 'text-[var(--salt-primary)]' : 'text-[var(--salt-mist)]'}`}
+        className={`w-6 shrink-0 text-center text-[15px] font-semibold tabular-nums ${isActive && isPlaying ? 'text-[var(--salt-primary)]' : 'text-[var(--salt-mist)]'}`}
         aria-label={`Rank ${rank}`}
       >
-        {isActive && isPlaying ? '▶' : rank}
+        {isActive && isPlaying ? <EqualizerGlyph /> : rank}
       </span>
-      <CoverArt src={song.coverArt} alt={song.album || song.title} loading="lazy" className="h-11 w-11 shrink-0 rounded-xl object-cover" />
-      <div className="min-w-0">
-        <p className={`truncate text-sm font-semibold leading-tight ${isActive ? 'text-[var(--salt-primary)]' : 'text-[var(--salt-white)]'}`}>{song.title}</p>
-        <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="block truncate text-xs text-[var(--salt-mist)]" />
+      <ArtworkPlayButton song={song} onPlay={() => playAlbum(playableTracks, playableIndex)} unavailable={unavailable} />
+      <div className="min-w-0 flex-1">
+        <p className={`truncate text-[13px] font-medium leading-tight ${isActive ? 'text-[var(--salt-primary)]' : 'text-[var(--salt-white)]'}`}>{song.title}</p>
+        <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="mt-0.5 block text-xs leading-tight text-[var(--salt-mist)]" />
       </div>
-      <div className="flex items-center gap-1">
-        <FavoriteButton song={song} />
-        {unavailable ? (
-          <span
-            title="This track's streaming source isn't available right now"
-            aria-label="Streaming unavailable"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--salt-mist)]"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-              <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 5a3 3 0 0 1 6 0v3H9V7z" />
-            </svg>
-          </span>
-        ) : (
-          <>
-            <PlayNextButton song={song} />
-            <button
-              type="button"
-              onClick={() => playAlbum(playableTracks, playableIndex)}
-              aria-label={`Play ${song.title}`}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#2494ce,#0d73ae)] text-white shadow-[0_5px_14px_rgba(25,126,184,0.2)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>
-            </button>
-          </>
-        )}
-      </div>
+      {unavailable && (
+        <span
+          title="This track's streaming source isn't available right now"
+          aria-label="Streaming unavailable"
+          className="shrink-0 text-[var(--salt-mist)]"
+        >
+          <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
+        </span>
+      )}
+      <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
     </article>
   );
 }
 
 export function ChartRail({ songs, label, onNavigateWithItem }: { songs: Song[]; label: string } & TrackNavProps) {
+  // Two columns filled top-to-bottom rather than left-to-right: in a ranked
+  // list, reading order is the rank order, so 1-3 belong in the left column and
+  // 4-6 in the right. Row-major would scatter them 1,2,3 across the page.
+  // Below `md` there is one column and the explicit rows simply overflow into
+  // implicit ones, which stacks all entries in order.
+  const rows = Math.max(1, Math.ceil(songs.length / 2));
   return (
-    <div className="grid gap-0.5 rounded-[24px] border border-[var(--glass-border)] bg-[rgba(255,255,255,0.52)] shadow-[0_12px_32px_rgba(47,117,155,0.06)]">
+    <div
+      aria-label={label}
+      className="grid gap-x-8 md:grid-flow-col md:grid-cols-2"
+      style={{ gridTemplateRows: `repeat(${rows}, auto)` }}
+    >
       {songs.map((song, index) => (
         <ChartRow key={song.id} song={song} rank={index + 1} tracks={songs} onNavigateWithItem={onNavigateWithItem} />
       ))}
-      <span className="sr-only">{label}</span>
     </div>
   );
 }

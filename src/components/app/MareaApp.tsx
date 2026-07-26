@@ -164,16 +164,24 @@ function MainContent({ initialItem }: { initialItem: NavigationItem | null }) {
 			>
 				Skip to content
 			</a>
-			<div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
-				{currentSong ? <CoverArt src={currentSong.coverArt || '/placeholder-album.svg'} alt="" aria-hidden className="ambient-artwork" /> : <div className="ambient-artwork ambient-artwork--idle" />}
-				<div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.8),rgba(226,245,255,0.52))]" />
-			</div>
+			{/* The blurred-artwork wash belongs to the full player, where the artwork
+			    is the subject. Behind a browse grid it tints every thumbnail on the
+			    page toward whatever happens to be playing. */}
+			{currentView === 'now-playing' && (
+				<div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
+					{currentSong ? <CoverArt src={currentSong.coverArt || '/placeholder-album.svg'} alt="" aria-hidden className="ambient-artwork" /> : <div className="ambient-artwork ambient-artwork--idle" />}
+					<div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.8),rgba(226,245,255,0.52))]" />
+				</div>
+			)}
 			<div className="relative z-10 flex h-full min-h-0 w-full">
 				<Sidebar onNavigate={navigateToView} />
 				<main className="flex min-h-0 min-w-0 flex-1 flex-col">
-					<header className="flex shrink-0 items-center gap-3 border-b border-[var(--glass-border)] bg-[rgba(255,255,255,0.48)] px-4 py-4 backdrop-blur-xl sm:px-6 sm:py-5">
+					{/* No rule or blur under the title: content scrolls in its own pane
+					    below it, so the header shares the page surface and the whole
+					    view reads as one continuous sheet. */}
+					<header className="flex shrink-0 items-center gap-3 px-3 pb-2 pt-5 sm:px-6 sm:pb-3 sm:pt-8">
 						<MobileNavigation onNavigate={navigateToView} />
-						<h1 className="min-w-0 truncate text-2xl font-bold tracking-[-0.03em] text-[var(--salt-white)] sm:text-3xl">{getViewTitle(currentView)}</h1>
+						<h1 className="min-w-0 truncate text-[26px] font-bold leading-[1.18] tracking-[-0.02em] text-[var(--salt-white)] sm:text-[34px]">{getViewTitle(currentView)}</h1>
 					</header>
 					<div id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto px-3 outline-none sm:px-6" style={{ paddingBottom: '88px' }}>
 						{showDetailOverlay && pendingItem?.kind === 'album' && <ProviderDetailView kind="album" id={pendingItem.id} onClose={closeDetail} onNavigateWithItem={navigateWithItem} />}

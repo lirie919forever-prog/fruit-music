@@ -1,9 +1,10 @@
 'use client';
 
 import { useId } from 'react';
-import { HiArrowRight, HiLockClosed, HiPlay, HiPlus } from 'react-icons/hi2';
+import { HiArrowTopRightOnSquare, HiLockClosed, HiPlay, HiPlus } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { FavoriteButton } from './SongCard';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Song, ViewType } from '@/types/music';
 
@@ -15,101 +16,112 @@ interface EditorialBannerProps {
   onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
 }
 
+/**
+ * The spotlight lockup: square artwork beside its metadata.
+ *
+ * Deliberately not the 16:9 photographic hero a commercial service uses. Every
+ * provider here returns square cover art at 200-500px, so a 16:9 slot can only
+ * be filled by upscaling it into a blur, and text laid over that needs a scrim
+ * heavy enough to bury the artwork it is supposed to be selling. Artwork at its
+ * own aspect ratio with the text beside it stays sharp and legible whatever the
+ * source supplies — including the generated monogram tiles.
+ */
 export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavigateWithItem }: EditorialBannerProps) {
   const headingId = useId();
   const playSong = usePlayerStore((state) => state.playSong);
-  const favorites = usePlayerStore((state) => state.favorites);
-  const toggleFavorite = usePlayerStore((state) => state.toggleFavorite);
-  const isFavorite = favorites.some((item) => item.id === song.id);
   const unavailable = song.playbackUnavailable === true;
-  // Generated monogram covers are square 200px placeholders. Stretched across a
-  // 16:9 hero they read as a stray letter behind the title, so they stay a
-  // square tile beside the text and the hero keeps its plain backdrop.
-  const isGeneratedCover = !song.coverArt || song.coverArt.startsWith('data:image/');
+  const openAlbum = onNavigateWithItem && song.albumId
+    ? () => onNavigateWithItem('albums', { kind: 'album', id: song.albumId })
+    : undefined;
 
   return (
     <article
       aria-labelledby={headingId}
-      className="group relative isolate aspect-[16/11] min-h-[220px] overflow-hidden rounded-lg bg-[#193247] shadow-[0_18px_44px_rgba(15,47,68,0.18)] sm:aspect-[16/9] sm:min-h-[260px]"
+      className="group flex h-full items-center gap-4 rounded-xl border border-[var(--glass-border)] bg-white p-3 shadow-[0_1px_2px_rgba(16,47,69,0.05)] transition-shadow hover:shadow-[0_8px_28px_rgba(16,47,69,0.1)] sm:gap-5 sm:p-4"
     >
-      {isGeneratedCover ? (
-        <>
-          <div className="absolute inset-0 -z-20 bg-[linear-gradient(135deg,#1d3b53,#0f2536)]" />
-          <div className="pointer-events-none absolute right-4 top-4 -z-10 hidden h-24 w-24 overflow-hidden rounded-lg opacity-90 shadow-[0_10px_28px_rgba(5,17,25,0.4)] sm:block">
-            <CoverArt src={song.coverArt} alt="" className="h-full w-full object-cover" loading={eager ? 'eager' : 'lazy'} sizes="96px" />
-          </div>
-        </>
+      {openAlbum ? (
+        <button
+          type="button"
+          onClick={openAlbum}
+          aria-label={`Open ${song.album || song.title}`}
+          className="shrink-0 overflow-hidden rounded-lg bg-[var(--salt-ghost)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+        >
+          <CoverArt
+            src={song.coverArt}
+            alt=""
+            loading={eager ? 'eager' : 'lazy'}
+            sizes="(max-width: 640px) 96px, 152px"
+            className="h-24 w-24 object-cover transition-transform duration-500 group-hover:scale-[1.03] sm:h-[152px] sm:w-[152px]"
+          />
+        </button>
       ) : (
-        <CoverArt
-          src={song.coverArt}
-          alt=""
-          className="absolute inset-0 -z-20 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.025]"
-          loading={eager ? 'eager' : 'lazy'}
-          sizes="(max-width: 1023px) 92vw, 46vw"
-        />
+        <span className="shrink-0 overflow-hidden rounded-lg bg-[var(--salt-ghost)]">
+          <CoverArt
+            src={song.coverArt}
+            alt=""
+            loading={eager ? 'eager' : 'lazy'}
+            sizes="(max-width: 640px) 96px, 152px"
+            className="h-24 w-24 object-cover sm:h-[152px] sm:w-[152px]"
+          />
+        </span>
       )}
-      <div className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(5,17,25,0.08)_18%,rgba(5,17,25,0.84)_100%)]" />
-      <div className="flex h-full flex-col justify-end p-4 sm:p-7">
-        <p className="mb-2 text-[11px] font-semibold uppercase text-white/75">{eyebrow}</p>
-        <h2 id={headingId} className="line-clamp-2 max-w-[28rem] text-xl font-bold leading-tight text-white sm:text-3xl">
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#bd3f4f]">{eyebrow}</p>
+        <h3 id={headingId} className="mt-1 line-clamp-2 text-[17px] font-semibold leading-snug text-[var(--salt-white)] sm:text-xl">
           {song.title}
-        </h2>
+        </h3>
         {onNavigateWithItem ? (
           <button
             type="button"
             onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: song.artistId })}
             aria-label={`Open ${song.artist}`}
-            className="mt-1 max-w-full truncate text-left text-sm text-white/78 underline decoration-transparent underline-offset-2 transition-colors hover:text-white hover:decoration-current focus-visible:text-white focus-visible:outline-none"
+            className="mt-0.5 max-w-full truncate text-left text-[13px] text-[var(--salt-mist)] underline decoration-transparent underline-offset-2 transition-colors hover:text-[var(--salt-primary)] hover:decoration-current focus-visible:text-[var(--salt-primary)] focus-visible:outline-none sm:text-[15px]"
           >
             {song.artist}
           </button>
-        ) : <p className="mt-1 truncate text-sm text-white/78">{song.artist}</p>}
-        <div className="mt-4 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => toggleFavorite(song)}
-            aria-label={`${isFavorite ? 'Remove' : 'Add'} ${song.title} ${isFavorite ? 'from' : 'to'} favorites`}
-            aria-pressed={isFavorite}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/30 bg-black/20 text-lg leading-none text-white backdrop-blur-md transition-colors hover:bg-black/35 focus-visible:ring-white sm:h-10 sm:w-10"
-          >
-            {isFavorite ? '♥' : '♡'}
-          </button>
-          {!unavailable && (
-            <button
-              type="button"
-              onClick={() => playSong(song)}
-              className="inline-flex h-9 items-center gap-2 rounded-full bg-[#d84f5f] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#bd3f4f] focus-visible:ring-white sm:h-10"
-            >
-              <HiPlay className="h-4 w-4" aria-hidden />
-              Play
-            </button>
-          )}
-          {!unavailable && onQueue && (
-            <button
-              type="button"
-              onClick={onQueue}
-              aria-label={`Add ${song.title} to queue`}
-              title="Add to queue"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-black/20 text-white backdrop-blur-md transition-colors hover:bg-black/35 focus-visible:ring-white sm:h-10 sm:w-10"
-            >
-              <HiPlus className="h-5 w-5" aria-hidden />
-            </button>
-          )}
-          {unavailable && (
-            <span className="inline-flex h-9 items-center gap-2 rounded-full border border-white/25 bg-black/25 px-3 text-xs font-semibold text-white/88 backdrop-blur-md sm:h-10 sm:px-4">
-              <HiLockClosed className="h-4 w-4" aria-hidden />
+        ) : <p className="mt-0.5 truncate text-[13px] text-[var(--salt-mist)] sm:text-[15px]">{song.artist}</p>}
+
+        <div className="mt-3 flex items-center gap-1.5 sm:mt-4 sm:gap-2">
+          {unavailable ? (
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--salt-ghost)] px-3 text-[11px] font-semibold text-[var(--salt-mist)] sm:h-9 sm:text-xs">
+              <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
               Playback unavailable
             </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => playSong(song)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#d84f5f] px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#bd3f4f] sm:h-9 sm:px-4"
+              >
+                <HiPlay className="h-3.5 w-3.5" aria-hidden />
+                Play
+              </button>
+              {onQueue && (
+                <button
+                  type="button"
+                  onClick={onQueue}
+                  aria-label={`Add ${song.title} to queue`}
+                  title="Add to queue"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] sm:h-9 sm:w-9"
+                >
+                  <HiPlus className="h-4 w-4" aria-hidden />
+                </button>
+              )}
+            </>
           )}
+          <FavoriteButton song={song} className="sm:h-9 sm:w-9" />
           {song.sourceUrl && (
             <a
               href={song.sourceUrl}
               target="_blank"
               rel="noreferrer"
-              className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-full px-2 text-xs font-semibold text-white/85 transition-colors hover:bg-white/12 hover:text-white focus-visible:ring-white sm:h-10 sm:px-3"
+              title={`${song.provider} · ${song.licenseName || 'Provider terms'}`}
+              aria-label={`Open on ${song.provider}`}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] sm:h-9 sm:w-9"
             >
-              Source
-              <HiArrowRight className="h-4 w-4" aria-hidden />
+              <HiArrowTopRightOnSquare className="h-4 w-4" aria-hidden />
             </a>
           )}
         </div>

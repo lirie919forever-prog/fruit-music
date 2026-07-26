@@ -1,8 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { HiArrowsRightLeft, HiPlay } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { SongRail } from './SongCard';
+import { playableSongs } from './newViewModel';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { api } from '@/lib/api';
 import { providerErrorMessage } from '@/lib/providers/errors';
@@ -12,6 +14,21 @@ import type { Album, Artist, Song, ViewType } from '@/types/music';
 
 function isAlbum(item: Album | Artist): item is Album {
 	return 'artist' in item && 'songCount' in item;
+}
+
+/**
+ * Shuffle starts a randomised queue rather than flipping the player's `shuffle`
+ * flag: that flag governs how the *next* track is picked, so setting it would
+ * still begin with track one. Fisher-Yates on a copy, so the displayed track
+ * order is untouched.
+ */
+function shuffled(songs: Song[]): Song[] {
+	const copy = [...songs];
+	for (let index = copy.length - 1; index > 0; index -= 1) {
+		const swap = Math.floor(Math.random() * (index + 1));
+		[copy[index], copy[swap]] = [copy[swap], copy[index]];
+	}
+	return copy;
 }
 
 export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
@@ -49,6 +66,8 @@ export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
 	const isLoading = metaLoading || tracksLoading;
 	const songs: Song[] = trackData ?? [];
 	const trackCount = songs.length;
+	// A known-unplayable track would only stall the queue when its turn came.
+	const playableTracks = playableSongs(songs);
 
 	// Providers can serve verified tracks for a record whose summary lookup
 	// failed or returned nothing. The tracks are the authoritative content, so
@@ -80,18 +99,22 @@ export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
 
 	if (isLoading) {
 		return (
-			<div className="pb-[88px]">
-				<div className="flex items-center justify-between px-4 pt-5 sm:px-6">
-					<div className="min-w-0">
-						<p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--salt-mist)]">{title}</p>
-						<div className="mt-2 h-8 w-48 animate-pulse rounded bg-[var(--salt-ghost)]" />
-						<div className="mt-3 h-4 w-32 animate-pulse rounded bg-[var(--salt-ghost)]" />
+			<div className="pb-6">
+				<div className="flex items-start gap-4 sm:gap-6">
+					<div className="h-28 w-28 shrink-0 animate-pulse rounded-md bg-[var(--salt-ghost)] sm:h-44 sm:w-44" />
+					<div className="min-w-0 flex-1">
+						<p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--salt-mist)]">{title}</p>
+						<div className="mt-1.5 h-6 w-48 animate-pulse rounded bg-[var(--salt-ghost)]" />
+						<div className="mt-2 h-4 w-32 animate-pulse rounded bg-[var(--salt-ghost)]" />
+						<div className="mt-4 h-9 w-40 animate-pulse rounded-full bg-[var(--salt-ghost)]" />
 					</div>
-					<div className="h-10 w-24 animate-pulse rounded-full bg-[var(--salt-ghost)]" />
 				</div>
-				<div className="mt-6 grid gap-1 px-4 sm:px-6">
+				<div className="mt-6 grid">
 					{Array.from({ length: 6 }).map((_, i) => (
-						<div key={i} className="h-14 animate-pulse rounded-2xl bg-[var(--salt-ghost)]" />
+						<div key={i} className="flex h-14 items-center gap-3 border-b border-[var(--glass-border)] px-1">
+							<div className="h-10 w-10 shrink-0 animate-pulse rounded bg-[var(--salt-ghost)]" />
+							<div className="min-w-0 flex-1 space-y-2"><div className="h-3 w-1/2 animate-pulse rounded bg-[var(--salt-ghost)]" /><div className="h-2.5 w-1/3 animate-pulse rounded bg-[var(--salt-ghost)]" /></div>
+						</div>
 					))}
 				</div>
 			</div>
@@ -101,16 +124,16 @@ export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
 	if (isError || !resolvedMeta) {
 		const lowerTitle = kind === 'album' ? 'album' : 'artist';
 		return (
-			<div className="mx-4 my-8 rounded-[28px] border border-[var(--glass-border)] bg-white/45 px-6 py-10 text-[var(--salt-mist)] shadow-[0_16px_40px_rgba(47,117,155,0.08)] sm:mx-6">
-				<p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--salt-primary)]">{title} unavailable</p>
-				<h2 className="mt-2 text-xl font-semibold text-[var(--salt-white)]">This {lowerTitle} could not be loaded.</h2>
-				{error && <p className="mt-2 text-xs">{providerErrorMessage(error)}</p>}
+			<div className="rounded-xl border border-[var(--glass-border)] bg-white px-6 py-10 text-[var(--salt-mist)]">
+				<p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--salt-primary)]">{title} unavailable</p>
+				<h2 className="mt-1.5 text-[17px] font-bold text-[var(--salt-white)]">This {lowerTitle} could not be loaded.</h2>
+				{error && <p className="mt-1.5 text-xs">{providerErrorMessage(error)}</p>}
 				<button
 					type="button"
 					onClick={() => {
 						void Promise.all([refetchMeta(), refetchTracks()]);
 					}}
-					className="mt-5 rounded-full border border-[var(--glass-border-active)] bg-white/70 px-4 py-2 text-sm text-[var(--salt-white)]"
+					className="mt-4 rounded-full border border-[var(--glass-border-active)] bg-white px-4 py-2 text-[13px] font-semibold text-[var(--salt-primary)]"
 				>
 					Retry
 				</button>
@@ -125,68 +148,100 @@ export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
 		: `${resolvedMeta.albumCount ?? 0} albums`;
 
 	return (
-		<section className="pb-[88px]">
-			<div className="flex items-center justify-between gap-4 px-4 pt-5 sm:px-6">
-				<div className="flex items-center gap-5">
-					<div className="hidden shrink-0 sm:block">
-						<div className="relative h-36 w-36 overflow-hidden rounded-[20px] bg-[var(--salt-ghost)] shadow-[0_12px_26px_rgba(47,119,157,0.14)]">
-							<CoverArt src={resolvedMeta.coverArt} alt={resolvedMeta.name} loading="eager" className="h-full w-full object-cover" />
-						</div>
-					</div>
-					<div className="min-w-0">
-						<p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--salt-mist)]">{title}</p>
-						<h2
-							className="text-[28px] font-semibold italic text-[var(--salt-white)]"
-							style={{ fontFamily: 'var(--font-display)' }}
-						>
-							{resolvedMeta.name}
-						</h2>
-						{albumMeta && (
-							onNavigateWithItem ? (
-								<button
-									type="button"
-									onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: albumMeta.artistId })}
-									className="mt-1 truncate text-sm text-[var(--salt-primary)] underline decoration-transparent underline-offset-2 transition-colors hover:decoration-current focus-visible:outline-none"
-								>
-									{albumMeta.artist}
-								</button>
-							) : <p className="mt-1 truncate text-sm text-[var(--salt-primary)]">{albumMeta.artist}</p>
-						)}
-						<p className="mt-1 text-xs text-[var(--salt-mist)]">{subtitle}</p>
-					</div>
+		<section className="pb-6">
+			{/* Artwork left, metadata and transport stacked beside it — the shape of
+			    an album page everywhere, and it keeps the title on the page surface
+			    instead of over the art. */}
+			<div className="flex items-start gap-4 sm:gap-6">
+				<div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-md bg-[var(--salt-ghost)] sm:h-44 sm:w-44">
+					<CoverArt src={resolvedMeta.coverArt} alt="" loading="eager" sizes="(max-width: 640px) 112px, 176px" className="h-full w-full object-cover" />
 				</div>
-				<div className="flex items-center gap-2">
-					{onClose && (
+				<div className="flex min-w-0 flex-1 flex-col">
+					<div className="flex items-start justify-between gap-3">
+						<div className="min-w-0">
+							<p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--salt-mist)]">{title}</p>
+							<h2 className="mt-0.5 text-xl font-bold leading-tight tracking-[-0.01em] text-[var(--salt-white)] sm:text-[26px]">
+								{resolvedMeta.name}
+							</h2>
+							{albumMeta && (
+								onNavigateWithItem ? (
+									<button
+										type="button"
+										onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: albumMeta.artistId })}
+										className="mt-0.5 max-w-full truncate text-[15px] text-[var(--salt-primary)] underline decoration-transparent underline-offset-2 transition-colors hover:decoration-current focus-visible:outline-none sm:text-[17px]"
+									>
+										{albumMeta.artist}
+									</button>
+								) : <p className="mt-0.5 truncate text-[15px] text-[var(--salt-primary)] sm:text-[17px]">{albumMeta.artist}</p>
+							)}
+							<p className="mt-1 text-xs text-[var(--salt-mist)]">{subtitle}</p>
+						</div>
+						{onClose && (
+							<button
+								type="button"
+								onClick={onClose}
+								aria-label="Close"
+								className="shrink-0 rounded-full p-1.5 text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+							>
+								<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+									<path d="M4 4l12 12M16 4L4 16" />
+								</svg>
+							</button>
+						)}
+					</div>
+					<div className="mt-3 flex items-center gap-2 sm:mt-4">
 						<button
 							type="button"
-							onClick={onClose}
-							aria-label="Close"
-							className="rounded-full p-2 text-[var(--salt-mist)] transition hover:bg-white/20 hover:text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+							onClick={() => playAlbum(playableTracks, 0)}
+							disabled={playableTracks.length === 0}
+							className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#d84f5f] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[#bd3f4f] disabled:cursor-not-allowed disabled:bg-[#a7b3ba]"
 						>
-							<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-								<path d="M4 4l12 12M16 4L4 16" />
-							</svg>
+							<HiPlay className="h-3.5 w-3.5" aria-hidden />
+							Play
 						</button>
-					)}
-					<button
-						type="button"
-						onClick={() => playAlbum(songs, 0)}
-						disabled={trackCount === 0}
-						className="shrink-0 rounded-full bg-[var(--salt-primary)] px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--salt-primary)] disabled:opacity-50"
-					>
-						Play All
-					</button>
+						<button
+							type="button"
+							onClick={() => playAlbum(shuffled(playableTracks), 0)}
+							disabled={playableTracks.length === 0}
+							className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--glass-border)] bg-white px-4 text-[13px] font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<HiArrowsRightLeft className="h-3.5 w-3.5" aria-hidden />
+							Shuffle
+						</button>
+					</div>
 				</div>
 			</div>
 
 			{trackCount > 0 ? (
-				<div className="mt-5 px-4 sm:px-6">
+				<div className="mt-6">
 					<SongRail songs={songs} label={`${kind}:${id}`} onNavigateWithItem={onNavigateWithItem} />
 				</div>
 			) : (
-				<div className="mx-4 mt-6 rounded-[24px] border border-dashed border-[var(--glass-border-active)] bg-white/35 p-5 sm:mx-6">
-					<p className="text-sm font-medium text-[var(--salt-white)]">No verified tracks for this {kind}.</p>
+				/* Jamendo lists albums whose tracks it will not serve by album id, so
+				   this state is reachable through no fault of the user. The artist
+				   lookup uses a different id and does return tracks, which makes it
+				   the one useful way onward instead of leaving a dead end. */
+				<div className="mt-6 rounded-xl border border-[var(--glass-border)] bg-white p-5">
+					<p className="text-[13px] font-medium text-[var(--salt-white)]">No verified tracks for this {kind}.</p>
 					<p className="mt-1 text-xs text-[var(--salt-mist)]">The provider returned metadata but no playable tracks.</p>
+					<div className="mt-4 flex flex-wrap items-center gap-2">
+						{albumMeta && onNavigateWithItem && (
+							<button
+								type="button"
+								onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: albumMeta.artistId })}
+								className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[var(--salt-primary)] px-4 text-[13px] font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+							>
+								Browse {albumMeta.artist}
+							</button>
+						)}
+						<button
+							type="button"
+							onClick={() => void Promise.all([refetchMeta(), refetchTracks()])}
+							className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--glass-border)] px-4 text-[13px] font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)]"
+						>
+							Try again
+						</button>
+					</div>
 				</div>
 			)}
 		</section>

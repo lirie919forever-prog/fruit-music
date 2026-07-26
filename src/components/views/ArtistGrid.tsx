@@ -6,6 +6,7 @@ import { usePlayerStore } from '@/store/playerStore';
 import { api } from '@/lib/api';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countFederatedResults } from '@/lib/catalogFreshness';
+import { HiPlay } from 'react-icons/hi2';
 import { CoverArt } from '@/components/ui/CoverArt';
 import type { ViewType } from '@/types/music';
 import type { NavigationItem } from '@/lib/navigation';
@@ -36,12 +37,12 @@ export function ArtistGrid({ onNavigateWithItem }: { onNavigateWithItem?: (view:
 	);
 
 	return (
-		<section className="pb-[88px]">
-			<div className="px-4 pb-4 pt-5 sm:px-6">
-				<h2 className="text-[28px] font-semibold italic text-[var(--salt-white)]" style={{ fontFamily: 'var(--font-display)' }}>Artists</h2>
-				{unavailableProviders.length > 0 && <p className="mt-2 text-xs text-[var(--salt-mist)]">{unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'is' : 'are'} unavailable. Showing available artists.</p>}
+		<section className="pb-6">
+			<div className="pb-3">
+				<p className="text-[13px] text-[var(--salt-mist)]">{artists.length} {artists.length === 1 ? 'artist' : 'artists'}</p>
+				{unavailableProviders.length > 0 && <p className="mt-1 text-xs text-[var(--salt-mist)]">{unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'is' : 'are'} unavailable. Showing available artists.</p>}
 			</div>
-			<div className="grid grid-cols-2 gap-x-4 gap-y-6 px-4 min-[420px]:grid-cols-3 sm:px-6 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+			<div className="grid grid-cols-2 gap-x-4 gap-y-6 min-[420px]:grid-cols-3 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
 				{artists.map((artist) => <ArtistCard key={artist.id} artist={artist} onNavigateWithItem={onNavigateWithItem} />)}
 			</div>
 		</section>
@@ -91,13 +92,13 @@ function ArtistCard({ artist, onNavigateWithItem }: { artist: Artist; onNavigate
 				type="button"
 				onClick={handleClick}
 				aria-label={`Open ${artist.name}`}
-				className="group block w-full rounded-[24px] p-2 transition-[background,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-[var(--glass-bg-hover)] hover:shadow-[0_12px_26px_rgba(47,119,157,0.1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+				className="group block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
 			>
-				<span className="relative block aspect-square overflow-hidden rounded-full border-4 border-white shadow-[0_8px_22px_rgba(47,119,157,0.16)]">
-					<CoverArt src={artist.coverArt} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105 group-focus-visible:scale-105" />
-					<span className="absolute inset-0 flex items-center justify-center bg-[color-mix(in_srgb,var(--salt-primary)_24%,transparent)] text-lg text-white opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">{state === 'loading' ? <span aria-hidden className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : '▸'}</span>
+				<span className="relative block aspect-square overflow-hidden rounded-full bg-[var(--salt-ghost)]">
+					<CoverArt src={artist.coverArt} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] group-focus-visible:scale-[1.03]" />
+					<span className="absolute inset-0 flex items-center justify-center bg-black/35 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">{state === 'loading' ? <span aria-hidden className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <HiPlay className="h-6 w-6" aria-hidden />}</span>
 				</span>
-				<span className="mt-3 block truncate text-sm font-semibold text-[var(--salt-white)]">{artist.name}</span>
+				<span className="mt-2 block truncate text-[13px] font-medium text-[var(--salt-white)]">{artist.name}</span>
 			</button>
 			{state === 'error' && <p className="mt-1 text-xs text-[var(--danger)]">Could not load tracks. <button type="button" onClick={() => void loadAndPlay()} className="rounded underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">Try again</button></p>}
 		</article>
@@ -110,9 +111,9 @@ function Failure({ message, retry }: { message: string; retry: () => void }) {
 
 function ArtistSkeleton() {
 	return (
-		<div className="grid grid-cols-2 gap-x-4 gap-y-6 px-4 pt-5 min-[420px]:grid-cols-3 sm:px-6 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+		<div className="grid grid-cols-2 gap-x-4 gap-y-6 min-[420px]:grid-cols-3 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
 			{Array.from({ length: 12 }).map((_, i) => (
-				<div key={i} className="space-y-3 p-2">
+				<div key={i} className="space-y-2">
 					<div className="aspect-square animate-pulse rounded-full bg-[var(--salt-ghost)]" />
 					<div className="mx-auto h-3 w-2/3 animate-pulse rounded bg-[var(--salt-ghost)]" />
 				</div>

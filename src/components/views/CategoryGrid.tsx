@@ -64,17 +64,17 @@ export function CategoryGrid({ config, onNavigateWithItem }: { config: CategoryC
   }
 
   return (
-    <section className="pb-[120px]">
-      <div className="px-4 pb-3 pt-5 sm:px-6">
-        {unavailableProviders.length > 0 && <p className="mb-2 text-xs text-[var(--salt-mist)]">{unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'is' : 'are'} unavailable. Showing available tracks.</p>}
-        {hasUnavailableTracks && <p className="mb-2 text-xs text-[var(--danger)]">Some chart metadata is available, but its playback source is currently unavailable.</p>}
-        <div className="flex flex-wrap items-baseline gap-3">
-          <h2 className="text-[28px] font-semibold italic text-[var(--salt-white)]" style={{ fontFamily: 'var(--font-display)' }}>{config.title}</h2>
-          <span className="rounded-full border border-[var(--glass-border)] bg-[var(--salt-ghost)] px-2.5 py-0.5 text-[11px] text-[var(--salt-mist)]">{songs.length} tracks</span>
-        </div>
-        <p className="mt-1 text-xs text-[var(--salt-mist)]">{config.description}</p>
+    <section className="pb-6">
+      {/* No title here: the page header already names the view. This is the
+          provenance line only — track count and which source it came from. */}
+      <div className="pb-3">
+        <p className="text-[13px] text-[var(--salt-mist)]">
+          {songs.length} {songs.length === 1 ? 'track' : 'tracks'} · {config.description}
+        </p>
+        {unavailableProviders.length > 0 && <p className="mt-1 text-xs text-[var(--salt-mist)]">{unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'is' : 'are'} unavailable. Showing available tracks.</p>}
+        {hasUnavailableTracks && <p className="mt-1 text-xs text-[var(--danger)]">Some chart metadata is available, but its playback source is currently unavailable.</p>}
       </div>
-      <div className="space-y-1">
+      <div className="grid">
         {songs.map((song, index) => (
           <SongCard key={`${song.id}-${index}`} song={song} index={index} tracks={songs} onNavigateWithItem={onNavigateWithItem} />
         ))}
@@ -85,16 +85,18 @@ export function CategoryGrid({ config, onNavigateWithItem }: { config: CategoryC
 
 function TrackSkeleton() {
   return (
-    <div className="space-y-1 pb-[120px] pt-5">
-      <div className="mx-4 h-8 w-32 animate-pulse rounded bg-[var(--salt-ghost)] sm:mx-6" />
-      {Array.from({ length: 12 }).map((_, index) => (
-        <div key={index} className="grid grid-cols-[40px_minmax(0,1fr)_76px] items-center gap-2 px-3 py-2 sm:grid-cols-[36px_48px_minmax(0,1fr)_56px_76px] sm:px-6">
-          <div className="hidden h-4 w-5 animate-pulse rounded bg-[var(--salt-ghost)] sm:block" />
-          <div className="h-10 w-10 animate-pulse rounded-md bg-[var(--salt-ghost)]" />
-          <div className="space-y-2"><div className="h-3 w-3/5 animate-pulse rounded bg-[var(--salt-ghost)]" /><div className="h-2.5 w-2/5 animate-pulse rounded bg-[var(--salt-ghost)]" /></div>
-          <div className="h-8 w-[72px] animate-pulse rounded bg-[var(--salt-ghost)]" />
-        </div>
-      ))}
+    <div className="pb-6">
+      <div className="h-4 w-48 animate-pulse rounded bg-[var(--salt-ghost)]" />
+      <div className="mt-3 grid">
+        {Array.from({ length: 12 }).map((_, index) => (
+          <div key={index} className="flex h-14 items-center gap-3 border-b border-[var(--glass-border)] px-1">
+            <div className="hidden h-3 w-4 animate-pulse rounded bg-[var(--salt-ghost)] sm:block" />
+            <div className="h-10 w-10 shrink-0 animate-pulse rounded bg-[var(--salt-ghost)]" />
+            <div className="min-w-0 flex-1 space-y-2"><div className="h-3 w-3/5 animate-pulse rounded bg-[var(--salt-ghost)]" /><div className="h-2.5 w-2/5 animate-pulse rounded bg-[var(--salt-ghost)]" /></div>
+            <div className="h-3 w-8 animate-pulse rounded bg-[var(--salt-ghost)]" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

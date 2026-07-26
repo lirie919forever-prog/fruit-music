@@ -14,31 +14,32 @@ export function PersonalLibraryView({ kind, onNavigateWithItem, onNavigate }: {
 }) {
   const songs = usePlayerStore((state) => state[kind]);
   const clearHistory = usePlayerStore((state) => state.clearHistory);
-  const title = kind === 'favorites' ? 'Favorites' : 'Recently Played';
 
   return (
-    <section className="space-y-5 pb-[120px] pt-5">
-      <div className="flex items-end justify-between gap-4">
-        <div><h2 className="text-3xl font-semibold text-[var(--salt-white)]" style={{ fontFamily: 'var(--font-display)' }}>{title}</h2><p className="mt-1 text-sm text-[var(--salt-mist)]">{songs.length ? `${songs.length} saved ${songs.length === 1 ? 'track' : 'tracks'}` : 'Your library will appear here.'}</p></div>
-        {kind === 'history' && songs.length > 0 && <button type="button" onClick={clearHistory} className="rounded-full border border-[var(--glass-border)] bg-white/60 px-3 py-2 text-xs text-[var(--salt-mist)] shadow-sm transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]">Clear history</button>}
+    <section className="space-y-3 pb-6">
+      {/* The page header already names this view, so the only heading-level
+          information left to give is how much is in it. */}
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-[13px] text-[var(--salt-mist)]">{songs.length ? `${songs.length} saved ${songs.length === 1 ? 'track' : 'tracks'}` : 'Your library will appear here.'}</p>
+        {kind === 'history' && songs.length > 0 && <button type="button" onClick={clearHistory} className="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]">Clear history</button>}
       </div>
       {!songs.length ? (
-        <div className="rounded-[28px] border border-dashed border-[var(--glass-border-active)] bg-[rgba(255,255,255,0.58)] px-6 py-14 text-center text-sm text-[var(--salt-mist)] shadow-[inset_0_1px_0_white] backdrop-blur-xl">
+        <div className="rounded-xl border border-[var(--glass-border)] bg-white px-6 py-12 text-center text-[13px] text-[var(--salt-mist)]">
           <p>{kind === 'favorites' ? 'Favorite a track to keep it close.' : 'Play a verified track and it will be remembered here.'}</p>
           {onNavigate && (
             <button
               type="button"
               onClick={() => onNavigate('trending')}
-              className="mt-4 inline-flex h-10 items-center gap-2 rounded-full bg-[var(--salt-primary)] px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+              className="mt-4 inline-flex h-9 items-center gap-2 rounded-full bg-[var(--salt-primary)] px-4 text-[13px] font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
             >
               Browse trending
             </button>
           )}
         </div>
       ) : (
-        <div className="space-y-1">
+        <div className="grid">
           {songs.map((song, index) => (
-            <SongCard key={song.id} song={song} index={index} tracks={songs} onNavigateWithItem={onNavigateWithItem} />
+            <SongCard key={song.id} song={song} index={index} tracks={songs} showIndex={kind === 'favorites'} onNavigateWithItem={onNavigateWithItem} />
           ))}
         </div>
       )}
