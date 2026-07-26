@@ -577,3 +577,256 @@ describe('seeking', () => {
     view.unmount();
   });
 });
+
+/**
+ * The Media Session surface: the lock screen, the OS media popup, a headset's
+ * buttons and a car stereo all drive playback through these handlers, and none
+ * of them is reachable from inside the app's own UI. Nothing but a test can
+ * catch a handler that was never registered.
+ */
+describe('media session', () => {
+  interface FakeMediaSession {
+    metadata: MediaMetadata | null;
+    playbackState: MediaSessionPlaybackState;
+    handlers: Map<MediaSessionAction, MediaSessionActionHandler | null>;
+    positions: Array<MediaPositionState | undefined>;
+    setActionHandler: (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => void;
+    setPositionState: (state?: MediaPositionState) => void;
+  }
+
+  let session: FakeMediaSession;
+
+  beforeEach(() => {
+    session = {
+      metadata: null,
+      playbackState: 'none',
+      handlers: new Map(),
+      positions: [],
+      setActionHandler(action, handler) {
+        this.handlers.set(action, handler);
+      },
+      setPositionState(state) {
+        this.positions.push(state);
+      },
+    };
+    vi.stubGlobal('navigator', { mediaSession: session });
+    vi.stubGlobal(
+      'MediaMetadata',
+      class {
+        constructor(init: MediaMetadataInit) {
+          Object.assign(this, init);
+        }
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Loads a track and returns its Howl, with the OS wiring already settled. */
+  async function playing(overrides: Partial<Song> = {}) {
+    const view = mount();
+    act(() => {
+      store.getState().playSong(song('a', overrides));
+    });
+    const howl = await latestHowl();
+    act(() => {
+      howl.fire('onload');
+    });
+    return { view, howl };
+  }
+
+  it('registers every action it advertises, including the seek offsets', async () => {
+    const { view } = await playing();
+
+    for (const action of [
+      'play',
+      'pause',
+      'stop',
+      'nexttrack',
+      'previoustrack',
+      'seekbackward',
+      'seekforward',
+      'seekto',
+    ] as MediaSessionAction[]) {
+      expect(session.handlers.get(action), `${action} handler`).toBeTypeOf('function');
+    }
+    view.unmount();
+  });
+
+  it('publishes a position the OS can draw a moving scrubber from', async () => {
+    const { view } = await playing({ duration: 240 });
+
+    expect(session.positions.at(-1)).toEqual({ duration: 100, position: 0, playbackRate: 1 });
+    view.unmount();
+  });
+
+  it('republishes the position after a seek, so the lock screen does not lag', async () => {
+    const { view } = await playing();
+
+    session.positions.length = 0;
+    act(() => {
+      seekFn(42);
+    });
+
+    expect(session.positions.at(-1)).toEqual({ duration: 100, position: 42, playbackRate: 1 });
+    view.unmount();
+  });
+
+  it('moves playback by the offset the platform asked for', async () => {
+    const { view, howl } = await playing();
+    act(() => {
+      seekFn(50);
+    });
+
+    act(() => {
+      session.handlers.get('seekforward')?.({ action: 'seekforward', seekOffset: 15 });
+    });
+    expect(howl.seek()).toBe(65);
+
+    act(() => {
+      session.handlers.get('seekbackward')?.({ action: 'seekbackward', seekOffset: 15 });
+    });
+    expect(howl.seek()).toBe(50);
+    view.unmount();
+  });
+
+  it('falls back to ten seconds when the platform names no offset', async () => {
+    const { view, howl } = await playing();
+    act(() => {
+      seekFn(50);
+    });
+
+    act(() => {
+      session.handlers.get('seekforward')?.({ action: 'seekforward' });
+    });
+
+    expect(howl.seek()).toBe(60);
+    view.unmount();
+  });
+
+  it('keeps the OS playback state in step with the engine', async () => {
+    const { view } = await playing();
+    expect(session.playbackState).toBe('playing');
+
+    act(() => {
+      store.getState().setPlaybackIntent(false);
+    });
+    await waitFor(() => expect(session.playbackState).toBe('paused'));
+    view.unmount();
+  });
+
+  it('clears the metadata and the handlers when the queue empties', async () => {
+    const { view } = await playing();
+
+    act(() => {
+      store.getState().setQueue([]);
+    });
+
+    await waitFor(() => expect(session.metadata).toBeNull());
+    expect(session.playbackState).toBe('none');
+    expect(session.handlers.get('play')).toBeNull();
+    view.unmount();
+  });
+
+  it('survives a platform that exposes media session without position support', async () => {
+    // Safari shipped the metadata half years before the position half.
+    vi.stubGlobal('navigator', { mediaSession: { ...session, setPositionState: undefined } });
+
+    const { view } = await playing();
+    expect(store.getState().status).toBe('playing');
+    view.unmount();
+  });
+
+  it('survives a platform that throws from setPositionState', async () => {
+    vi.stubGlobal('navigator', {
+      mediaSession: {
+        ...session,
+        setActionHandler: session.setActionHandler.bind(session),
+        setPositionState: () => {
+          throw new TypeError('nope');
+        },
+      },
+    });
+
+    const { view } = await playing();
+    expect(store.getState().status).toBe('playing');
+    view.unmount();
+  });
+});
+
+describe('sleep timer', () => {
+  it('stops playback when the deadline arrives, and clears itself', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = mount();
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
+    const howl = await latestHowl();
+    act(() => {
+      howl.fire('onload');
+    });
+    expect(store.getState().isPlaying).toBe(true);
+
+    act(() => {
+      store.getState().setSleepTimer(15);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
+    });
+
+    expect(store.getState().playbackIntent).toBe(false);
+    expect(store.getState().isPlaying).toBe(false);
+    // Left set, the deadline would fire again the moment playback resumed.
+    expect(store.getState().sleepTimerEndsAt).toBeNull();
+    view.unmount();
+  });
+
+  it('leaves playback alone before the deadline', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = mount();
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
+    const howl = await latestHowl();
+    act(() => {
+      howl.fire('onload');
+    });
+
+    act(() => {
+      store.getState().setSleepTimer(30);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29 * 60_000);
+    });
+
+    expect(store.getState().isPlaying).toBe(true);
+    view.unmount();
+  });
+
+  it('cancelling the timer keeps playback going past the original deadline', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = mount();
+    act(() => {
+      store.getState().playSong(song('a'));
+    });
+    const howl = await latestHowl();
+    act(() => {
+      howl.fire('onload');
+    });
+
+    act(() => {
+      store.getState().setSleepTimer(15);
+    });
+    act(() => {
+      store.getState().setSleepTimer(null);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20 * 60_000);
+    });
+
+    expect(store.getState().isPlaying).toBe(true);
+    view.unmount();
+  });
+});

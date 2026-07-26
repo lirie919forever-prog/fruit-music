@@ -11,7 +11,20 @@ import {
   hasNextInQueue,
   isNaturalTrackEnd,
 } from '@/components/player/playbackRecovery';
+import { DEFAULT_SEEK_OFFSET_SECONDS, mediaMetadataInit, positionState } from '@/components/player/mediaSession';
 import type { Song } from '@/types/music';
+
+/** Every action this app registers, so the cleanup cannot fall out of step. */
+const MEDIA_SESSION_ACTIONS = [
+  'play',
+  'pause',
+  'stop',
+  'nexttrack',
+  'previoustrack',
+  'seekbackward',
+  'seekforward',
+  'seekto',
+] as const satisfies readonly MediaSessionAction[];
 
 interface AudioContextType {
   seek: (time: number) => void;
@@ -56,6 +69,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const currentSong = usePlayerStore((state) => state.currentSong);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
+  const duration = usePlayerStore((state) => state.duration);
   const playbackIntent = usePlayerStore((state) => state.playbackIntent);
   const volume = usePlayerStore((state) => state.volume);
   const next = usePlayerStore((state) => state.next);
@@ -66,6 +80,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const setDuration = usePlayerStore((state) => state.setDuration);
   const setStatus = usePlayerStore((state) => state.setStatus);
   const transportCommand = usePlayerStore((state) => state.transportCommand);
+  const sleepTimerEndsAt = usePlayerStore((state) => state.sleepTimerEndsAt);
 
   const clearRetry = useCallback(() => {
     if (!retryTimerRef.current) return;
@@ -403,6 +418,30 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     pendingHowlRef.current?.volume(volume);
   }, [volume]);
 
+  /**
+   * Tells the OS where in the track playback is, so the lock screen draws a
+   * scrubber that moves rather than a static bar.
+   *
+   * Called on the events that change position discontinuously — a track
+   * loading, play, pause, a seek — and never per frame: between calls the
+   * platform extrapolates from `playbackRate` itself, which is the whole point
+   * of the API.
+   */
+  const publishPosition = useCallback(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    if (typeof navigator.mediaSession.setPositionState !== 'function') return;
+    const state = playerStore.getState();
+    const position = positionState(state.duration, state.progress);
+    try {
+      // Passing `undefined` is the spec's way of clearing it, which is right
+      // when there is no track or its length is not known yet.
+      navigator.mediaSession.setPositionState(position ?? undefined);
+    } catch {
+      // A platform that disagrees about what it will accept must not take the
+      // audio engine down with it.
+    }
+  }, [playerStore]);
+
   const seek = useCallback(
     (time: number) => {
       const active = howlRef.current;
@@ -415,8 +454,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const position = Math.max(0, Math.min(bound, time));
       active.seek(position);
       setProgress(position);
+      publishPosition();
     },
-    [playerStore, setProgress],
+    [playerStore, publishPosition, setProgress],
   );
 
   useEffect(() => {
@@ -425,18 +465,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   useKeyboardShortcuts(seek);
 
+  const stop = useCallback(() => {
+    stopEngine();
+    setPlaybackIntent(false);
+    setStatus(currentSong ? 'paused' : 'idle');
+  }, [currentSong, setPlaybackIntent, setStatus, stopEngine]);
+
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
 
-    navigator.mediaSession.metadata = currentSong
-      ? new MediaMetadata({
-          title: currentSong.title,
-          artist: currentSong.artist,
-          album: currentSong.album,
-          artwork: [{ src: currentSong.coverArt, sizes: '512x512' }],
-        })
-      : null;
+    navigator.mediaSession.metadata = currentSong ? new MediaMetadata(mediaMetadataInit(currentSong)) : null;
     navigator.mediaSession.playbackState = !currentSong ? 'none' : isPlaying ? 'playing' : 'paused';
+    publishPosition();
 
     const registerAction = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
       try {
@@ -446,10 +486,21 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    // Seeking relative to wherever playback has reached, which is what a
+    // headset's skip buttons and a car stereo send. `seekOffset` is optional in
+    // the spec and most platforms omit it.
+    const seekBy = (delta: number) => (details: MediaSessionActionDetails) => {
+      const offset = details.seekOffset ?? DEFAULT_SEEK_OFFSET_SECONDS;
+      seek(playerStore.getState().progress + delta * offset);
+    };
+
     registerAction('play', currentSong ? () => setPlaybackIntent(true) : null);
     registerAction('pause', currentSong ? () => setPlaybackIntent(false) : null);
+    registerAction('stop', currentSong ? stop : null);
     registerAction('nexttrack', currentSong ? next : null);
     registerAction('previoustrack', currentSong ? previous : null);
+    registerAction('seekbackward', currentSong ? seekBy(-1) : null);
+    registerAction('seekforward', currentSong ? seekBy(1) : null);
     registerAction(
       'seekto',
       currentSong
@@ -460,17 +511,35 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     );
 
     return () => {
-      for (const action of ['play', 'pause', 'nexttrack', 'previoustrack', 'seekto'] as MediaSessionAction[]) {
-        registerAction(action, null);
-      }
+      for (const action of MEDIA_SESSION_ACTIONS) registerAction(action, null);
     };
-  }, [currentSong, isPlaying, next, previous, seek, setPlaybackIntent]);
+  }, [currentSong, isPlaying, next, playerStore, previous, publishPosition, seek, setPlaybackIntent, stop]);
 
-  const stop = useCallback(() => {
-    stopEngine();
-    setPlaybackIntent(false);
-    setStatus(currentSong ? 'paused' : 'idle');
-  }, [currentSong, setPlaybackIntent, setStatus, stopEngine]);
+  // Duration only arrives once the track has loaded, which is after the effect
+  // above has already run for this song. Seeks publish from `seek` itself.
+  useEffect(publishPosition, [duration, publishPosition]);
+
+  /**
+   * Stops playback when the sleep timer runs out.
+   *
+   * One timeout for the whole wait rather than a ticking interval: the store
+   * holds the end time, so the only thing that has to happen on a schedule is
+   * the stop itself. A backgrounded tab throttles timers but still fires them,
+   * and the deadline is re-read on every wake, so a late timer stops playback
+   * late rather than never.
+   */
+  useEffect(() => {
+    if (sleepTimerEndsAt === null) return;
+    const timer = setTimeout(
+      () => {
+        const state = playerStore.getState();
+        state.setPlaybackIntent(false);
+        state.setSleepTimer(null);
+      },
+      Math.max(0, sleepTimerEndsAt - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [playerStore, sleepTimerEndsAt]);
 
   useEffect(() => stopEngine, [stopEngine]);
 
