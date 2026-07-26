@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { classifyRoute } from '../routeClassification';
 import { createRateLimiter } from '../rateLimit';
+import {
+  STREAM_RESPONSE_HEADERS,
+  closeUpstream,
+  fetchApprovedMedia,
+  mediaHostAllowlist,
+  providerFailure,
+  requestSignal,
+  setCdnCacheHeaders,
+  streamBody,
+  validContentRange,
+  type ApprovedMediaHost,
+} from '../streamProxy';
 
 const JAMENDO_API = 'https://api.jamendo.com/v3.0';
 const ITUNES_API = 'https://itunes.apple.com';
@@ -17,17 +29,9 @@ const ARCHIVE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const CCMIXTER_MEDIA_HOSTS = new Set(['ccmixter.org', 'www.ccmixter.org']);
 const ARCHIVE_ENRICHMENT_CONCURRENCY = 4;
 const NON_MUSIC_ARCHIVE_TERMS = /\b(audiobook|audio book|librivox|podcast|spoken word|radio (talk|conversation)|lecture|sermon|philosophy|literature|novel|poetry reading)\b/i;
-const STREAM_RESPONSE_HEADERS = [
-  'content-type',
-  'content-length',
-  'content-range',
-  'accept-ranges',
-  'etag',
-  'last-modified',
-] as const;
 const CATALOG_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=600';
 const FULL_STREAM_CACHE_CONTROL = 'public, s-maxage=86400, stale-while-revalidate=604800';
-const CCMIXTER_MAX_REDIRECTS = 3;
+const MAX_STREAM_REDIRECTS = 3;
 // ccMixter's media host rejects requests that arrive without the referer its
 // own pages send, so every track would otherwise fail with 403.
 const CCMIXTER_MEDIA_HEADERS = {
@@ -44,11 +48,6 @@ const CCMIXTER_PAGE_SIZE = 100;
 const CCMIXTER_MAX_RECORDS = 100;
 const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 120, maxEntries: 4_000 });
 
-function setCdnCacheHeaders(headers: Headers, value: string): void {
-  headers.set('Cache-Control', value);
-  headers.set('Vercel-CDN-Cache-Control', value);
-  headers.set('CDN-Cache-Control', value);
-}
 
 function catalogResponse(data: unknown): NextResponse {
   const response = NextResponse.json(data);
@@ -81,107 +80,16 @@ function validMediaUrl(value: string): URL | null {
   }
 }
 
-function requestSignal(request: Request): AbortSignal {
-  return AbortSignal.any([
-    request.signal,
-    AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  ]);
-}
 
 function upstreamFetch(request: Request, url: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(url, { ...init, signal: requestSignal(request) });
+  return fetch(url, { ...init, signal: requestSignal(request, REQUEST_TIMEOUT_MS) });
 }
 
-interface StreamFetchResult {
-  response: Response;
-  controller: AbortController;
-  cleanup: () => void;
-}
 
-async function streamFetch(request: Request, url: string, init: RequestInit = {}): Promise<StreamFetchResult> {
-  const controller = new AbortController();
-  const abortFromRequest = () => controller.abort(request.signal.reason);
-  if (request.signal.aborted) abortFromRequest();
-  else request.signal.addEventListener('abort', abortFromRequest, { once: true });
 
-  const timeout = setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), REQUEST_TIMEOUT_MS);
-  let cleaned = false;
-  const cleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    clearTimeout(timeout);
-    request.signal.removeEventListener('abort', abortFromRequest);
-  };
-  try {
-    // The timeout only covers response headers. The body must remain alive for
-    // the full duration of a long audio track.
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    clearTimeout(timeout);
-    return { response, controller, cleanup };
-  } catch (error) {
-    cleanup();
-    throw error;
-  }
-}
 
-function streamBody(
-  response: Response,
-  controller: AbortController,
-  cleanup: () => void,
-): ReadableStream<Uint8Array> | null {
-  if (!response.body) {
-    cleanup();
-    return null;
-  }
-  const reader = response.body.getReader();
-  let closed = false;
-  const finish = (abort: boolean) => {
-    if (closed) return;
-    closed = true;
-    cleanup();
-    if (abort) controller.abort(new DOMException('Stream closed', 'AbortError'));
-  };
-  return new ReadableStream({
-    async pull(streamController) {
-      try {
-        const chunk = await reader.read();
-        if (chunk.done) {
-          finish(false);
-          streamController.close();
-        } else {
-          streamController.enqueue(chunk.value);
-        }
-      } catch (error) {
-        finish(true);
-        streamController.error(error);
-      }
-    },
-    async cancel(reason) {
-      finish(true);
-      await reader.cancel(reason);
-    },
-  });
-}
 
-function providerFailure(error: unknown, message: string): NextResponse {
-  const status = error instanceof DOMException && error.name === 'TimeoutError' ? 504 : 502;
-  return NextResponse.json({ error: message }, { status });
-}
 
-function validContentRange(value: string | null): boolean {
-  if (!value) return false;
-  const match = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(value.trim());
-  if (!match) return false;
-  const start = Number(match[1]);
-  const end = Number(match[2]);
-  const total = match[3] === '*' ? 0 : Number(match[3]);
-  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && end >= start && (total === 0 || end < total);
-}
-
-function closeUpstream(response: Response, cleanup: () => void): void {
-  cleanup();
-  void response.body?.cancel().catch(() => undefined);
-}
 
 function numericId(value: string | undefined, label: string): NextResponse | string {
   if (!value) return NextResponse.json({ error: `Missing ${label}` }, { status: 400 });
@@ -320,11 +228,31 @@ function jamendoUrl(endpoint: string, params: URLSearchParams): string {
   return url.toString();
 }
 
+/**
+ * Media hosts, per provider, measured rather than assumed.
+ *
+ * Checked directly against each upstream: Jamendo and Apple answer the stream
+ * URL with a 200 and no redirect at all, while Archive answers 302 with a
+ * per-node `dn######.<region>.archive.org` host — which is why that one is a
+ * domain suffix and the others are not.
+ *
+ * Every entry is a *ceiling*, not a promise that a redirect will happen. The
+ * jamendo, archive and itunes paths used to pass no validator at all, which
+ * meant fetch followed whatever `Location` arrived: an upstream that could be
+ * induced to emit one turned this route into a way to fetch an arbitrary URL
+ * and stream the response back through our own origin.
+ */
+const MEDIA_HOSTS: Record<'jamendo' | 'ccmixter' | 'archive' | 'itunes', ApprovedMediaHost> = {
+  jamendo: mediaHostAllowlist(['mp3l.jamendo.com'], ['.jamendo.com']),
+  ccmixter: mediaHostAllowlist([...CCMIXTER_MEDIA_HOSTS]),
+  archive: mediaHostAllowlist(['archive.org'], ['.archive.org']),
+  itunes: mediaHostAllowlist([ITUNES_PREVIEW_HOST]),
+};
+
 async function proxyStream(
   request: NextRequest,
   streamUrl: string,
-  init: RequestInit = {},
-  validateRedirect?: (url: string) => URL | null,
+  isApproved: ApprovedMediaHost,
   upstreamHeaders?: Record<string, string>,
 ): Promise<NextResponse> {
   const requestHeaders = new Headers();
@@ -339,50 +267,24 @@ async function proxyStream(
   }
 
   try {
-    let url = streamUrl;
-    let redirects = 0;
-    let upstream: Response;
-    let cleanupStream: (() => void) | undefined;
-    let upstreamController: AbortController | undefined;
-    while (true) {
-      const fetched = await streamFetch(request, url, {
-        ...init,
-        headers: requestHeaders,
-      });
-      upstream = fetched.response;
-      cleanupStream = fetched.cleanup;
-      upstreamController = fetched.controller;
-      if (!validateRedirect || ![301, 302, 303, 307, 308].includes(upstream.status)) break;
-      if (redirects >= CCMIXTER_MAX_REDIRECTS) {
-        closeUpstream(upstream, cleanupStream!);
-        return new NextResponse('Stream unavailable', { status: 502 });
-      }
-      const location = upstream.headers.get('location');
-      let redirect: URL | null = null;
-      try {
-        redirect = location ? validateRedirect(new URL(location, url).toString()) : null;
-      } catch {
-        closeUpstream(upstream, cleanupStream!);
-        return new NextResponse('Stream unavailable', { status: 502 });
-      }
-      if (!redirect) {
-        closeUpstream(upstream, cleanupStream!);
-        return new NextResponse('Stream unavailable', { status: 502 });
-      }
-      closeUpstream(upstream, cleanupStream!);
-      url = redirect.toString();
-      redirects += 1;
-    }
+    const fetched = await fetchApprovedMedia(request, streamUrl, {
+      isApproved,
+      headers: requestHeaders,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      maxRedirects: MAX_STREAM_REDIRECTS,
+    });
+    if (!fetched.ok) return fetched.response;
+    const { response: upstream, controller, cleanup } = fetched;
 
     if (upstream.ok) {
       const contentType = upstream.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase();
       if (!contentType || (contentType !== 'application/octet-stream' && !contentType.startsWith('audio/'))) {
-        closeUpstream(upstream, cleanupStream!);
+        closeUpstream(upstream, cleanup);
         return NextResponse.json({ error: 'Upstream returned invalid media' }, { status: 502 });
       }
     }
     if (upstream.status === 206 && !validContentRange(upstream.headers.get('content-range'))) {
-      closeUpstream(upstream, cleanupStream!);
+      closeUpstream(upstream, cleanup);
       return NextResponse.json({ error: 'Upstream returned an invalid range response' }, { status: 502 });
     }
 
@@ -398,7 +300,7 @@ async function proxyStream(
     }
     headers.set('Vary', 'Range');
 
-    const body = streamBody(upstream, upstreamController!, cleanupStream!);
+    const body = streamBody(upstream, controller, cleanup);
     return new NextResponse(body, {
       status: upstream.status,
       statusText: upstream.statusText,
@@ -418,7 +320,7 @@ async function handleJamendo(req: NextRequest, resource: string | undefined, res
     const trackId = numericId(rest[0], 'track ID');
     if (trackId instanceof NextResponse) return trackId;
     if (rest.length !== 1) return NextResponse.json({ error: 'Invalid track ID' }, { status: 400 });
-    return proxyStream(req, `https://mp3l.jamendo.com/?trackid=${trackId}&format=mp31`);
+    return proxyStream(req, `https://mp3l.jamendo.com/?trackid=${trackId}&format=mp31`, MEDIA_HOSTS.jamendo);
   }
 
   const endpointMap: Record<string, string> = { tracks: '/tracks', albums: '/albums', artists: '/artists' };
@@ -474,7 +376,7 @@ async function handleCCMixter(req: NextRequest, resource: string | undefined, re
       if (!parsedUrl) {
         return new NextResponse('Stream unavailable', { status: 502 });
       }
-      return proxyStream(req, parsedUrl.toString(), { redirect: 'manual' }, validMediaUrl, CCMIXTER_MEDIA_HEADERS);
+      return proxyStream(req, parsedUrl.toString(), MEDIA_HOSTS.ccmixter, CCMIXTER_MEDIA_HEADERS);
     } catch (error) {
       return providerFailure(error, 'ccMixter stream fetch failed');
     }
@@ -565,7 +467,7 @@ async function handleArchive(req: NextRequest, resource: string | undefined, res
       if (!mp3) return new NextResponse('Stream unavailable', { status: 404 });
 
       const downloadUrl = `https://archive.org/download/${encodeURIComponent(identifier)}/${mp3.name.split('/').map(encodeURIComponent).join('/')}`;
-      return proxyStream(req, downloadUrl);
+      return proxyStream(req, downloadUrl, MEDIA_HOSTS.archive);
     } catch (error) {
       return providerFailure(error, 'Archive stream fetch failed');
     }
@@ -733,7 +635,7 @@ async function handleItunes(req: NextRequest, resource: string | undefined, rest
     try {
       const preview = await itunesPreviewUrl(req, trackId, country);
       if (!preview) return new NextResponse('Preview unavailable', { status: 404 });
-      return proxyStream(req, preview);
+      return proxyStream(req, preview, MEDIA_HOSTS.itunes);
     } catch (error) {
       return providerFailure(error, 'Apple preview fetch failed');
     }

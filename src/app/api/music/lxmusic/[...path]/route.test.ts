@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { classifyLxRoute } from '../routeClassification';
-import { mediaContentType } from './route';
+import { mediaContentType } from '../../streamProxy';
 
 async function loadRoute() {
   vi.resetModules();
@@ -142,5 +142,66 @@ describe('LX Music API route', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toContain('s-maxage=');
     expect(response.headers.get('vercel-cdn-cache-control')).toBe(response.headers.get('cache-control'));
+  });
+  it('rejects a path-traversal id on the branch that skips the strict check', async () => {
+    const GET = await loadRoute();
+    const url = new URL('http://localhost/api/music/lxmusic/url');
+    // No `rawId`/`type`, so this takes the fallback branch, where `id` used to
+    // be interpolated into the upstream path with only encodeURIComponent —
+    // which leaves `.` alone, so `..` survived and walked up the resolver path.
+    url.searchParams.set('id', '../../admin');
+    url.searchParams.set('platform', 'wy');
+
+    const response = await GET(new Request(url.toString()), { params: Promise.resolve({ path: ['url'] }) });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe('Invalid LX stream identity');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a traversal attempt in the platform segment too', async () => {
+    const GET = await loadRoute();
+    const url = new URL('http://localhost/api/music/lxmusic/url');
+    url.searchParams.set('id', '123');
+    url.searchParams.set('platform', '../wy');
+
+    const response = await GET(new Request(url.toString()), { params: Promise.resolve({ path: ['url'] }) });
+
+    expect(response.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('validates the id before either branch reaches an upstream', async () => {
+    const GET = await loadRoute();
+    const url = new URL('http://localhost/api/music/lxmusic/url');
+    url.searchParams.set('id', 'lx-1');
+    url.searchParams.set('platform', 'wy');
+    url.searchParams.set('rawId', 'a/../../b');
+    url.searchParams.set('type', '1');
+
+    const response = await GET(new Request(url.toString()), { params: Promise.resolve({ path: ['url'] }) });
+
+    expect(response.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the community search API only when the LX API is not ok', async () => {
+    process.env.LX_API_BASE = 'https://lx.xiaomusic.dpdns.org';
+    const GET = await loadRoute();
+    // 530 is not `ok`, so the old `response.ok && response.status !== 530`
+    // guard never distinguished it from any other failure.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('down', { status: 530 }))
+      .mockResolvedValueOnce(Response.json({ code: 200, data: [{ id: 7, song: 'Track', singer: 'A/B', album: 'Album' }] }));
+
+    const url = new URL('http://localhost/api/music/lxmusic/search');
+    url.searchParams.set('key', 'test');
+    const response = await GET(new Request(url.toString()), { params: Promise.resolve({ path: ['search'] }) });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      code: 0,
+      data: { result: [{ id: 7, name: 'Track', ar: [{ name: 'A' }, { name: 'B' }], platform: 'wy' }] },
+    });
   });
 });

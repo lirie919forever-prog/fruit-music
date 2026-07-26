@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server';
 import { createRateLimiter } from '../../rateLimit';
 import { classifyLxRoute } from '../routeClassification';
+import {
+  STREAM_RESPONSE_HEADERS,
+  closeUpstream,
+  fetchApprovedMedia,
+  mediaContentType,
+  providerFailure,
+  requestSignal,
+  setCdnCacheHeaders,
+  streamBody,
+  validContentRange,
+} from '../../streamProxy';
 
 const LX_API_BASE = process.env.LX_API_BASE;
 const LX_RESOLVER_BASE = process.env.LX_RESOLVER_BASE;
@@ -20,13 +31,26 @@ function configuredBase(value: string | undefined): string | null {
   }
 }
 
-function approvedMediaUrl(value: string, baseHosts: Set<string>): URL | null {
+/**
+ * The configured resolver hosts plus whatever `LX_APPROVED_MEDIA_HOSTS` names.
+ *
+ * Read fresh on each call rather than captured at module load: the env is
+ * stubbed per test, and a cached set would answer with whichever value happened
+ * to be set when the module was first imported.
+ */
+function isApprovedLxMedia(url: URL): boolean {
+  if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
+  const host = url.hostname.toLowerCase();
+  if (LX_APPROVED_MEDIA_HOSTS.has(host)) return true;
+  return [configuredBase(LX_API_BASE), configuredBase(LX_RESOLVER_BASE)]
+    .filter((base): base is string => Boolean(base))
+    .some((base) => new URL(base).hostname.toLowerCase() === host);
+}
+
+function approvedMediaUrl(value: string): URL | null {
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
-    const host = url.hostname.toLowerCase();
-    const approved = baseHosts.has(host) || LX_APPROVED_MEDIA_HOSTS.has(host);
-    return approved ? url : null;
+    return isApprovedLxMedia(url) ? url : null;
   } catch {
     return null;
   }
@@ -34,43 +58,12 @@ function approvedMediaUrl(value: string, baseHosts: Set<string>): URL | null {
 const LX_API_KEY = 'share-v3';
 const DEFAULT_LEVEL = process.env.LX_DEFAULT_LEVEL || '320';
 const REQUEST_TIMEOUT_MS = 20_000;
-const STREAM_RESPONSE_HEADERS = [
-  'content-type',
-  'content-length',
-  'content-range',
-  'accept-ranges',
-  'etag',
-  'last-modified',
-] as const;
 const CATALOG_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=600';
 const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 200, maxEntries: 4_000 });
 
-function setCdnCacheHeaders(headers: Headers, value: string): void {
-  headers.set('Cache-Control', value);
-  headers.set('Vercel-CDN-Cache-Control', value);
-  headers.set('CDN-Cache-Control', value);
-}
 
-export function mediaContentType(value: string | null): string | null {
-  if (!value) return null;
-  const mediaType = value.split(';', 1)[0].trim().toLowerCase();
-  return mediaType || null;
-}
 
-function closeUpstream(response: Response, cleanup: () => void): void {
-  cleanup();
-  void response.body?.cancel().catch(() => undefined);
-}
 
-function validContentRange(value: string | null): boolean {
-  if (!value) return false;
-  const match = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(value.trim());
-  if (!match) return false;
-  const start = Number(match[1]);
-  const end = Number(match[2]);
-  const total = match[3] === '*' ? 0 : Number(match[3]);
-  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && end >= start && (total === 0 || end < total);
-}
 
 function catalogResponse(data: unknown): NextResponse {
   const response = NextResponse.json(data);
@@ -78,18 +71,12 @@ function catalogResponse(data: unknown): NextResponse {
   return response;
 }
 
-function requestSignal(request: Request): AbortSignal {
-  return AbortSignal.any([
-    request.signal,
-    AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  ]);
-}
 
 function lxHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'X-Request-Key': LX_API_KEY,
   };
-  headers['User-Agent'] = headers['User-Agent'] || 'lx-music-api/1.0';
+  headers['User-Agent'] = 'lx-music-api/1.0';
   return headers;
 }
 
@@ -98,80 +85,12 @@ async function upstreamFetch(request: Request, url: string, init: RequestInit = 
     ...init.headers as Record<string, string>,
     ...lxHeaders(),
   };
-  return fetch(url, { ...init, headers: mergedHeaders, signal: requestSignal(request) });
+  return fetch(url, { ...init, headers: mergedHeaders, signal: requestSignal(request, REQUEST_TIMEOUT_MS) });
 }
 
-interface StreamFetchResult {
-  response: Response;
-  controller: AbortController;
-  cleanup: () => void;
-}
 
-async function streamFetch(request: Request, url: string, init: RequestInit = {}): Promise<StreamFetchResult> {
-  const controller = new AbortController();
-  const abortFromRequest = () => controller.abort(request.signal.reason);
-  if (request.signal.aborted) abortFromRequest();
-  else request.signal.addEventListener('abort', abortFromRequest, { once: true });
-  const timeout = setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), REQUEST_TIMEOUT_MS);
-  let cleaned = false;
-  const cleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    clearTimeout(timeout);
-    request.signal.removeEventListener('abort', abortFromRequest);
-  };
-  try {
-    // Timeout response headers only; do not cut off a long audio body.
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    clearTimeout(timeout);
-    return { response, controller, cleanup };
-  } catch (error) {
-    cleanup();
-    throw error;
-  }
-}
 
-function streamBody(
-  response: Response,
-  controller: AbortController,
-  cleanup: () => void,
-): ReadableStream<Uint8Array> | null {
-  if (!response.body) {
-    cleanup();
-    return null;
-  }
-  const reader = response.body.getReader();
-  let closed = false;
-  const finish = (abort: boolean) => {
-    if (closed) return;
-    closed = true;
-    cleanup();
-    if (abort) controller.abort(new DOMException('Stream closed', 'AbortError'));
-  };
-  return new ReadableStream({
-    async pull(streamController) {
-      try {
-        const chunk = await reader.read();
-        if (chunk.done) {
-          finish(false);
-          streamController.close();
-        } else streamController.enqueue(chunk.value);
-      } catch (error) {
-        finish(true);
-        streamController.error(error);
-      }
-    },
-    async cancel(reason) {
-      finish(true);
-      await reader.cancel(reason);
-    },
-  });
-}
 
-function providerFailure(error: unknown, message: string): NextResponse {
-  const status = error instanceof DOMException && error.name === 'TimeoutError' ? 504 : 502;
-  return NextResponse.json({ error: message }, { status });
-}
 
 interface LxSearchResponse {
   code?: number;
@@ -187,9 +106,7 @@ interface LxUrlResponse {
 async function proxyStream(
   request: Request,
   streamUrl: string,
-  init: RequestInit = {},
   expireTime?: number,
-  additionalApprovedHosts: string[] = [],
 ): Promise<NextResponse> {
   const requestHeaders = new Headers();
   const range = request.headers.get('range');
@@ -200,64 +117,28 @@ async function proxyStream(
   requestHeaders.set('X-Request-Key', LX_API_KEY);
 
   try {
-    let finalResponse: Response | null = null;
-    let cleanupStream: (() => void) | undefined;
-    let upstreamController: AbortController | undefined;
-    let currentUrl = streamUrl;
-    const baseHosts = new Set(
-      [configuredBase(LX_API_BASE), configuredBase(LX_RESOLVER_BASE)]
-        .filter((base): base is string => Boolean(base))
-        .map((base) => new URL(base).hostname.toLowerCase()),
-    );
-    for (const host of additionalApprovedHosts) baseHosts.add(host.toLowerCase());
-    const initialUrl = approvedMediaUrl(currentUrl, baseHosts);
-    if (!initialUrl) return new NextResponse('Stream unavailable', { status: 502 });
-    currentUrl = initialUrl.toString();
-    const visited = new Set<string>();
-    for (let redirects = 0; redirects <= 3; redirects += 1) {
-      if (visited.has(currentUrl)) return new NextResponse('Stream redirect loop', { status: 502 });
-      visited.add(currentUrl);
-      const fetched = await streamFetch(request, currentUrl, {
-        ...init,
-        headers: requestHeaders,
-        redirect: 'manual',
-      });
-      const response = fetched.response;
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
-        closeUpstream(response, fetched.cleanup);
-        const location = response.headers.get('location');
-        if (!location) return new NextResponse('Stream unavailable', { status: 502 });
-        try {
-          const resolved = new URL(location, currentUrl);
-          const approved = approvedMediaUrl(resolved.toString(), baseHosts);
-          if (!approved) return new NextResponse('Stream unavailable', { status: 502 });
-          currentUrl = approved.toString();
-        } catch {
-          return new NextResponse('Stream unavailable', { status: 502 });
-        }
-        continue;
-      }
-      finalResponse = response;
-      cleanupStream = fetched.cleanup;
-      upstreamController = fetched.controller;
-      break;
-    }
-    if (!finalResponse) return new NextResponse('Too many stream redirects', { status: 502 });
+    const fetched = await fetchApprovedMedia(request, streamUrl, {
+      isApproved: (url) => isApprovedLxMedia(url),
+      headers: requestHeaders,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    });
+    if (!fetched.ok) return fetched.response;
+    const { response: upstream, controller, cleanup } = fetched;
 
-    const isSuccessfulMedia = finalResponse.status >= 200 && finalResponse.status < 300;
-    const contentType = mediaContentType(finalResponse.headers.get('content-type'));
+    const isSuccessfulMedia = upstream.status >= 200 && upstream.status < 300;
+    const contentType = mediaContentType(upstream.headers.get('content-type'));
     if (isSuccessfulMedia && (!contentType || (contentType !== 'application/octet-stream' && !contentType.startsWith('audio/')))) {
-      closeUpstream(finalResponse, cleanupStream!);
+      closeUpstream(upstream, cleanup);
       return NextResponse.json({ error: 'Upstream returned invalid media' }, { status: 502 });
     }
-    if (finalResponse.status === 206 && !validContentRange(finalResponse.headers.get('content-range'))) {
-      closeUpstream(finalResponse, cleanupStream!);
+    if (upstream.status === 206 && !validContentRange(upstream.headers.get('content-range'))) {
+      closeUpstream(upstream, cleanup);
       return NextResponse.json({ error: 'Upstream returned an invalid range response' }, { status: 502 });
     }
 
     const headers = new Headers();
     for (const name of STREAM_RESPONSE_HEADERS) {
-      const value = finalResponse.headers.get(name);
+      const value = upstream.headers.get(name);
       if (value !== null) headers.set(name, value);
     }
     if (contentType) headers.set('Content-Type', contentType);
@@ -267,9 +148,9 @@ async function proxyStream(
       headers.set('X-LX-Expire-Time', String(expireTime));
     }
 
-    if (range || finalResponse.status === 206) {
+    if (range || upstream.status === 206) {
       headers.set('Cache-Control', 'private, no-store');
-    } else if (finalResponse.ok) {
+    } else if (upstream.ok) {
       // Resolver URLs are signed/temporary; never retain a proxy response for
       // a day when its origin may expire sooner.
       const now = Date.now();
@@ -286,10 +167,10 @@ async function proxyStream(
     }
     headers.set('Vary', 'Range');
 
-    const body = streamBody(finalResponse, upstreamController!, cleanupStream!);
+    const body = streamBody(upstream, controller, cleanup);
     return new NextResponse(body, {
-      status: finalResponse.status,
-      statusText: finalResponse.statusText,
+      status: upstream.status,
+      statusText: upstream.statusText,
       headers,
     });
   } catch (error) {
@@ -303,6 +184,26 @@ const RESOLVE_QUALITY: Record<string, string> = {
 
 function resolveQuality(level: string): string {
   return RESOLVE_QUALITY[level] || (Number.isInteger(Number(level)) ? (Number(level) >= 320 ? '320k' : '128k') : '320k');
+}
+
+/** Shape the community search API's payload into the one the LX API returns. */
+function mapFallbackSearch(payload: unknown): NextResponse {
+  const data = payload as { code?: number; data?: Array<{ id?: number | string; song?: string; singer?: string; album?: string; cover?: string }> };
+  const result = Array.isArray(data.data) ? data.data.map((item) => ({
+    id: item.id,
+    name: item.song,
+    ar: item.singer ? item.singer.split('/').map((name) => ({ name })) : [],
+    al: { name: item.album, picUrl: item.cover, id: item.id },
+    platform: 'wy',
+    type: 1,
+  })) : [];
+  return catalogResponse({ code: data.code === 200 ? 0 : data.code, data: { result } });
+}
+
+function fetchFallbackSearch(req: Request, key: string): Promise<Response> {
+  const fallback = new URL(LX_SEARCH_BASE);
+  fallback.searchParams.set('word', key);
+  return fetch(fallback.toString(), { signal: requestSignal(req, REQUEST_TIMEOUT_MS), headers: lxHeaders() });
 }
 
 async function handleSearch(req: Request): Promise<NextResponse> {
@@ -320,55 +221,41 @@ async function handleSearch(req: Request): Promise<NextResponse> {
   }
 
   try {
-  const apiBase = configuredBase(LX_API_BASE);
-  if (!apiBase) throw new Error('LX search endpoint is not configured');
-  const upstream = new URL(`${apiBase}/search/${type}/${encodeURIComponent(key)}/1`);
+    const apiBase = configuredBase(LX_API_BASE);
+    if (!apiBase) throw new Error('LX search endpoint is not configured');
+    const upstream = new URL(`${apiBase}/search/${type}/${encodeURIComponent(key)}/1`);
     const response = await upstreamFetch(req, upstream.toString());
-    if (response.ok && response.status !== 530) {
-      const data = await response.json() as LxSearchResponse;
-      return catalogResponse(data);
+    if (response.ok) {
+      return catalogResponse(await response.json() as LxSearchResponse);
     }
 
-    const fallback = new URL(LX_SEARCH_BASE);
-    fallback.searchParams.set('word', key);
-    const fallbackResponse = await fetch(fallback.toString(), { signal: requestSignal(req), headers: lxHeaders() });
+    const fallbackResponse = await fetchFallbackSearch(req, key);
     if (!fallbackResponse.ok) {
       return NextResponse.json({ error: `LX Music upstream error (status ${response.status})` }, { status: response.status });
     }
-    const fallbackData = await fallbackResponse.json() as { code?: number; data?: Array<{ id?: number | string; song?: string; singer?: string; album?: string; cover?: string }> };
-    const result = Array.isArray(fallbackData.data) ? fallbackData.data.map((item) => ({
-      id: item.id,
-      name: item.song,
-      ar: item.singer ? item.singer.split('/').map((name) => ({ name })) : [],
-      al: { name: item.album, picUrl: item.cover, id: item.id },
-      platform: 'wy',
-      type: 1,
-    })) : [];
-    return catalogResponse({ code: fallbackData.code === 200 ? 0 : fallbackData.code, data: { result } });
+    return mapFallbackSearch(await fallbackResponse.json());
   } catch (error) {
+    // An aborted request is the caller giving up, not the upstream failing —
+    // retrying it against the fallback would only waste a second request.
     if (error instanceof DOMException && error.name === 'AbortError') {
       return providerFailure(error, 'LX Music search failed');
     }
     try {
-      const fallback = new URL(LX_SEARCH_BASE);
-      fallback.searchParams.set('word', key);
-      const fallbackResponse = await fetch(fallback.toString(), { signal: requestSignal(req), headers: lxHeaders() });
+      const fallbackResponse = await fetchFallbackSearch(req, key);
       if (!fallbackResponse.ok) return providerFailure(error, 'LX Music search failed');
-      const fallbackData = await fallbackResponse.json() as { code?: number; data?: Array<{ id?: number | string; song?: string; singer?: string; album?: string; cover?: string }> };
-      const result = Array.isArray(fallbackData.data) ? fallbackData.data.map((item) => ({
-        id: item.id,
-        name: item.song,
-        ar: item.singer ? item.singer.split('/').map((name) => ({ name })) : [],
-        al: { name: item.album, picUrl: item.cover, id: item.id },
-        platform: 'wy',
-        type: 1,
-      })) : [];
-      return catalogResponse({ code: fallbackData.code === 200 ? 0 : fallbackData.code, data: { result } });
+      return mapFallbackSearch(await fallbackResponse.json());
     } catch (fallbackError) {
       return providerFailure(fallbackError, 'LX Music search failed');
     }
   }
 }
+
+// Both branches of `handleUrl` interpolate these into an upstream path, so they
+// are validated once at the entry rather than per branch. `encodeURIComponent`
+// alone is not enough: it leaves `.` untouched, so a `..` segment survives it
+// and walks up the resolver's path.
+const LX_PLATFORM = /^[a-z]{2,8}$/i;
+const LX_RAW_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 async function handleUrl(req: Request): Promise<NextResponse> {
   const searchParams = new URL(req.url).searchParams;
@@ -384,6 +271,15 @@ async function handleUrl(req: Request): Promise<NextResponse> {
   if (!platform) {
     return NextResponse.json({ error: 'Missing platform parameter' }, { status: 400 });
   }
+  if (!LX_PLATFORM.test(platform)) {
+    return NextResponse.json({ error: 'Invalid LX stream identity' }, { status: 400 });
+  }
+  // `id` reaches the path whenever `rawId` is absent, so it is held to the same
+  // shape as `rawId` — the fallback branch used to accept anything at all.
+  const pathId = rawId ?? lxSongId;
+  if (!LX_RAW_ID.test(pathId)) {
+    return NextResponse.json({ error: 'Invalid LX stream identity' }, { status: 400 });
+  }
 
   const resolvedLevel = resolveQuality(level);
 
@@ -393,21 +289,14 @@ async function handleUrl(req: Request): Promise<NextResponse> {
   if (rawId && type) {
     const resolverBase = configuredBase(LX_RESOLVER_BASE) || configuredBase(LX_API_BASE);
     if (!resolverBase) return NextResponse.json({ error: 'LX resolver is not configured' }, { status: 503 });
-    const safePlatform = /^[a-z]{2,8}$/i.test(platform) ? platform : null;
-    const safeRawId = rawId && /^[A-Za-z0-9_-]{1,100}$/.test(rawId) ? rawId : null;
-    if (!safePlatform || !safeRawId) return NextResponse.json({ error: 'Invalid LX stream identity' }, { status: 400 });
-    const directUrl = `${resolverBase}/url/${safePlatform}/${encodeURIComponent(safeRawId)}/${resolvedLevel}`;
+    const directUrl = `${resolverBase}/url/${platform}/${encodeURIComponent(rawId)}/${resolvedLevel}`;
     try {
       const response = await upstreamFetch(req, directUrl);
       if (response.ok) {
         const data = await response.json() as LxUrlResponse;
         const resolvedUrl = data.url || data.data?.[0]?.url;
         if (resolvedUrl) {
-          const candidate = approvedMediaUrl(resolvedUrl, new Set([
-            ...[configuredBase(LX_API_BASE), configuredBase(LX_RESOLVER_BASE)]
-              .filter((base): base is string => Boolean(base))
-              .map((base) => new URL(base).hostname.toLowerCase()),
-          ]));
+          const candidate = approvedMediaUrl(resolvedUrl);
           if (candidate) streamUrl = candidate.toString();
           expireTime = data.extra?.expire?.time ?? data.data?.[0]?.expireTime;
         }
@@ -420,10 +309,10 @@ async function handleUrl(req: Request): Promise<NextResponse> {
   if (!streamUrl) {
     const proxyBase = configuredBase(LX_API_BASE) || configuredBase(LX_RESOLVER_BASE);
     if (!proxyBase) return NextResponse.json({ error: 'LX resolver is not configured' }, { status: 503 });
-    streamUrl = `${proxyBase}/url/${encodeURIComponent(platform)}/${encodeURIComponent(rawId ?? lxSongId)}/${resolvedLevel}`;
+    streamUrl = `${proxyBase}/url/${platform}/${encodeURIComponent(pathId)}/${resolvedLevel}`;
   }
 
-  return proxyStream(req, streamUrl, {}, expireTime);
+  return proxyStream(req, streamUrl, expireTime);
 }
 
 export async function GET(
@@ -459,6 +348,3 @@ export async function GET(
   return NextResponse.json({ error: `Unknown lxmusic endpoint: ${resource ?? ''}` }, { status: 400 });
 }
 
-export async function OPTIONS(): Promise<NextResponse> {
-  return new NextResponse(null, { status: 204 });
-}

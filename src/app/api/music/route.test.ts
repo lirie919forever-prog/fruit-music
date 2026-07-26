@@ -147,12 +147,60 @@ describe('music media proxy', () => {
     const external = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
     expect(external.status).toBe(502);
 
+    // A chain that revisits a URL is cut as soon as the repeat is seen rather
+    // than fetched until the redirect budget runs out.
     vi.mocked(fetch).mockReset()
       .mockResolvedValueOnce(Response.json([{ files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] }]))
       .mockResolvedValue(new Response(null, { status: 302, headers: { location: 'https://ccmixter.org/next.mp3' } }));
-    const exhausted = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
-    expect(exhausted.status).toBe(502);
+    const looping = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
+    expect(looping.status).toBe(502);
+    expect(await looping.text()).toBe('Stream redirect loop');
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('stops after the redirect budget even when every hop is a new approved URL', async () => {
+    let hop = 0;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json([{ files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] }]))
+      .mockImplementation(async () => new Response(null, {
+        status: 302,
+        headers: { location: `https://ccmixter.org/hop-${hop++}.mp3` },
+      }));
+
+    const response = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
+
+    expect(response.status).toBe(502);
+    expect(await response.text()).toBe('Too many stream redirects');
+    // One metadata lookup, then the start URL plus three redirects.
     expect(fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it('refuses to follow a redirect off the provider on every stream path', async () => {
+    // The off-site target answers with perfectly good audio. Following it would
+    // therefore return 200 and stream an attacker-chosen body through our own
+    // origin — which is exactly what jamendo, archive and itunes did before,
+    // because they passed no redirect validator at all.
+    const offsiteThenAudio = (prelude: Response[]) => {
+      const queue = [...prelude, new Response(null, {
+        status: 302,
+        headers: { location: 'https://attacker.example/song.mp3' },
+      })];
+      return vi.mocked(fetch).mockReset().mockImplementation(async () =>
+        queue.shift() ?? new Response('audio-bytes', { status: 200, headers: { 'content-type': 'audio/mpeg' } }));
+    };
+
+    process.env.JAMENDO_CLIENT_ID = 'test-id';
+    offsiteThenAudio([]);
+    const jamendo = await GET(request('jamendo/stream/9'), context(['jamendo', 'stream', '9']));
+    expect(jamendo.status).toBe(502);
+
+    offsiteThenAudio([Response.json({ files: [{ name: 'a.mp3', format: 'VBR MP3', length: '30', size: '1000' }] })]);
+    const archive = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
+    expect(archive.status).toBe(502);
+
+    offsiteThenAudio([Response.json({ results: [{ trackId: 5, previewUrl: 'https://audio-ssl.itunes.apple.com/p.m4a' }] })]);
+    const itunes = await GET(request('itunes/stream/5'), context(['itunes', 'stream', '5']));
+    expect(itunes.status).toBe(502);
   });
 
   it('rejects a malformed partial response and cancels its body', async () => {
