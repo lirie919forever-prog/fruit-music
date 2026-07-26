@@ -29,3 +29,20 @@ export function getResumePosition(position: number, duration: number): number {
   if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return 0;
   return Math.max(0, Math.min(position, Math.max(0, duration - 0.25)));
 }
+
+/**
+ * The one answer to "how long is this track", used by both the progress bar and
+ * the scrubber.
+ *
+ * Some browsers cannot report a duration while the first response is a 206
+ * range, so `onload` fell back to the verified catalog length — but `seek`
+ * consulted only the decoded value and returned early when it was unusable.
+ * The bar therefore showed a draggable track of a known length and dragging it
+ * did nothing at all, with no way to tell that had happened. Both now read this.
+ */
+export function effectiveDuration(decodedDuration: number | undefined, catalogDuration: number): number {
+  if (typeof decodedDuration === 'number' && Number.isFinite(decodedDuration) && decodedDuration > 0) {
+    return decodedDuration;
+  }
+  return Number.isFinite(catalogDuration) && catalogDuration > 0 ? catalogDuration : 0;
+}

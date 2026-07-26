@@ -5,7 +5,7 @@ import { Howl } from 'howler';
 import { usePlayerStore, usePlayerStoreApi } from '@/store/playerStore';
 import { api } from '@/lib/api';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-import { getResumePosition, hasNextInQueue, isNaturalTrackEnd } from '@/components/player/playbackRecovery';
+import { effectiveDuration, getResumePosition, hasNextInQueue, isNaturalTrackEnd } from '@/components/player/playbackRecovery';
 import type { Song } from '@/types/music';
 
 interface AudioContextType {
@@ -248,15 +248,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
             // Some browsers cannot expose duration while the first response is
             // a valid 206 range. Catalog metadata is verified and is a safe
             // fallback until the media element learns the total duration.
-            const effectiveDuration = Number.isFinite(loadedDuration) && loadedDuration > 0
-              ? loadedDuration
-              : song.duration;
-            if (!Number.isFinite(effectiveDuration) || effectiveDuration <= 0) {
+            const resolvedDuration = effectiveDuration(loadedDuration, song.duration);
+            if (resolvedDuration <= 0) {
               fail('The provider returned audio without a valid duration.', howl);
               return;
             }
 
-            setDuration(effectiveDuration);
+            setDuration(resolvedDuration);
             setStatus('ready');
             if (playerStore.getState().playbackIntent) {
               if (prematureEndRecoveries > 0) howl.seek(getResumePosition(playerStore.getState().progress, loadedDuration));
@@ -393,12 +391,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const seek = useCallback((time: number) => {
     const active = howlRef.current;
     if (!active || !Number.isFinite(time)) return;
-    const activeDuration = active.duration();
-    if (!Number.isFinite(activeDuration) || activeDuration <= 0) return;
-    const position = Math.max(0, Math.min(activeDuration, time));
+    // Same source of truth as the progress bar: bounding by the decoded
+    // duration alone meant that on any track whose length only the catalog
+    // knew, the scrubber rendered at full width and dragging it did nothing.
+    const bound = effectiveDuration(active.duration(), playerStore.getState().currentSong?.duration ?? 0);
+    if (bound <= 0) return;
+    const position = Math.max(0, Math.min(bound, time));
     active.seek(position);
     setProgress(position);
-  }, [setProgress]);
+  }, [playerStore, setProgress]);
 
   useEffect(() => {
     if (transportCommand?.type === 'seek') seek(transportCommand.position);
