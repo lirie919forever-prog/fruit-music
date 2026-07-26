@@ -84,6 +84,30 @@ export async function searchFederated(query: string, signal?: AbortSignal): Prom
   return federateCatalog(providers, signal);
 }
 
+/**
+ * Album and artist search, federated across the providers that have an index
+ * for them.
+ *
+ * Not every provider does: ccMixter and Archive have no album or artist search
+ * at all, and calling their track search here would return matches that are not
+ * albums. Those providers stay out of these two lists rather than being
+ * approximated, so an empty artists section means nobody matched, not that
+ * somebody was skipped.
+ */
+export async function searchAlbumsFederated(query: string, signal?: AbortSignal): Promise<FederatedResult<Album>> {
+  return federateCatalog([
+    { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchAlbums(query, signal) }) },
+    { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.searchAlbums(query, signal) }) },
+  ], signal);
+}
+
+export async function searchArtistsFederated(query: string, signal?: AbortSignal): Promise<FederatedResult<Artist>> {
+  return federateCatalog([
+    { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchArtists(query, signal) }) },
+    { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.searchArtists(query, signal) }) },
+  ], signal);
+}
+
 export function isServerConfigured(): boolean {
   return true;
 }
@@ -142,7 +166,17 @@ export const api = {
     return getMusicProviderForArtistId(artistId).getArtistSongs(artistId, signal);
   },
 
+  // A discography is one provider's answer about its own artist, so this asks
+  // that provider directly instead of federating: no other catalog knows what
+  // belongs under this id.
+  async getArtistAlbums(artistId: string, signal?: AbortSignal): Promise<Album[]> {
+    const provider = getMusicProviderForArtistId(artistId);
+    return provider.getArtistAlbums ? provider.getArtistAlbums(artistId, signal) : [];
+  },
+
   search: searchFederated,
+  searchAlbums: searchAlbumsFederated,
+  searchArtists: searchArtistsFederated,
 
   async getSongsByTag(tag: string, limit?: number, signal?: AbortSignal): Promise<Song[]> {
     return jamendoProvider.getSongsByTag(tag, limit, signal);

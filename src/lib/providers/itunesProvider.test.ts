@@ -115,6 +115,74 @@ describe('Apple preview provider', () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  it('derives searched artists from albums, because Apple ships artist records with no artwork', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      results: [
+        { wrapperType: 'collection', collectionId: 1, collectionName: 'Starboy', artistId: 479756766, artistName: 'The Weeknd', artworkUrl100: 'https://is1-ssl.mzstatic.com/a/100x100bb.jpg' },
+        { wrapperType: 'collection', collectionId: 2, collectionName: 'Dawn FM', artistId: 479756766, artistName: 'The Weeknd', artworkUrl100: 'https://is1-ssl.mzstatic.com/b/100x100bb.jpg' },
+      ],
+    }));
+
+    const artists = await itunesProvider.searchArtists('weeknd');
+
+    // Both albums fold into one artist, and that artist has a real cover.
+    expect(artists).toHaveLength(1);
+    expect(artists[0]).toMatchObject({ id: 'itunes-artist-479756766', name: 'The Weeknd', albumCount: 2 });
+    expect(artists[0].coverArt).toContain('/600x600bb.jpg');
+    expect(new URL(String(vi.mocked(fetch).mock.calls[0][0])).searchParams.get('entity')).toBe('album');
+  });
+
+  it('collapses the same release reissued under a second collection id', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      results: [
+        { wrapperType: 'collection', collectionId: 7, collectionName: 'Starboy', artistId: 1, artistName: 'A', trackCount: 18 },
+        { wrapperType: 'collection', collectionId: 8, collectionName: 'Starboy', artistId: 1, artistName: 'A', trackCount: 18 },
+        { wrapperType: 'collection', collectionId: 9, collectionName: 'Starboy (Deluxe)', artistId: 1, artistName: 'A', trackCount: 20 },
+      ],
+    }));
+
+    // Different ids, same name and artist — one tile. A deluxe edition has a
+    // different name and stays.
+    await expect(itunesProvider.searchAlbums('starboy')).resolves.toHaveLength(2);
+  });
+
+  it('keeps a discography to the artist\'s own records, not everything they feature on', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      results: [
+        { wrapperType: 'artist', artistId: 5468295, artistName: 'Daft Punk' },
+        { wrapperType: 'collection', collectionId: 1, collectionName: 'Discovery', artistId: 5468295, artistName: 'Daft Punk', releaseDate: '2001-03-12T08:00:00Z' },
+        // Credited to Daft Punk, but it is The Weeknd's single.
+        { wrapperType: 'collection', collectionId: 2, collectionName: 'Starboy (feat. Daft Punk)', artistId: 479756766, artistName: 'The Weeknd', releaseDate: '2016-11-25T08:00:00Z' },
+      ],
+    }));
+
+    const albums = await itunesProvider.getArtistAlbums('itunes-artist-5468295');
+
+    expect(albums.map((album) => album.name)).toEqual(['Discovery']);
+  });
+
+  it('orders a discography newest first', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      results: [
+        { wrapperType: 'artist', artistId: 479756766, artistName: 'The Weeknd' },
+        { wrapperType: 'collection', collectionId: 1, collectionName: 'Starboy', artistId: 479756766, artistName: 'The Weeknd', releaseDate: '2016-11-25T08:00:00Z' },
+        { wrapperType: 'collection', collectionId: 2, collectionName: 'Dawn FM', artistId: 479756766, artistName: 'The Weeknd', releaseDate: '2022-01-07T08:00:00Z' },
+        { wrapperType: 'collection', collectionId: 3, collectionName: 'After Hours', artistId: 479756766, artistName: 'The Weeknd', releaseDate: '2020-03-20T08:00:00Z' },
+      ],
+    }));
+
+    const albums = await itunesProvider.getArtistAlbums('itunes-artist-479756766');
+
+    // The artist wrapper is not an album and must not become a blank tile.
+    expect(albums.map((album) => album.name)).toEqual(['Dawn FM', 'After Hours', 'Starboy']);
+  });
+
+  it('does not spend a request on an empty album or artist search', async () => {
+    await expect(itunesProvider.searchAlbums('  ')).resolves.toEqual([]);
+    await expect(itunesProvider.searchArtists('')).resolves.toEqual([]);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
   it('keeps the shelf populated when one browse seed fails', async () => {
     vi.mocked(fetch)
       .mockRejectedValueOnce(new Error('down'))

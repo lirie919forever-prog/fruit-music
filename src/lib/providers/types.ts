@@ -16,6 +16,11 @@ export interface MusicProvider {
   getArtistSongs(artistId: string, signal?: AbortSignal): Promise<Song[]>;
   search(query: string, signal?: AbortSignal): Promise<Song[]>;
   searchWithStatus?(query: string, signal?: AbortSignal): Promise<ProviderCatalogResult<Song>>;
+  /** Optional: providers with no album or artist index simply omit these. */
+  searchAlbums?(query: string, signal?: AbortSignal): Promise<Album[]>;
+  searchArtists?(query: string, signal?: AbortSignal): Promise<Artist[]>;
+  /** Optional: an artist's releases, for the discography on their page. */
+  getArtistAlbums?(artistId: string, signal?: AbortSignal): Promise<Album[]>;
   getSongById?(songId: string, signal?: AbortSignal): Promise<Song | null>;
   getStreamUrl(song: Song, signal?: AbortSignal): Promise<string>;
   getSongsByTag(tag: string, limit?: number, signal?: AbortSignal): Promise<Song[]>;

@@ -1,17 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { usePlayerStore } from '@/store/playerStore';
 import { api } from '@/lib/api';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countFederatedResults } from '@/lib/catalogFreshness';
-import { HiPlay } from 'react-icons/hi2';
-import { CoverArt } from '@/components/ui/CoverArt';
+import { AlbumTile, TILE_GRID, TileSkeleton } from '@/components/ui/CatalogTile';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import type { ViewType } from '@/types/music';
 import type { NavigationItem } from '@/lib/navigation';
-import type { Album } from '@/types/music';
 
 export function AlbumGrid({ onNavigateWithItem }: { onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void }) {
 	const { data: albumState, isLoading, isError, error, refetch } = useQuery({
@@ -38,71 +34,10 @@ export function AlbumGrid({ onNavigateWithItem }: { onNavigateWithItem?: (view: 
 				<p className="text-[13px] text-[var(--salt-mist)]">{albums.length} available {albums.length === 1 ? 'album' : 'albums'}</p>
 				{unavailableProviders.length > 0 && <p className="mt-1 text-xs text-[var(--salt-mist)]">{unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'is' : 'are'} unavailable. Showing available albums.</p>}
 			</div>
-			<div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
-				{albums.map((album) => <AlbumCard key={album.id} album={album} onNavigateWithItem={onNavigateWithItem} />)}
+			<div className={TILE_GRID}>
+				{albums.map((album) => <AlbumTile key={album.id} album={album} onNavigateWithItem={onNavigateWithItem} />)}
 			</div>
 		</section>
-	);
-}
-
-function AlbumCard({ album, onNavigateWithItem }: { album: Album; onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void }) {
-	const playAlbum = usePlayerStore((state) => state.playAlbum);
-	const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
-	const requestRef = useRef<AbortController | null>(null);
-
-	useEffect(() => () => requestRef.current?.abort(), []);
-
-	const openDetail = () => {
-		onNavigateWithItem?.('albums', { kind: 'album', id: album.id });
-	};
-
-	const loadAndPlay = async () => {
-		if (state === 'loading') return;
-		requestRef.current?.abort();
-		const controller = new AbortController();
-		requestRef.current = controller;
-		setState('loading');
-		try {
-			const songs = await api.getAlbumSongs(album.id, controller.signal);
-			if (!songs.length) throw new Error('No verified tracks are available for this album.');
-			playAlbum(songs, 0);
-			setState('idle');
-		} catch {
-			if (!controller.signal.aborted) setState('error');
-		} finally {
-			if (requestRef.current === controller) requestRef.current = null;
-		}
-	};
-
-	const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-		if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
-			void loadAndPlay();
-			return;
-		}
-		openDetail();
-	};
-
-	return (
-		<article className="min-w-0">
-			<button
-				type="button"
-				onClick={handleClick}
-				aria-label={`Open ${album.name} by ${album.artist}`}
-				className="group block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
-			>
-				<div className="relative aspect-square overflow-hidden rounded-md bg-[var(--salt-ghost)]">
-					<CoverArt src={album.coverArt} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
-					<span className="absolute inset-0 flex items-center justify-center bg-black/35 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-						{state === 'loading'
-							? <span aria-hidden className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-							: <HiPlay className="h-7 w-7" aria-hidden />}
-					</span>
-				</div>
-				<span className="mt-2 block truncate text-[13px] font-medium text-[var(--salt-white)]">{album.name}</span>
-				<span className="mt-0.5 block truncate text-xs text-[var(--salt-mist)]">{album.artist}</span>
-			</button>
-			{state === 'error' && <p className="mt-1 text-xs text-[var(--danger)]">Could not load verified tracks. <button type="button" onClick={() => void loadAndPlay()} className="underline">Try again</button></p>}
-		</article>
 	);
 }
 
@@ -133,15 +68,7 @@ function AlbumSkeleton() {
 	return (
 		<section aria-label="Loading albums" className="pb-6">
 			<div className="h-4 w-40 animate-pulse rounded bg-[var(--salt-ghost)]" />
-			<div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
-				{Array.from({ length: 12 }).map((_, i) => (
-					<div key={i} className="space-y-2">
-						<div className="aspect-square animate-pulse rounded-md bg-[var(--salt-ghost)]" />
-						<div className="h-3 w-4/5 animate-pulse rounded bg-[var(--salt-ghost)]" />
-						<div className="h-2.5 w-2/5 animate-pulse rounded bg-[var(--salt-ghost)]" />
-					</div>
-				))}
-			</div>
+			<div className="mt-3"><TileSkeleton /></div>
 			<p className="sr-only">Loading albums</p>
 		</section>
 	);

@@ -195,6 +195,9 @@ type JamendoProvider = MusicProvider & Required<Pick<MusicProvider,
   | 'getAlbumById'
   | 'getArtistById'
   | 'getSongById'
+  | 'searchAlbums'
+  | 'searchArtists'
+  | 'getArtistAlbums'
 >>;
 
 export const jamendoProvider: JamendoProvider = {
@@ -280,6 +283,38 @@ export const jamendoProvider: JamendoProvider = {
     }, signal, false);
     if (!Array.isArray(data?.results)) return [];
     return data.results.filter(isJamendoTrack).map(jamendoTrackToSong);
+  },
+
+  // `namesearch` matches the record's own name, unlike `search`, which also
+  // matches track text and would return every album containing a matching song.
+  async searchAlbums(query: string, signal?: AbortSignal): Promise<Album[]> {
+    const data = await jamendoFetch<{ results: JamendoAlbum[] }>(`${PROXY_BASE}/albums`, {
+      namesearch: query,
+      limit: '20',
+    }, signal, false);
+    if (!Array.isArray(data?.results)) return [];
+    return data.results.filter(isJamendoAlbum).map(jamendoAlbumToAlbum);
+  },
+
+  async searchArtists(query: string, signal?: AbortSignal): Promise<Artist[]> {
+    const data = await jamendoFetch<{ results: JamendoArtist[] }>(`${PROXY_BASE}/artists`, {
+      namesearch: query,
+      limit: '20',
+    }, signal, false);
+    if (!Array.isArray(data?.results)) return [];
+    return data.results.filter(isJamendoArtist).map(jamendoArtistToArtist);
+  },
+
+  async getArtistAlbums(artistId: string, signal?: AbortSignal): Promise<Album[]> {
+    const rawId = artistId.replace('jamendo-artist-', '');
+    if (!isJamendoId(rawId)) return [];
+    const data = await jamendoFetch<{ results: JamendoAlbum[] }>(`${PROXY_BASE}/albums`, {
+      artist_id: rawId,
+      limit: '50',
+      order: 'releasedate_desc',
+    }, signal);
+    if (!Array.isArray(data?.results)) return [];
+    return data.results.filter(isJamendoAlbum).map(jamendoAlbumToAlbum);
   },
 
   async getSongById(songId: string, signal?: AbortSignal): Promise<Song | null> {

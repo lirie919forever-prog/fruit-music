@@ -6,6 +6,7 @@ import { usePlayerStore } from '@/store/playerStore';
 import { SongRail } from './SongCard';
 import { playableSongs } from './newViewModel';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { AlbumTile, TILE_GRID } from '@/components/ui/CatalogTile';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { api } from '@/lib/api';
 import { providerErrorMessage } from '@/lib/providers/errors';
@@ -61,6 +62,18 @@ export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
 		queryFn: ({ signal }) =>
 			kind === 'album' ? api.getAlbumSongs(id, signal) : api.getArtistSongs(id, signal),
 		staleTime: catalogStaleTime(countListResults),
+		retry: 1,
+	});
+
+	// An artist page used to end at their top tracks, which is a chart, not a
+	// discography — there was no way to reach a specific record from the person
+	// who made it. Albums load independently so a provider without an album index
+	// simply shows no section rather than blocking the page.
+	const { data: artistAlbums } = useQuery({
+		queryKey: ['artistAlbums', id],
+		queryFn: ({ signal }) => api.getArtistAlbums(id, signal),
+		enabled: kind === 'artist',
+		staleTime: 60_000,
 		retry: 1,
 	});
 
@@ -137,9 +150,13 @@ export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
 
 	const isResolvedAlbum = isAlbum(resolvedMeta);
 	const albumMeta = isResolvedAlbum ? resolvedMeta : null;
+	// The artist count comes from the loaded discography when it is there: the
+	// summary's `albumCount` is a provider estimate, and reading "5 albums" above
+	// a grid of eleven is worse than waiting a moment for the real number.
+	const artistAlbumCount = artistAlbums?.length ?? (isResolvedAlbum ? 0 : resolvedMeta.albumCount);
 	const subtitle = isResolvedAlbum
 		? `${trackCount} track${trackCount !== 1 ? 's' : ''}`
-		: `${resolvedMeta.albumCount ?? 0} albums`;
+		: `${artistAlbumCount} album${artistAlbumCount !== 1 ? 's' : ''}`;
 
 	return (
 		<section className="pb-6">
@@ -208,6 +225,7 @@ export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
 
 			{trackCount > 0 ? (
 				<div className="mt-6">
+					{kind === 'artist' && <h3 className="mb-2 text-[17px] font-bold tracking-[-0.01em] text-[var(--salt-white)]">Top songs</h3>}
 					<SongRail songs={songs} label={`${kind}:${id}`} onNavigateWithItem={onNavigateWithItem} />
 				</div>
 			) : (
@@ -235,6 +253,19 @@ export function ProviderDetailView({ kind, id, onClose, onNavigateWithItem }: {
 						>
 							Try again
 						</button>
+					</div>
+				</div>
+			)}
+
+			{kind === 'artist' && artistAlbums && artistAlbums.length > 0 && (
+				<div className="mt-8">
+					<h3 className="mb-3 text-[17px] font-bold tracking-[-0.01em] text-[var(--salt-white)]">
+						Albums <span className="font-normal text-[var(--salt-mist)]">· {artistAlbums.length}</span>
+					</h3>
+					<div className={TILE_GRID}>
+						{artistAlbums.map((album) => (
+							<AlbumTile key={album.id} album={album} onNavigateWithItem={onNavigateWithItem} />
+						))}
 					</div>
 				</div>
 			)}

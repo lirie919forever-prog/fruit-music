@@ -129,6 +129,40 @@ function songsFrom(results: ItunesTrack[]): Song[] {
 }
 
 /**
+ * Apple lists the same release under several collection ids — a remix single
+ * reissued per territory, a soundtrack cut re-registered by its label. Those
+ * share a name and an artist, so they collapse here: two tiles with identical
+ * artwork and identical text read as a rendering bug, not as a catalog fact.
+ */
+function albumsFrom(results: ItunesTrack[]): Album[] {
+  const byIdentity = new Map<string, Album>();
+  for (const item of results) {
+    const album = collectionToAlbum(item);
+    if (!album) continue;
+    const identity = `${album.name.toLowerCase()}|${album.artist.toLowerCase()}`;
+    if (!byIdentity.has(identity)) byIdentity.set(identity, album);
+  }
+  return [...byIdentity.values()];
+}
+
+/**
+ * Folds album records down to the artists behind them, borrowing one release's
+ * cover as the artist's image. Apple's artist records carry no artwork at all,
+ * so this is the only way to show an artist as anything but a blank circle.
+ */
+function artistsFrom(results: ItunesTrack[]): Artist[] {
+  const byArtist = new Map<string, Artist>();
+  for (const item of results) {
+    if (item.wrapperType !== 'collection' || typeof item.artistId !== 'number' || !item.artistName) continue;
+    const id = `itunes-artist-${item.artistId}`;
+    const existing = byArtist.get(id);
+    if (existing) existing.albumCount += 1;
+    else byArtist.set(id, { id, name: item.artistName, coverArt: artworkAt(item.artworkUrl100, 600), albumCount: 1 });
+  }
+  return [...byArtist.values()];
+}
+
+/**
  * The browse shelves need a catalog with no query behind it. Apple has no
  * "everything" endpoint, so the seeds below stand in for one: each is a broad
  * term that returns a different slice of the catalog, and rotating through them
@@ -151,7 +185,7 @@ async function gatherSeeds<T>(
   return settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
 }
 
-interface ItunesProvider extends MusicProvider {
+interface ItunesProvider extends Required<Omit<MusicProvider, 'getAlbumsWithStatus' | 'getArtistsWithStatus' | 'searchWithStatus' | 'getSongsByTagWithStatus' | 'getTrendingWithStatus' | 'lastCatalogDegraded'>> {
   getSongsByIds(trackIds: string[], signal?: AbortSignal): Promise<Song[]>;
 }
 
@@ -187,7 +221,42 @@ export const itunesProvider: ItunesProvider = {
   async getAlbums(signal?: AbortSignal): Promise<Album[]> {
     const results = await gatherSeeds(4, (seed) =>
       itunesFetch('search', { term: seed, entity: 'album', limit: '25' }, signal));
-    return results.map(collectionToAlbum).filter((album): album is Album => album !== null);
+    return albumsFrom(results);
+  },
+
+  async searchAlbums(query: string, signal?: AbortSignal): Promise<Album[]> {
+    if (!query.trim()) return [];
+    return albumsFrom(await itunesFetch('search', { term: query, entity: 'album', limit: '24' }, signal));
+  },
+
+  /**
+   * Artists are derived from an album search rather than taken from
+   * `entity=musicArtist`.
+   *
+   * Apple's artist records carry a name and a genre and nothing else — no
+   * artwork of any kind — so a dedicated artist search returns a page of blank
+   * circles. Album results carry the artist id alongside real cover art, which
+   * is the same substitution `getArtists` already makes for the browse grid.
+   */
+  async searchArtists(query: string, signal?: AbortSignal): Promise<Artist[]> {
+    if (!query.trim()) return [];
+    return artistsFrom(await itunesFetch('search', { term: query, entity: 'album', limit: '25' }, signal));
+  },
+
+  /**
+   * The artist's own records, not everything they appear on.
+   *
+   * Apple's album lookup returns every release the artist is credited on, so
+   * Daft Punk's page came back carrying The Weeknd's "Starboy" single and a
+   * Junior Kimbrough EP. Those are real credits but they are not this artist's
+   * discography, and under a heading that says "Albums" they read as an error.
+   * A collection's `artistId` is its primary artist, which is exactly the test.
+   */
+  async getArtistAlbums(artistId: string, signal?: AbortSignal): Promise<Album[]> {
+    const id = artistId.replace('itunes-artist-', '');
+    const results = await itunesFetch('lookup', { id, entity: 'album', limit: '100' }, signal);
+    const own = results.filter((item) => String(item.artistId) === id);
+    return albumsFrom(own).sort((left, right) => right.year - left.year);
   },
 
   async getAlbumById(albumId: string, signal?: AbortSignal): Promise<Album | null> {
@@ -203,19 +272,9 @@ export const itunesProvider: ItunesProvider = {
   },
 
   async getArtists(signal?: AbortSignal): Promise<Artist[]> {
-    // Apple's artist records carry no artwork, so an artist is built from the
-    // cover of one of their releases rather than shown as an empty tile.
     const results = await gatherSeeds(4, (seed) =>
       itunesFetch('search', { term: seed, entity: 'album', limit: '25' }, signal));
-    const byArtist = new Map<string, Artist>();
-    for (const item of results) {
-      if (typeof item.artistId !== 'number' || !item.artistName) continue;
-      const id = `itunes-artist-${item.artistId}`;
-      const existing = byArtist.get(id);
-      if (existing) existing.albumCount += 1;
-      else byArtist.set(id, { id, name: item.artistName, coverArt: artworkAt(item.artworkUrl100, 600), albumCount: 1 });
-    }
-    return [...byArtist.values()];
+    return artistsFrom(results);
   },
 
   async getArtistById(artistId: string, signal?: AbortSignal): Promise<Artist | null> {

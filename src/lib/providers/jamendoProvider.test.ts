@@ -119,4 +119,33 @@ describe('Jamendo provider', () => {
     await expect(jamendoProvider.search('zzzznomatch')).resolves.toEqual([]);
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
   });
+
+  it('matches album and artist names by name, not by their track text', async () => {
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ results: [] }));
+
+    await jamendoProvider.searchAlbums('ocean');
+    await jamendoProvider.searchArtists('ocean');
+
+    for (const call of vi.mocked(fetch).mock.calls) {
+      const url = new URL(String(call[0]));
+      // `search` would also match albums merely containing a matching track,
+      // which is not what an "Albums" heading promises.
+      expect(url.searchParams.get('namesearch')).toBe('ocean');
+      expect(url.searchParams.has('search')).toBe(false);
+    }
+    // Neither pays for the empty-result retry: no matches is a real answer.
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks for a discography by artist id, newest release first', async () => {
+    // A listing, so it pays for the empty-result retry; a fresh Response per
+    // call because a body can only be read once.
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ results: [] }));
+
+    await jamendoProvider.getArtistAlbums('jamendo-artist-602037');
+
+    const url = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(url.searchParams.get('artist_id')).toBe('602037');
+    expect(url.searchParams.get('order')).toBe('releasedate_desc');
+  });
 });
