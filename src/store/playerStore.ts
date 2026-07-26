@@ -4,7 +4,7 @@ import { createContext, createElement, useContext, useEffect, useState, type Rea
 import { useStore } from 'zustand';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
-import type { Song, QueueItem, ViewType } from '@/types/music';
+import type { Playlist, Song, QueueItem, ViewType } from '@/types/music';
 
 export interface TransportCommand {
   sequence: number;
@@ -34,6 +34,7 @@ export interface PlayerState {
   transportCommand: TransportCommand | null;
   favorites: Song[];
   history: Song[];
+  playlists: Playlist[];
 
   setCurrentSong: (song: Song) => void;
   setQueue: (songs: Song[], startIndex?: number) => void;
@@ -61,6 +62,12 @@ export interface PlayerState {
   setSearchQuery: (query: string) => void;
   setStatus: (status: PlayerStatus, error?: string | null) => void;
   playAlbum: (songs: Song[], startIndex?: number) => void;
+  createPlaylist: (name: string, songs?: Song[]) => string | null;
+  renamePlaylist: (playlistId: string, name: string) => void;
+  deletePlaylist: (playlistId: string) => void;
+  addToPlaylist: (playlistId: string, song: Song) => void;
+  removeFromPlaylist: (playlistId: string, songId: string) => void;
+  reorderPlaylist: (playlistId: string, fromIndex: number, toIndex: number) => void;
 }
 
 function clampStartIndex(length: number, startIndex: number): number {
@@ -102,13 +109,60 @@ function queueState(songs: Song[], startIndex = 0) {
   };
 }
 
+let playlistCounter = 0;
+
+/**
+ * Playlist ids only need to be unique within one browser's storage.
+ * `crypto.randomUUID` is unavailable on insecure origins, so a timestamped
+ * counter backs it up rather than letting playlist creation throw.
+ */
+function newPlaylistId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  playlistCounter += 1;
+  return `playlist-${Date.now()}-${playlistCounter}`;
+}
+
+function dedupeById(songs: Song[]): Song[] {
+  const seen = new Set<string>();
+  return songs.filter((song) => seen.has(song.id) ? false : (seen.add(song.id), true));
+}
+
 const noopStorage: StateStorage = {
   getItem: () => null,
   setItem: () => {},
   removeItem: () => {},
 };
 
+/**
+ * Storage that refuses to write until rehydration has finished.
+ *
+ * `skipHydration` defers loading to an effect in PlayerStoreProvider, but React
+ * runs child effects before parent ones — so the audio engine's `setStatus` and
+ * the view/URL sync both fire first, and persist middleware wrote the empty
+ * initial state over the saved one before it was ever read back. Favourites,
+ * history, playlists and volume were silently cleared on every reload.
+ *
+ * Blocking writes until `allowWrites` closes that window. A change made in the
+ * few milliseconds before hydration is not persisted, but hydration overwrites
+ * it in memory anyway, so nothing observable is lost.
+ */
+function createGuardedStorage(): { storage: StateStorage; allowWrites: () => void } {
+  let writable = false;
+  return {
+    allowWrites: () => { writable = true; },
+    storage: {
+      getItem: (name) => window.localStorage.getItem(name),
+      setItem: (name, value) => { if (writable) window.localStorage.setItem(name, value); },
+      removeItem: (name) => { if (writable) window.localStorage.removeItem(name); },
+    },
+  };
+}
+
 export function createPlayerStore(initialView: ViewType = 'albums', initialQuery = '') {
+  const persistence = typeof window === 'undefined'
+    ? { storage: noopStorage, allowWrites: () => {} }
+    : createGuardedStorage();
+
   return createStore<PlayerState>()(persist((set, get) => ({
   currentSong: null,
   activeSongId: null,
@@ -129,6 +183,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
   transportCommand: null,
   favorites: [],
   history: [],
+  playlists: [],
 
   setCurrentSong: (song) => set(queueState([song])),
   setQueue: (songs, startIndex = 0) => set(queueState(songs, startIndex)),
@@ -368,14 +423,70 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
   }),
 
   playAlbum: (songs, startIndex = 0) => set(queueState(songs, startIndex)),
+
+  createPlaylist: (name, songs = []) => {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const id = newPlaylistId();
+    set((state) => ({
+      playlists: [{ id, name: trimmed, songs: dedupeById(songs), createdAt: Date.now() }, ...state.playlists],
+    }));
+    return id;
+  },
+  renamePlaylist: (playlistId, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    set((state) => ({
+      playlists: state.playlists.map((playlist) => playlist.id === playlistId ? { ...playlist, name: trimmed } : playlist),
+    }));
+  },
+  deletePlaylist: (playlistId) => set((state) => ({
+    playlists: state.playlists.filter((playlist) => playlist.id !== playlistId),
+  })),
+  // Adding a track twice is treated as a no-op rather than a duplicate row: the
+  // control lives in a menu that is easy to hit twice, and a playlist holding
+  // the same track back to back is never what was meant.
+  addToPlaylist: (playlistId, song) => set((state) => ({
+    playlists: state.playlists.map((playlist) => playlist.id !== playlistId || playlist.songs.some((item) => item.id === song.id)
+      ? playlist
+      : { ...playlist, songs: [...playlist.songs, song] }),
+  })),
+  removeFromPlaylist: (playlistId, songId) => set((state) => ({
+    playlists: state.playlists.map((playlist) => playlist.id === playlistId
+      ? { ...playlist, songs: playlist.songs.filter((song) => song.id !== songId) }
+      : playlist),
+  })),
+  reorderPlaylist: (playlistId, fromIndex, toIndex) => set((state) => ({
+    playlists: state.playlists.map((playlist) => {
+      if (playlist.id !== playlistId) return playlist;
+      const { songs } = playlist;
+      if (
+        !Number.isInteger(fromIndex) || !Number.isInteger(toIndex) ||
+        fromIndex < 0 || toIndex < 0 ||
+        fromIndex >= songs.length || toIndex >= songs.length ||
+        fromIndex === toIndex
+      ) {
+        return playlist;
+      }
+      const nextSongs = [...songs];
+      const [moved] = nextSongs.splice(fromIndex, 1);
+      nextSongs.splice(toIndex, 0, moved);
+      return { ...playlist, songs: nextSongs };
+    }),
+  })),
   }), {
     name: 'marea-player-v1',
-    storage: createJSONStorage(() => typeof window === 'undefined' ? noopStorage : window.localStorage),
+    storage: createJSONStorage(() => persistence.storage),
     skipHydration: true,
     version: 1,
+    // Fires once rehydration settles, which is the only point at which writing
+    // the store back is safe. Runs on success and on failure alike: a corrupt
+    // payload should not leave the app unable to save anything afterwards.
+    onRehydrateStorage: () => () => persistence.allowWrites(),
     partialize: (state) => ({
       favorites: state.favorites,
       history: state.history,
+      playlists: state.playlists,
       volume: state.volume,
       lastNonZeroVolume: state.lastNonZeroVolume,
       shuffle: state.shuffle,

@@ -11,6 +11,7 @@ import { ArtistGrid } from '@/components/views/ArtistGrid';
 import { CategoryGrid } from '@/components/views/CategoryGrid';
 import { PersonalLibraryView } from '@/components/views/PersonalLibraryView';
 import { NowPlayingView } from '@/components/views/NowPlayingView';
+import { PlaylistsView } from '@/components/views/PlaylistsView';
 import { NewView } from '@/components/views/NewView';
 import { SearchView } from '@/components/views/SearchView';
 import { buildNavigationUrl, parseNavigation, type NavigationItem } from '@/lib/navigation';
@@ -77,6 +78,7 @@ function renderView(
 	if (currentView === 'search') return <SearchView query={searchQuery} onQueryChange={onSearchQueryChange} onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'favorites') return <PersonalLibraryView kind="favorites" onNavigateWithItem={onNavigateWithItem} onNavigate={onNavigateToView} />;
 	if (currentView === 'history') return <PersonalLibraryView kind="history" onNavigateWithItem={onNavigateWithItem} onNavigate={onNavigateToView} />;
+	if (currentView === 'playlist') return <PlaylistsView onNavigateWithItem={onNavigateWithItem} onNavigate={onNavigateToView} />;
 	if (currentView === 'now-playing') return <NowPlayingView onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'pop') return <CategoryGrid config={{ view: 'pop', title: 'Pop', description: 'Pop tracks from Jamendo', fetchFn: getPopSongs, queryKey: ['pop'] }} onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'billboard') return <CategoryGrid config={{ view: 'billboard', title: 'US Top Songs', description: 'Apple US chart metadata with optional configured playback', fetchFn: getBillboardSongs, queryKey: ['chart', 'billboard'] }} onNavigateWithItem={onNavigateWithItem} />;
@@ -179,14 +181,22 @@ function MainContent({ initialItem }: { initialItem: NavigationItem | null }) {
 					{/* No rule or blur under the title: content scrolls in its own pane
 					    below it, so the header shares the page surface and the whole
 					    view reads as one continuous sheet. */}
-					<header className="flex shrink-0 items-center gap-3 px-3 pb-2 pt-5 sm:px-6 sm:pb-3 sm:pt-8">
-						<MobileNavigation onNavigate={navigateToView} />
-						<h1 className="min-w-0 truncate text-[26px] font-bold leading-[1.18] tracking-[-0.02em] text-[var(--salt-white)] sm:text-[34px]">{getViewTitle(currentView)}</h1>
+					{/* Header and content share one max width so the title stays aligned
+					    with the rows beneath it. Uncapped, a single-column track list
+					    stretches the full width of an ultrawide display and leaves the
+					    title marooned from its own controls. */}
+					<header className="flex shrink-0 justify-center px-3 pb-2 pt-5 sm:px-6 sm:pb-3 sm:pt-8">
+						<div className="flex w-full max-w-[1400px] items-center gap-3">
+							<MobileNavigation onNavigate={navigateToView} />
+							<h1 className="min-w-0 truncate text-[26px] font-bold leading-[1.18] tracking-[-0.02em] text-[var(--salt-white)] sm:text-[34px]">{getViewTitle(currentView)}</h1>
+						</div>
 					</header>
 					<div id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto px-3 outline-none sm:px-6" style={{ paddingBottom: '88px' }}>
-						{showDetailOverlay && pendingItem?.kind === 'album' && <ProviderDetailView kind="album" id={pendingItem.id} onClose={closeDetail} onNavigateWithItem={navigateWithItem} />}
-						{showDetailOverlay && pendingItem?.kind === 'artist' && <ProviderDetailView kind="artist" id={pendingItem.id} onClose={closeDetail} onNavigateWithItem={navigateWithItem} />}
-						{!showDetailOverlay && renderView(currentView, searchQuery, replaceSearchQuery, navigateWithItem, navigateToView)}
+						<div className="mx-auto w-full max-w-[1400px]">
+							{showDetailOverlay && pendingItem?.kind === 'album' && <ProviderDetailView kind="album" id={pendingItem.id} onClose={closeDetail} onNavigateWithItem={navigateWithItem} />}
+							{showDetailOverlay && pendingItem?.kind === 'artist' && <ProviderDetailView kind="artist" id={pendingItem.id} onClose={closeDetail} onNavigateWithItem={navigateWithItem} />}
+							{!showDetailOverlay && renderView(currentView, searchQuery, replaceSearchQuery, navigateWithItem, navigateToView)}
+						</div>
 					</div>
 				</main>
 			</div>

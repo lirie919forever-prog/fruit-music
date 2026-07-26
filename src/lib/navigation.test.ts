@@ -11,7 +11,11 @@ describe('navigation parsing', () => {
   it('defaults missing, invalid, and unsupported views to albums', () => {
     expect(parseView(undefined)).toBe('albums');
     expect(parseView('unknown')).toBe('albums');
-    expect(parseView('playlist')).toBe('albums');
+    expect(parseView('now_playing')).toBe('albums');
+  });
+
+  it('renders the playlist view now that playlists exist', () => {
+    expect(parseView('playlist')).toBe('playlist');
   });
 
   it('accepts the J-Pop alias and canonicalizes it to jp', () => {

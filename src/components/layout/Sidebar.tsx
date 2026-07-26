@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { usePlayerStore } from '@/store/playerStore';
 import type { ViewType } from '@/types/music';
 import { buildNavigationUrl } from '@/lib/navigation';
-import { HiMagnifyingGlass, HiXMark } from 'react-icons/hi2';
+import { HiMagnifyingGlass, HiQueueList, HiXMark } from 'react-icons/hi2';
 import { TbVinyl, TbWaveSine } from 'react-icons/tb';
 import { GiViolin } from 'react-icons/gi';
 
@@ -42,6 +42,7 @@ export const navigationSections: Array<{ title: string; items: NavItem[] }> = [
   { title: 'Library', items: [
     { view: 'albums', label: 'Albums', icon: <IconAlbums /> },
     { view: 'artists', label: 'Artists', icon: <IconArtists /> },
+    { view: 'playlist', label: 'Playlists', icon: <HiQueueList className="h-4 w-4" /> },
     { view: 'favorites', label: 'Favorites', icon: <span aria-hidden>♥</span> },
     { view: 'history', label: 'Recently Played', icon: <span aria-hidden>◷</span> },
     { view: 'search', label: 'Search', icon: <HiMagnifyingGlass className="h-4 w-4" /> },

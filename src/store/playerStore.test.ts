@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Song } from '@/types/music';
 import { createPlayerStore, usePlayerStore } from '@/store/playerStore';
 
@@ -48,6 +48,7 @@ beforeEach(() => {
     transportCommand: null,
     favorites: [],
     history: [],
+    playlists: [],
   });
 });
 
@@ -338,5 +339,143 @@ describe('player queue', () => {
       playbackIntent: before.playbackIntent,
       status: before.status,
     });
+  });
+});
+
+describe('playlists', () => {
+  it('creates a playlist, seeds it, and puts the newest first', () => {
+    const first = usePlayerStore.getState().createPlaylist('Road trip', [song('a'), song('b')]);
+    const second = usePlayerStore.getState().createPlaylist('Focus');
+
+    const { playlists } = usePlayerStore.getState();
+    expect(playlists.map((playlist) => playlist.id)).toEqual([second, first]);
+    expect(playlists[1]).toMatchObject({ name: 'Road trip' });
+    expect(playlists[1].songs.map((item) => item.id)).toEqual(['a', 'b']);
+    expect(playlists[0].songs).toEqual([]);
+  });
+
+  it('trims names and refuses to create a blank playlist', () => {
+    expect(usePlayerStore.getState().createPlaylist('  Evening  ')).toEqual(expect.any(String));
+    expect(usePlayerStore.getState().createPlaylist('   ')).toBeNull();
+
+    const { playlists } = usePlayerStore.getState();
+    expect(playlists).toHaveLength(1);
+    expect(playlists[0].name).toBe('Evening');
+  });
+
+  it('drops duplicates from the seed list and from later adds', () => {
+    const id = usePlayerStore.getState().createPlaylist('Mix', [song('a'), song('a'), song('b')])!;
+
+    usePlayerStore.getState().addToPlaylist(id, song('b'));
+    usePlayerStore.getState().addToPlaylist(id, song('c'));
+
+    expect(usePlayerStore.getState().playlists[0].songs.map((item) => item.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('removes, renames, reorders, and deletes', () => {
+    const id = usePlayerStore.getState().createPlaylist('Mix', [song('a'), song('b'), song('c')])!;
+
+    usePlayerStore.getState().reorderPlaylist(id, 2, 0);
+    expect(usePlayerStore.getState().playlists[0].songs.map((item) => item.id)).toEqual(['c', 'a', 'b']);
+
+    usePlayerStore.getState().removeFromPlaylist(id, 'a');
+    expect(usePlayerStore.getState().playlists[0].songs.map((item) => item.id)).toEqual(['c', 'b']);
+
+    usePlayerStore.getState().renamePlaylist(id, '  Evening  ');
+    expect(usePlayerStore.getState().playlists[0].name).toBe('Evening');
+
+    usePlayerStore.getState().renamePlaylist(id, '   ');
+    expect(usePlayerStore.getState().playlists[0].name).toBe('Evening');
+
+    usePlayerStore.getState().deletePlaylist(id);
+    expect(usePlayerStore.getState().playlists).toEqual([]);
+  });
+
+  it('ignores out-of-range reorders instead of dropping tracks', () => {
+    const id = usePlayerStore.getState().createPlaylist('Mix', [song('a'), song('b')])!;
+
+    usePlayerStore.getState().reorderPlaylist(id, -1, 0);
+    usePlayerStore.getState().reorderPlaylist(id, 0, 5);
+    usePlayerStore.getState().reorderPlaylist(id, 0.5, 1);
+    usePlayerStore.getState().reorderPlaylist('missing', 0, 1);
+
+    expect(usePlayerStore.getState().playlists[0].songs.map((item) => item.id)).toEqual(['a', 'b']);
+  });
+
+  it('leaves other playlists untouched when one changes', () => {
+    const keep = usePlayerStore.getState().createPlaylist('Keep', [song('a')])!;
+    const edit = usePlayerStore.getState().createPlaylist('Edit', [song('b')])!;
+
+    usePlayerStore.getState().addToPlaylist(edit, song('c'));
+    usePlayerStore.getState().removeFromPlaylist(edit, 'b');
+
+    const byId = Object.fromEntries(usePlayerStore.getState().playlists.map((playlist) => [playlist.id, playlist]));
+    expect(byId[keep].songs.map((item) => item.id)).toEqual(['a']);
+    expect(byId[edit].songs.map((item) => item.id)).toEqual(['c']);
+  });
+});
+
+describe('persistence write guard', () => {
+  const KEY = 'marea-player-v1';
+  let saved: Map<string, string>;
+
+  function seed() {
+    saved.set(KEY, JSON.stringify({
+      state: { favorites: [song('kept')], history: [], playlists: [], volume: 0.7, lastNonZeroVolume: 0.7, shuffle: false, repeat: 'off' },
+      version: 1,
+    }));
+  }
+
+  function storedFavorites(): string[] {
+    return JSON.parse(saved.get(KEY)!).state.favorites.map((item: Song) => item.id);
+  }
+
+  beforeEach(() => {
+    saved = new Map<string, string>();
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (name: string) => saved.get(name) ?? null,
+        setItem: (name: string, value: string) => { saved.set(name, value); },
+        removeItem: (name: string) => { saved.delete(name); },
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('does not overwrite saved state with defaults before rehydration', () => {
+    seed();
+    const store = createPlayerStore();
+
+    // Child effects mutate the store before the provider's rehydrate effect
+    // runs. None of these writes may reach storage.
+    store.getState().setStatus('idle');
+    store.getState().setCurrentView('new');
+    store.getState().setVolume(0.1);
+
+    expect(storedFavorites()).toEqual(['kept']);
+  });
+
+  it('persists again once rehydration has completed', async () => {
+    seed();
+    const store = createPlayerStore();
+
+    await store.persist.rehydrate();
+    expect(store.getState().favorites.map((item) => item.id)).toEqual(['kept']);
+
+    store.getState().toggleFavorite(song('added'));
+
+    expect(storedFavorites()).toEqual(['added', 'kept']);
+  });
+
+  it('still allows writes when there was nothing saved to rehydrate', async () => {
+    const store = createPlayerStore();
+
+    await store.persist.rehydrate();
+    store.getState().toggleFavorite(song('first'));
+
+    expect(storedFavorites()).toEqual(['first']);
   });
 });

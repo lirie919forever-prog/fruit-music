@@ -8,10 +8,12 @@ import {
   HiHeart,
   HiOutlineHeart,
   HiPlus,
+  HiQueueList,
   HiSquares2X2,
   HiUser,
 } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
+import { AddToPlaylistDialog } from '@/components/ui/AddToPlaylistDialog';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Song, ViewType } from '@/types/music';
 
@@ -47,6 +49,7 @@ export function TrackMenu({
 }) {
   const menuId = useId();
   const [open, setOpen] = useState(false);
+  const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -77,6 +80,12 @@ export function TrackMenu({
       icon: isFavorite ? <HiHeart className="h-4 w-4" aria-hidden /> : <HiOutlineHeart className="h-4 w-4" aria-hidden />,
       onSelect: () => toggleFavorite(song),
       pressed: isFavorite,
+    },
+    {
+      key: 'playlist',
+      label: 'Add to playlist…',
+      icon: <HiQueueList className="h-4 w-4" aria-hidden />,
+      onSelect: () => setPlaylistDialogOpen(true),
     },
     ...(onNavigateWithItem ? [
       { key: 'artist', label: 'Go to artist', icon: <HiUser className="h-4 w-4" aria-hidden />, onSelect: () => onNavigateWithItem('artists', { kind: 'artist', id: song.artistId }) },
@@ -241,6 +250,15 @@ export function TrackMenu({
             );
           })}
         </div>
+      )}
+      {playlistDialogOpen && (
+        <AddToPlaylistDialog
+          song={song}
+          onClose={() => {
+            setPlaylistDialogOpen(false);
+            triggerRef.current?.focus();
+          }}
+        />
       )}
     </>
   );

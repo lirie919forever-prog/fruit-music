@@ -543,7 +543,7 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
   ];
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] space-y-7 pb-8 sm:space-y-9">
+    <div className="space-y-7 pb-8 sm:space-y-9">
       <CatalogNotice issues={unavailableSources} onRetry={retrySources} />
 
       {spotlightSongs.length > 0 ? (

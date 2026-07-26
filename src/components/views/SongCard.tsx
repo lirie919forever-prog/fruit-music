@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { HiLockClosed, HiPlay } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { CoverArt } from '@/components/ui/CoverArt';
@@ -17,6 +18,8 @@ interface SongCardProps extends TrackNavProps {
   index: number;
   tracks: Song[];
   showIndex?: boolean;
+  /** Controls that only make sense in one list, e.g. playlist reordering. */
+  trailing?: ReactNode;
 }
 
 export function FavoriteButton({ song, className = '' }: { song: Song; className?: string }) {
@@ -90,7 +93,7 @@ function ArtworkPlayButton({
   );
 }
 
-export function SongCard({ song, index, tracks, showIndex = true, onNavigateWithItem }: SongCardProps) {
+export function SongCard({ song, index, tracks, showIndex = true, trailing, onNavigateWithItem }: SongCardProps) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
   const currentSong = usePlayerStore((state) => state.currentSong);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
@@ -137,6 +140,7 @@ export function SongCard({ song, index, tracks, showIndex = true, onNavigateWith
       )}
       <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-[var(--salt-mist)] sm:block">{formatDuration(song.duration)}</span>
       <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
+      {trailing}
     </article>
   );
 }

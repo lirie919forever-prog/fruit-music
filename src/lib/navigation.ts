@@ -3,7 +3,7 @@ import type { ViewType } from '@/types/music';
 export const DEFAULT_VIEW: ViewType = 'albums';
 
 export const renderableViews = [
-  'new', 'albums', 'artists', 'search', 'favorites', 'history',
+  'new', 'albums', 'artists', 'search', 'favorites', 'history', 'playlist',
   'now-playing', 'pop', 'jp', 'billboard', 'uk', 'trending', 'remixes', 'jazz', 'classical',
 ] as const satisfies readonly ViewType[];
 
