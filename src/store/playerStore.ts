@@ -45,6 +45,16 @@ export interface PlayerState {
   favorites: Song[];
   history: Song[];
   playlists: Playlist[];
+  /**
+   * When playback should stop by itself, as a wall-clock time rather than a
+   * remaining duration: a countdown held as a number would have to be ticked
+   * down by something, and whatever ticked it would be wrong every time the
+   * tab was backgrounded and its timers throttled.
+   *
+   * Deliberately not persisted — a sleep timer that outlived the page it was
+   * set on would pause a session started hours later for no visible reason.
+   */
+  sleepTimerEndsAt: number | null;
 
   setCurrentSong: (song: Song) => void;
   setQueue: (songs: Song[], startIndex?: number) => void;
@@ -67,6 +77,8 @@ export interface PlayerState {
   toggleShuffle: () => void;
   toggleRepeat: () => void;
   toggleFavorite: (song: Song) => void;
+  /** Minutes from now, or `null` to cancel. */
+  setSleepTimer: (minutes: number | null) => void;
   clearHistory: () => void;
   setCurrentView: (view: ViewType) => void;
   setSearchQuery: (query: string) => void;
@@ -354,6 +366,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
         favorites: [],
         history: [],
         playlists: [],
+        sleepTimerEndsAt: null,
 
         setCurrentSong: (song) => set(queueState([song])),
         setQueue: (songs, startIndex = 0) => set(queueState(songs, startIndex)),
@@ -647,6 +660,12 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
                 : [song, ...state.favorites],
             };
           }),
+        setSleepTimer: (minutes) =>
+          set(
+            minutes === null || !Number.isFinite(minutes) || minutes <= 0
+              ? { sleepTimerEndsAt: null }
+              : { sleepTimerEndsAt: Date.now() + minutes * 60_000 },
+          ),
         clearHistory: () => set({ history: [] }),
         setCurrentView: (view) => set({ currentView: view, ...(view === 'search' ? {} : { searchQuery: '' }) }),
         setSearchQuery: (searchQuery) => set({ searchQuery }),
