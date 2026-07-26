@@ -26,7 +26,13 @@ interface MenuAction {
   icon: ReactNode;
   href?: string;
   onSelect?: () => void;
-  pressed?: boolean;
+  /**
+   * Marks an item that toggles rather than fires. Rendered as
+   * `role="menuitemcheckbox"` with `aria-checked`, which is the only way a menu
+   * may express state — `aria-pressed` is not allowed on `role="menuitem"` and
+   * is dropped, so favourite state was announced as nothing at all.
+   */
+  checked?: boolean;
 }
 
 /**
@@ -79,7 +85,7 @@ export function TrackMenu({
       label: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
       icon: isFavorite ? <HiHeart className="h-4 w-4" aria-hidden /> : <HiOutlineHeart className="h-4 w-4" aria-hidden />,
       onSelect: () => toggleFavorite(song),
-      pressed: isFavorite,
+      checked: isFavorite,
     },
     {
       key: 'playlist',
@@ -214,7 +220,6 @@ export function TrackMenu({
         >
           {actions.map((action, index) => {
             const shared = {
-              role: 'menuitem' as const,
               tabIndex: index === activeIndex ? 0 : -1,
               onMouseEnter: () => setActiveIndex(index),
               className: 'flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] text-[var(--salt-white)] transition-colors hover:bg-[var(--glass-bg-hover)] focus:bg-[var(--glass-bg-hover)] focus:outline-none',
@@ -223,6 +228,7 @@ export function TrackMenu({
               return (
                 <a
                   key={action.key}
+                  role="menuitem"
                   {...shared}
                   ref={(node) => { itemsRef.current[index] = node; }}
                   href={action.href}
@@ -241,10 +247,11 @@ export function TrackMenu({
                 {...shared}
                 ref={(node) => { itemsRef.current[index] = node; }}
                 type="button"
-                aria-pressed={action.pressed}
+                role={action.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+                aria-checked={action.checked}
                 onClick={() => { action.onSelect?.(); close(); }}
               >
-                <span className={`shrink-0 ${action.pressed ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'}`}>{action.icon}</span>
+                <span className={`shrink-0 ${action.checked ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'}`}>{action.icon}</span>
                 <span className="min-w-0 flex-1 truncate">{action.label}</span>
               </button>
             );

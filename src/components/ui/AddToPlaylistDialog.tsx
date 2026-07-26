@@ -3,18 +3,23 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { HiCheck, HiPlus, HiXMark } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
+import { lockBodyScroll } from '@/lib/scrollLock';
 import type { Song } from '@/types/music';
 
 /**
  * Chosen over a nested submenu inside TrackMenu: the list of playlists is
  * unbounded and creating one needs a text field, neither of which a menu can
- * hold without inventing its own keyboard model. A dialog gets the standard one
- * for free — Escape closes, focus is trapped, focus returns to the opener.
+ * hold without inventing its own keyboard model.
+ *
+ * Built on the native `<dialog>` rather than a hand-rolled trap. `showModal`
+ * gives the focus trap, Escape, the backdrop, focus restoration and — the part
+ * no querySelector trap reproduces — genuine inertness of the rest of the page,
+ * so a screen reader cannot wander out of the dialog into content behind it.
  */
 export function AddToPlaylistDialog({ song, onClose }: { song: Song; onClose: () => void }) {
   const titleId = useId();
   const inputId = useId();
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState('');
 
@@ -23,45 +28,30 @@ export function AddToPlaylistDialog({ song, onClose }: { song: Song; onClose: ()
   const addToPlaylist = usePlayerStore((state) => state.addToPlaylist);
   const removeFromPlaylist = usePlayerStore((state) => state.removeFromPlaylist);
 
-  const close = useCallback(() => onClose(), [onClose]);
+  // Closing the element rather than calling `onClose` directly, so every exit
+  // — Escape, backdrop, the button — runs through the one `close` event.
+  const close = useCallback(() => dialogRef.current?.close(), []);
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    const releaseScroll = lockBodyScroll();
+
+    // Restoring focus explicitly rather than leaving it to the element.
+    // Browsers do return focus on close, but only to whatever was focused when
+    // `showModal` ran — and engines disagree about whether that survives the
+    // element being removed from the DOM by React on the same tick, which is
+    // exactly how this dialog closes.
+    const opener = document.activeElement as HTMLElement | null;
     firstFieldRef.current?.focus();
 
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        close();
-        return;
-      }
-      if (event.key !== 'Tab') return;
-      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ) ?? []).filter((element) => element.offsetParent !== null);
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      if (!dialogRef.current?.contains(active)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', onKeyDown);
+      releaseScroll();
+      if (dialog.open) dialog.close();
+      if (opener?.isConnected) opener.focus();
     };
-  }, [close]);
+  }, []);
 
   const submitNewPlaylist = () => {
     // Creating with the song already in it saves the extra click the two-step
@@ -70,9 +60,25 @@ export function AddToPlaylistDialog({ song, onClose }: { song: Song; onClose: ()
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <button tabIndex={-1} aria-label="Close" onClick={close} className="absolute inset-0 bg-[rgba(13,43,62,0.34)]" />
-      <div ref={dialogRef} className="relative flex max-h-[min(560px,86dvh)] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-[var(--glass-border)] bg-white shadow-[0_24px_60px_rgba(16,47,69,0.24)]">
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      onClose={onClose}
+      // Escape is handled here as well as by the element. Browsers fire
+      // `cancel` and close on their own; this keeps the behaviour identical
+      // where they do not, and `close()` on an already-closed dialog is a
+      // no-op, so the two never fight.
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        close();
+      }}
+      // A click that lands on the dialog element itself came from the backdrop:
+      // every piece of content is inside the panel below.
+      onClick={(event) => { if (event.target === dialogRef.current) close(); }}
+      className="max-h-none max-w-none bg-transparent p-0 backdrop:bg-[rgba(13,43,62,0.34)]"
+    >
+      <div className="flex max-h-[min(560px,86dvh)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-[var(--glass-border)] bg-white shadow-[0_24px_60px_rgba(16,47,69,0.24)]">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--glass-border)] px-4 py-3">
           <div className="min-w-0">
             <h2 id={titleId} className="text-[15px] font-bold text-[var(--salt-white)]">Add to playlist</h2>
@@ -140,6 +146,6 @@ export function AddToPlaylistDialog({ song, onClose }: { song: Song; onClose: ()
           })}
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
