@@ -576,6 +576,7 @@ export function NewView({ onNavigateWithItem }: { onNavigateWithItem: (view: Vie
                   // either can become the LCP element.
                   eager
                   onQueue={song.playbackUnavailable ? undefined : () => addToQueue(song)}
+                  onNavigateWithItem={onNavigateWithItem}
                 />
               </div>
             ))}

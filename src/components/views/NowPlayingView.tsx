@@ -7,6 +7,7 @@ import { Attribution } from '@/components/ui/Attribution';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { HiQueueList } from 'react-icons/hi2';
+import { BsShuffle, BsRepeat, BsRepeat1 } from 'react-icons/bs';
 import type { NavigationItem } from '@/lib/navigation';
 import type { ViewType } from '@/types/music';
 
@@ -57,13 +58,22 @@ function SeekBar({
   );
 }
 
-function PlaybackButton({ onClick, label, disabled = false, children }: { onClick: () => void; label: string; disabled?: boolean; children: React.ReactNode }) {
+function PlaybackButton({ onClick, label, disabled = false, active = false, pressed, children }: {
+  onClick: () => void;
+  label: string;
+  disabled?: boolean;
+  active?: boolean;
+  pressed?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className="rounded-full p-2 text-[var(--pearl-mid)] transition-[color,background,transform] duration-150 hover:scale-105 hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:scale-100"
+      aria-pressed={pressed}
+      className="rounded-full p-2 transition-[color,background,transform] duration-150 hover:scale-105 hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:scale-100"
+      style={{ color: active ? 'var(--salt-primary)' : 'var(--pearl-mid)' }}
     >
       {children}
     </button>
@@ -87,6 +97,8 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
   const removeFromQueue = usePlayerStore((s) => s.removeFromQueue);
   const reorderQueue = usePlayerStore((s) => s.reorderQueue);
   const clearQueue = usePlayerStore((s) => s.clearQueue);
+  const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
+  const toggleRepeat = usePlayerStore((s) => s.toggleRepeat);
   const status = usePlayerStore((s) => s.status);
   const error = usePlayerStore((s) => s.error);
   const favorites = usePlayerStore((s) => s.favorites);
@@ -155,7 +167,10 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
           <SeekBar progress={progress} duration={duration} onSeek={seek} />
         </div>
 
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-3 sm:gap-5">
+          <PlaybackButton onClick={toggleShuffle} label="Shuffle" active={shuffle} pressed={shuffle}>
+            <BsShuffle size={20} />
+          </PlaybackButton>
           <PlaybackButton onClick={previous} label="Previous">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" /></svg>
           </PlaybackButton>
@@ -176,8 +191,16 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
           <PlaybackButton onClick={next} label="Next" disabled={!canGoNext}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg>
           </PlaybackButton>
-          <PlaybackButton onClick={() => toggleFavorite(currentSong)} label={`${isFavorite ? 'Remove' : 'Add'} ${currentSong.title} ${isFavorite ? 'from' : 'to'} favorites`}>
-            <span aria-hidden className="text-2xl leading-none text-[var(--salt-primary)]">{isFavorite ? '♥' : '♡'}</span>
+          <PlaybackButton
+            onClick={toggleRepeat}
+            label={repeat === 'one' ? 'Repeat one' : repeat === 'all' ? 'Repeat all' : 'Repeat off'}
+            active={repeat !== 'off'}
+            pressed={repeat !== 'off'}
+          >
+            {repeat === 'one' ? <BsRepeat1 size={20} /> : <BsRepeat size={20} />}
+          </PlaybackButton>
+          <PlaybackButton onClick={() => toggleFavorite(currentSong)} label={`${isFavorite ? 'Remove' : 'Add'} ${currentSong.title} ${isFavorite ? 'from' : 'to'} favorites`} active={isFavorite} pressed={isFavorite}>
+            <span aria-hidden className="text-2xl leading-none">{isFavorite ? '♥' : '♡'}</span>
           </PlaybackButton>
         </div>
       </div>
@@ -206,6 +229,10 @@ export function NowPlayingView({ onNavigateWithItem }: { onNavigateWithItem?: (v
                 <span className="flex-1 truncate">{item.song.title}</span>
                 <span className="shrink-0 text-[11px] tabular-nums text-[var(--salt-mist)]" style={{ fontFamily: 'var(--font-mono)' }}>{formatTime(item.song.duration)}</span>
               </button>
+              {/* No favorite control here: at this panel's width six actions
+                  squeeze the title down to a few characters. The queue exists
+                  to reorder and remove, and favoriting the playing track is
+                  one reach away in the transport row above. */}
               <div className="flex shrink-0 items-center">
                 <button type="button" onClick={() => reorderQueue(index, index - 1)} disabled={index === 0} aria-label={`Move ${item.song.title} earlier`} className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30">↑</button>
                 <button type="button" onClick={() => reorderQueue(index, index + 1)} disabled={index === queue.length - 1} aria-label={`Move ${item.song.title} later`} className="h-7 w-6 rounded text-xs text-[var(--salt-mist)] hover:bg-[var(--salt-ghost)] disabled:opacity-30">↓</button>

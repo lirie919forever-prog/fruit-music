@@ -4,18 +4,23 @@ import { useId } from 'react';
 import { HiArrowRight, HiLockClosed, HiPlay, HiPlus } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { CoverArt } from '@/components/ui/CoverArt';
-import type { Song } from '@/types/music';
+import type { NavigationItem } from '@/lib/navigation';
+import type { Song, ViewType } from '@/types/music';
 
 interface EditorialBannerProps {
   song: Song;
   onQueue?: () => void;
   eyebrow: string;
   eager?: boolean;
+  onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
 }
 
-export function EditorialBanner({ song, onQueue, eyebrow, eager = false }: EditorialBannerProps) {
+export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavigateWithItem }: EditorialBannerProps) {
   const headingId = useId();
   const playSong = usePlayerStore((state) => state.playSong);
+  const favorites = usePlayerStore((state) => state.favorites);
+  const toggleFavorite = usePlayerStore((state) => state.toggleFavorite);
+  const isFavorite = favorites.some((item) => item.id === song.id);
   const unavailable = song.playbackUnavailable === true;
   // Generated monogram covers are square 200px placeholders. Stretched across a
   // 16:9 hero they read as a stray letter behind the title, so they stay a
@@ -49,8 +54,26 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false }: Edito
         <h2 id={headingId} className="line-clamp-2 max-w-[28rem] text-xl font-bold leading-tight text-white sm:text-3xl">
           {song.title}
         </h2>
-        <p className="mt-1 truncate text-sm text-white/78">{song.artist}</p>
+        {onNavigateWithItem ? (
+          <button
+            type="button"
+            onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: song.artistId })}
+            aria-label={`Open ${song.artist}`}
+            className="mt-1 max-w-full truncate text-left text-sm text-white/78 underline decoration-transparent underline-offset-2 transition-colors hover:text-white hover:decoration-current focus-visible:text-white focus-visible:outline-none"
+          >
+            {song.artist}
+          </button>
+        ) : <p className="mt-1 truncate text-sm text-white/78">{song.artist}</p>}
         <div className="mt-4 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => toggleFavorite(song)}
+            aria-label={`${isFavorite ? 'Remove' : 'Add'} ${song.title} ${isFavorite ? 'from' : 'to'} favorites`}
+            aria-pressed={isFavorite}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/30 bg-black/20 text-lg leading-none text-white backdrop-blur-md transition-colors hover:bg-black/35 focus-visible:ring-white sm:h-10 sm:w-10"
+          >
+            {isFavorite ? '♥' : '♡'}
+          </button>
           {!unavailable && (
             <button
               type="button"
