@@ -66,7 +66,11 @@ describe('LX Music provider', () => {
       artistId: 'lxmusic-artist-wy_9527',
       album: '叶惠美',
       albumId: 'lxmusic-album-wy_12345',
-      coverArt: 'https://example.com/cover.jpg',
+      // The artwork host is not one the image optimizer is configured for in a
+      // default build, so it degrades to the placeholder rather than rendering
+      // as a broken tile. LX's own host is allowed only when the feature is
+      // enabled, which matches how the README describes it.
+      coverArt: '/placeholder-album.svg',
       duration: 269,
       bitRate: 320,
       provider: 'LX Music',

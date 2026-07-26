@@ -1,22 +1,5 @@
-const ARTWORK_HOSTS = new Set([
-  'usercontent.jamendo.com',
-  'ccmixter.org',
-  'www.ccmixter.org',
-  'api.vkeys.cn',
-  'is1-ssl.mzstatic.com',
-]);
+import { isAllowedArtworkHost } from '@/lib/artworkHosts';
 
-export function optimizedCoverArt(value: string | undefined, fallback = '/placeholder-album.svg'): string {
-  const safe = safeCoverArt(value, fallback);
-  if (safe.startsWith('/') || safe.startsWith('data:image/')) return safe;
-  try {
-    const url = new URL(safe);
-    if (!ARTWORK_HOSTS.has(url.hostname.toLowerCase())) return fallback;
-    return `/api/images?url=${encodeURIComponent(url.toString())}`;
-  } catch {
-    return fallback;
-  }
-}
 function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
     '&': '&amp;',
@@ -27,13 +10,21 @@ function escapeXml(value: string): string {
   })[character] ?? character);
 }
 
-
+/**
+ * Narrows an arbitrary provider value to something safe to hand `next/image`.
+ *
+ * The host check matters as much as the protocol one: `remotePatterns` makes
+ * the optimizer reject an unlisted host with a 400, which renders as a broken
+ * tile. Filtering here means an unexpected host degrades to the placeholder
+ * instead. The list is shared with the optimizer config precisely so the two
+ * can never disagree.
+ */
 export function safeCoverArt(value: string | undefined, fallback = '/placeholder-album.svg'): string {
   if (!value) return fallback;
   if (value.startsWith('/') || value.startsWith('data:image/')) return value;
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' ? url.toString() : fallback;
+    return url.protocol === 'https:' && isAllowedArtworkHost(url.hostname) ? url.toString() : fallback;
   } catch {
     return fallback;
   }

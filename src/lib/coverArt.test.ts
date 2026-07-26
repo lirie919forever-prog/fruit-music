@@ -16,10 +16,19 @@ describe('createDeterministicCover', () => {
     expect(safeCoverArt('javascript:alert(1)')).toBe('/placeholder-album.svg');
   });
 
-  it('keeps HTTPS, local, and generated artwork', () => {
-    expect(safeCoverArt('https://images.example.test/cover.jpg')).toBe('https://images.example.test/cover.jpg');
+  it('keeps artwork from a provider host, local paths, and generated covers', () => {
+    expect(safeCoverArt('https://usercontent.jamendo.com/cover.jpg')).toBe('https://usercontent.jamendo.com/cover.jpg');
     expect(safeCoverArt('/placeholder-album.svg')).toBe('/placeholder-album.svg');
     expect(safeCoverArt('data:image/svg+xml;base64,abc')).toBe('data:image/svg+xml;base64,abc');
+  });
+
+  it('falls back for an https host the image optimizer is not configured for', () => {
+    // remotePatterns makes the optimizer answer an unlisted host with a 400,
+    // which renders as a broken tile. Screening here turns that into the
+    // placeholder instead — and the list is shared with the optimizer config
+    // so the two cannot disagree about which hosts those are.
+    expect(safeCoverArt('https://images.example.test/cover.jpg')).toBe('/placeholder-album.svg');
+    expect(safeCoverArt('https://usercontent.jamendo.com.attacker.example/x.jpg')).toBe('/placeholder-album.svg');
   });
 
   it('escapes XML-sensitive labels', () => {

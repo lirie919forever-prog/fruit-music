@@ -224,16 +224,6 @@ export const api = {
     return getMusicProviderForSongId(song.id).getStreamUrl(song, signal);
   },
 
-  normalizeCoverArt(id: string): string {
-    if (!id) return '/placeholder-album.svg';
-    if (id.startsWith('/') || id.startsWith('data:image/')) return id;
-    try {
-      const url = new URL(id);
-      return url.protocol === 'https:' ? url.toString() : '/placeholder-album.svg';
-    } catch {
-      return '/placeholder-album.svg';
-    }
-  },
 
   isServerConfigured,
 };
