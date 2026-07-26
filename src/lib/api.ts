@@ -11,6 +11,7 @@ import {
 } from '@/lib/providers';
 import type { ProviderCatalogResult } from '@/lib/providers/types';
 import { ProviderError, providerFetch } from '@/lib/providers/errors';
+import { isSong } from '@/lib/songShape';
 
 function dedupeEntities<T extends { id: string }>(entities: T[]): T[] {
   const seen = new Set<string>();
@@ -35,7 +36,7 @@ export interface FederatedResult<T> {
 export type FederatedSearchResult = FederatedResult<Song>;
 
 /** The chart pages the server can build. Kept in sync with `CHARTS` in the charts route. */
-export type ChartKey = 'billboard' | 'uk' | 'jp' | 'pop';
+export type ChartKey = 'billboard' | 'uk' | 'jp';
 
 type CatalogProvider<T> = {
   name: string;
@@ -199,7 +200,7 @@ export const api = {
   },
 
   async getChartSongs(chart: ChartKey, signal?: AbortSignal): Promise<Song[]> {
-    const data = await providerFetch<{ results?: Song[]; error?: string; unavailable?: boolean }>(
+    const data = await providerFetch<{ results?: unknown; error?: string; unavailable?: boolean }>(
       'Apple Preview',
       'chart',
       '/api/music/charts',
@@ -212,7 +213,17 @@ export const api = {
     if (!Array.isArray(data.results)) {
       throw new ProviderError('Apple Preview', 'chart', 'invalid_response');
     }
-    return data.results;
+    // Every other provider maps its upstream through a shape check on the way
+    // in; this one used to cast the JSON body to `Song[]` and hand it to the
+    // UI. It is still a network response, and it is the only path that skipped
+    // that step. A malformed entry is dropped rather than allowed to throw
+    // inside a row; a body with nothing usable in it is a failure, not an
+    // empty chart.
+    const results = data.results.filter(isSong);
+    if (results.length === 0) {
+      throw new ProviderError('Apple Preview', 'chart', 'invalid_response');
+    }
+    return results;
   },
 
   async resolveSong(songId: string, signal?: AbortSignal): Promise<Song | null> {

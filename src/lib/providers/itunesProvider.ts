@@ -202,7 +202,7 @@ export const itunesProvider: ItunesProvider = {
   /**
    * What is actually trending, not what a search for "pop" returns.
    *
-   * This reads the chart route rather than the search endpoint because Apple
+   * This reads the US chart rather than the search endpoint because Apple
    * publishes a real most-played feed and a keyword search does not approximate
    * one — it returns whatever matches the word, ordered by relevance, which on
    * a discovery shelf reads as an arbitrary sample of the catalog.
@@ -212,7 +212,7 @@ export const itunesProvider: ItunesProvider = {
       'Apple Preview',
       'trending',
       '/api/music/charts',
-      { chart: 'pop' },
+      { chart: 'billboard' },
       signal,
     );
     return Array.isArray(data?.results) ? data.results.slice(0, limit) : [];

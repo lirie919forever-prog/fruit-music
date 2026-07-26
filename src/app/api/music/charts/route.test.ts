@@ -1,4 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+beforeEach(() => {
+  vi.resetModules();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -122,5 +126,53 @@ describe('chart pages', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ unavailable: true });
+  });
+  it('has no second entry pointing at the same feed', async () => {
+    // `pop` used to be a fourth chart on us/most-played/50 — byte-identical to
+    // `billboard` — labelled "Global Top Songs" for a US feed.
+    vi.stubGlobal('fetch', vi.fn());
+    const { GET } = await import('./route');
+    const response = await GET(new Request('https://marea.test/api/music/charts?chart=pop'));
+
+    expect(response.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('spends exactly one feed request and one lookup per 25 entries', async () => {
+    const ids = Array.from({ length: 50 }, (_, index) => String(index + 1));
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('rss.marketingtools.apple.com')) {
+        return Response.json({ feed: { results: ids.map((id) => feedEntry(id)) } });
+      }
+      return Response.json({ results: ids.map((id) => lookupTrack(Number(id))) });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { GET } = await import('./route');
+    await GET(new Request('https://marea.test/api/music/charts?chart=billboard'));
+
+    // The fan-out this endpoint's rate limit is sized against: 1 + ceil(50/25).
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('rate limits per chart, so one chart cannot lock out another', async () => {
+    vi.stubGlobal('fetch', routeFetch(
+      { feed: { results: [feedEntry('101')] } },
+      { results: [lookupTrack(101)] },
+    ));
+    const { GET } = await import('./route');
+    const headers = { 'x-real-ip': '203.0.113.9' };
+
+    let last = new Response(null, { status: 200 }) as Response;
+    for (let attempt = 0; attempt < 61; attempt += 1) {
+      last = await GET(new Request('https://marea.test/api/music/charts?chart=billboard', { headers }));
+    }
+    expect(last.status).toBe(429);
+    expect(last.headers.get('Retry-After')).toBeTruthy();
+
+    // A different chart is a different bucket and is still answerable.
+    const other = await GET(new Request('https://marea.test/api/music/charts?chart=jp', { headers }));
+    expect(other.status).toBe(200);
   });
 });

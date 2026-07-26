@@ -4,6 +4,7 @@ import { createContext, createElement, useContext, useEffect, useState, type Rea
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
+import { isSong } from '@/lib/songShape';
 import type { Playlist, Song, QueueItem, ViewType } from '@/types/music';
 
 export interface TransportCommand {
@@ -197,19 +198,6 @@ export const PERSIST_KEY = 'marea-player-v1';
  * saving for the rest of the session with nothing to show for it.
  */
 const REHYDRATE_TIMEOUT_MS = 5_000;
-
-function isSong(value: unknown): value is Song {
-  if (typeof value !== 'object' || value === null) return false;
-  const song = value as Record<string, unknown>;
-  // Every string field the UI reads without a guard, plus the one number it
-  // does arithmetic on. Anything short of this reaches render and throws on
-  // `.toLowerCase()` or renders a row with no key.
-  return ['id', 'title', 'artist', 'artistId', 'album', 'albumId', 'coverArt', 'path', 'provider', 'licenseName']
-    .every((field) => typeof song[field] === 'string')
-    && song.id !== ''
-    && typeof song.duration === 'number'
-    && Number.isFinite(song.duration);
-}
 
 function isPlaylist(value: unknown): value is Playlist {
   if (typeof value !== 'object' || value === null) return false;

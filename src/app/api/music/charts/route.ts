@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createRateLimiter } from '../rateLimit';
 import { isPlayableTrack, trackToSong, type ItunesTrack } from '@/lib/providers/itunesProvider';
 import type { Song } from '@/types/music';
 
@@ -14,11 +15,20 @@ import type { Song } from '@/types/music';
  * track id its own preview endpoint takes, so a whole chart now resolves in a
  * single lookup with no matching, no guessing, and nothing unplayable.
  */
+/**
+ * One entry per region Apple actually publishes.
+ *
+ * `pop` used to live here too, on `us/most-played/50` — the same feed as
+ * `billboard`, so two navigation entries rendered the identical fifty tracks —
+ * and it was labelled "Global Top Songs". Apple's v2 feed API has no global
+ * region at all (`gl` answers 500) and no feed type but `most-played`, so that
+ * label described something that cannot exist. The Pop view is a genre browse
+ * now; a chart is a region or it is nothing.
+ */
 const CHARTS = {
   billboard: { region: 'us', name: 'Apple US Top Songs' },
   uk: { region: 'gb', name: 'UK Top Songs' },
   jp: { region: 'jp', name: 'Japan Top Songs' },
-  pop: { region: 'us', name: 'Global Top Songs' },
 } as const;
 
 type ChartKey = keyof typeof CHARTS;
@@ -27,6 +37,15 @@ const CHART_SIZE = 50;
 const LOOKUP_CHUNK = 25;
 const UPSTREAM_TIMEOUT_MS = 8_000;
 const TRACK_ID = /^[1-9]\d{0,15}$/;
+
+/**
+ * One call here fans out to three upstream requests — the feed plus two id
+ * lookups — and the home view asks for three charts on first paint. The window
+ * is sized against that: a browser doing normal work stays far inside it, while
+ * a client looping over the endpoint cannot multiply itself by three against
+ * Apple.
+ */
+const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 60, maxEntries: 4_000 });
 
 interface FeedEntry {
   id?: string;
@@ -48,6 +67,10 @@ async function lookupChunk(ids: string[], region: string, signal?: AbortSignal):
 export async function GET(request: Request): Promise<NextResponse> {
   const chart = new URL(request.url).searchParams.get('chart') as ChartKey | null;
   if (!chart || !(chart in CHARTS)) return NextResponse.json({ error: 'Unknown chart' }, { status: 400 });
+  // Bucketed per chart: exhausting the US chart must not lock a client out of
+  // Japan's, which is a different feed and a different set of lookups.
+  const limited = rateLimit(request, `charts:${chart}`);
+  if (limited) return limited;
   const config = CHARTS[chart];
 
   try {

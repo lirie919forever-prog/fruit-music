@@ -69,7 +69,7 @@ const viewTitles: Record<ViewType, string> = {
   history: 'Recently Played',
   playlist: 'Playlists',
   'now-playing': 'Now Playing',
-  pop: 'Top Songs',
+  pop: 'Pop',
   jp: 'Japan Charts',
   billboard: 'US Charts',
   uk: 'UK Charts',

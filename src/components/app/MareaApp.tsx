@@ -29,7 +29,7 @@ const CHART_NOTE = 'Apple’s published chart — each track plays as a 30-secon
 
 async function getPopSongs(signal?: AbortSignal) {
 	const { api } = await import('@/lib/api');
-	return api.getChartSongs('pop', signal);
+	return api.getSongsByTag('pop', 50, signal);
 }
 
 async function getBillboardSongs(signal?: AbortSignal) {
@@ -82,7 +82,7 @@ function renderView(
 	if (currentView === 'history') return <PersonalLibraryView kind="history" onNavigateWithItem={onNavigateWithItem} onNavigate={onNavigateToView} />;
 	if (currentView === 'playlist') return <PlaylistsView onNavigateWithItem={onNavigateWithItem} onNavigate={onNavigateToView} />;
 	if (currentView === 'now-playing') return <NowPlayingView onNavigateWithItem={onNavigateWithItem} />;
-	if (currentView === 'pop') return <CategoryGrid config={{ view: 'pop', title: 'Top Songs', description: CHART_NOTE, fetchFn: getPopSongs, queryKey: ['chart', 'pop'] }} onNavigateWithItem={onNavigateWithItem} />;
+	if (currentView === 'pop') return <CategoryGrid config={{ view: 'pop', title: 'Pop', description: 'Pop tracks from the Creative Commons catalog', fetchFn: getPopSongs, queryKey: ['pop'] }} onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'billboard') return <CategoryGrid config={{ view: 'billboard', title: 'US Top Songs', description: CHART_NOTE, fetchFn: getBillboardSongs, queryKey: ['chart', 'billboard'] }} onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'uk') return <CategoryGrid config={{ view: 'uk', title: 'UK Top Songs', description: CHART_NOTE, fetchFn: getUkChartSongs, queryKey: ['chart', 'uk'] }} onNavigateWithItem={onNavigateWithItem} />;
 	if (currentView === 'jp') return <CategoryGrid config={{ view: 'jp', title: 'Japan Top Songs', description: CHART_NOTE, fetchFn: getJpChartSongs, queryKey: ['chart', 'jp'] }} onNavigateWithItem={onNavigateWithItem} />;
