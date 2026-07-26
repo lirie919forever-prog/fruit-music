@@ -34,6 +34,10 @@ Marea is a blue-white ocean Creative Commons music app built with Next.js 16, Re
 
    Enabling LX exposes its search, chart, and playback routes. LX results are governed by the selected provider's terms rather than verified Creative Commons metadata. Deployment operators are responsible for reviewing those terms, content rights, and applicable licensing requirements.
 
+   The flag is read at build time as well as at runtime. `api.vkeys.cn` — the community search endpoint LX falls back to, and the only host that serves LX cover art — is added to the image optimizer's `remotePatterns` **only** when `NEXT_PUBLIC_LX_ENABLED=true` is set for the build. A default build permits Jamendo, ccMixter and Apple artwork and nothing else. This used to be untrue: the host sat unconditionally in the artwork allowlist, so every deployment permitted it whether or not LX was enabled.
+
+   The flag is read at build time as well as at runtime: — the community search endpoint LX falls back to, and the only host that serves LX cover art — is added to the image optimizer's only when is set for the build. A default build allows Jamendo, ccMixter and Apple artwork and nothing else. This used to be untrue: the host sat unconditionally in the artwork allowlist, so every deployment permitted it whether or not LX was on.
+
 3. Start development:
 
    ```bash
@@ -64,11 +68,19 @@ npm run start      # serve the production build
 
 - Lists and grids render their complete in-memory arrays without virtualization or pagination.
 - Albums and artists are summaries; full song queues are fetched on demand.
-- The bottom player remains fixed at 72px with an 88px content clearance.
+- The bottom player height and the clearance the scrolling pane leaves for it are one pair of CSS custom properties, `--player-bar-height` (72px) and `--player-bar-clearance`, rather than two numbers written out separately in the bar and the shell.
 
 ## Providers and streaming
 
 Browser requests go through `src/app/api/music/[...path]/route.ts`, which keeps credentials server-side, validates provider input, forwards media byte ranges, and preserves upstream media statuses. Search can return partial results when one provider fails.
+
+Artwork is served by Next's own image optimizer, configured in . is the single artwork allowlist, shared with the client-side guard in so the browser and the optimizer cannot disagree about which hosts are permitted. is set deliberately: the optimizer follows an upstream redirect without re-checking against the new location, and every artwork host answers directly, so no hop is needed.
+
+Media streams are proxied by , which fetches with and checks every hop against a per-provider host allowlist before following it.
+
+Artwork is served by Next's own image optimizer, configured in `next.config.ts`. `images.remotePatterns` is the single artwork allowlist, shared with the client-side guard in `src/lib/artworkHosts.ts` so the browser and the optimizer cannot disagree about which hosts are permitted. `maximumRedirects: 0` is set deliberately: the optimizer follows an upstream redirect _without_ re-checking `remotePatterns` against the new location, and every artwork host answers directly, so no hop is needed.
+
+Media streams are proxied by `src/app/api/music/streamProxy.ts`, which fetches with `redirect: 'manual'` and validates every hop against a per-provider host allowlist before following it. The allowlists are measured, not assumed: Jamendo and Apple answer their stream URLs directly, while Archive redirects to a per-node `*.archive.org` host.
 
 The built-in rate limiter is a bounded, best-effort guard keyed by trusted proxy client address and route bucket. Its state is local to one application instance. Production deployments that need deployment-wide enforcement must add a distributed or platform-level rate limit and ensure the proxy overwrites `X-Real-IP` or `X-Forwarded-For`.
 
