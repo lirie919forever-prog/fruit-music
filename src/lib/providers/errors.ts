@@ -15,6 +15,37 @@ export class ProviderError extends Error {
 
 const PROVIDER_TIMEOUT_MS = 9_000;
 
+export interface ProviderFetchOptions {
+  /** A longer limit is reserved for fan-out endpoints such as Apple charts. */
+  timeoutMs?: number;
+}
+
+function requestTimeout(options?: ProviderFetchOptions): number {
+  const requested = options?.timeoutMs;
+  if (typeof requested !== 'number' || !Number.isFinite(requested)) return PROVIDER_TIMEOUT_MS;
+  return Math.max(1_000, Math.min(Math.floor(requested), 30_000));
+}
+
+async function responseError(response: Response): Promise<{ code: ProviderErrorCode; message?: string }> {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = undefined;
+  }
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : undefined;
+  const message = typeof record?.error === 'string' ? record.error : undefined;
+  const explicitlyNotConfigured =
+    record?.code === 'not_configured' || Boolean(message && /\b(?:not configured|disabled)\b/i.test(message));
+  const code: ProviderErrorCode =
+    response.status === 504
+      ? 'timeout'
+      : response.status === 503 && explicitlyNotConfigured
+        ? 'not_configured'
+        : 'upstream';
+  return { code, message };
+}
+
 function composeSignals(
   external: AbortSignal | undefined,
   timeout: AbortSignal,
@@ -46,6 +77,7 @@ export async function providerFetch<T>(
   path: string,
   params: Record<string, string> = {},
   externalSignal?: AbortSignal,
+  options?: ProviderFetchOptions,
 ): Promise<T> {
   const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
   const url = new URL(path, origin);
@@ -54,16 +86,15 @@ export async function providerFetch<T>(
   const timeoutController = new AbortController();
   const timeout = setTimeout(
     () => timeoutController.abort(new DOMException('Timed out', 'TimeoutError')),
-    PROVIDER_TIMEOUT_MS,
+    requestTimeout(options),
   );
   const request = composeSignals(externalSignal, timeoutController.signal);
 
   try {
     const response = await fetch(url.toString(), { signal: request.signal });
     if (!response.ok) {
-      const code: ProviderErrorCode =
-        response.status === 503 ? 'not_configured' : response.status === 504 ? 'timeout' : 'upstream';
-      throw new ProviderError(provider, operation, code, response.status);
+      const { code, message } = await responseError(response);
+      throw new ProviderError(provider, operation, code, response.status, message);
     }
     try {
       return (await response.json()) as T;

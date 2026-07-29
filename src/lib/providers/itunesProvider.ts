@@ -14,6 +14,7 @@ const PROXY_BASE = '/api/music/itunes';
  */
 const PREVIEW_DURATION_SECONDS = 30;
 const PREVIEW_LICENSE = '30-second preview';
+const APPLE_CATALOG_TIMEOUT_MS = 15_000;
 
 /** Apple's artwork URLs carry their size in the filename, so any size is one substitution away. */
 const ARTWORK_SIZE = /\/\d+x\d+bb\.(jpg|png)$/;
@@ -126,6 +127,7 @@ async function itunesFetch(
     `${PROXY_BASE}/${resource}`,
     params,
     signal,
+    { timeoutMs: APPLE_CATALOG_TIMEOUT_MS },
   );
   return Array.isArray(data?.results) ? data.results : [];
 }
@@ -176,6 +178,17 @@ function artistsFrom(results: ItunesTrack[]): Artist[] {
  */
 const BROWSE_SEEDS = ['pop', 'rock', 'hip-hop', 'jazz', 'classical', 'electronic', 'r&b', 'country'];
 
+/**
+ * The Search API has no "new releases" sort. These broad terms bring back
+ * separate slices of the live catalog; sorting the playable results by Apple's
+ * release timestamp gives the New page a useful, live recent-release rail
+ * without inventing dates or depending on a private feed.
+ */
+function recentReleaseSeeds(): string[] {
+  const year = new Date().getUTCFullYear();
+  return [String(year), String(year - 1), 'new music', 'pop', 'j-pop'];
+}
+
 function seedFor(offset: number): string {
   return BROWSE_SEEDS[offset % BROWSE_SEEDS.length];
 }
@@ -198,6 +211,7 @@ interface ItunesProvider extends Required<
   >
 > {
   getSongsByIds(trackIds: string[], signal?: AbortSignal): Promise<Song[]>;
+  getRecentReleases(limit?: number, signal?: AbortSignal): Promise<Song[]>;
 }
 
 export const itunesProvider: ItunesProvider = {
@@ -208,6 +222,41 @@ export const itunesProvider: ItunesProvider = {
 
   async getSongsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<Song[]> {
     return songsFrom(await itunesFetch('search', { term: tag, entity: 'song', limit: String(limit) }, signal));
+  },
+
+  async getRecentReleases(limit = 20, signal?: AbortSignal): Promise<Song[]> {
+    const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 20;
+    const cappedLimit = Math.max(1, Math.min(normalizedLimit, 50));
+    const settled = await Promise.allSettled(
+      recentReleaseSeeds().map((term) => itunesFetch('search', { term, entity: 'song', limit: '40' }, signal)),
+    );
+    const fulfilled = settled.filter(
+      (result): result is PromiseFulfilledResult<ItunesTrack[]> => result.status === 'fulfilled',
+    );
+    if (fulfilled.length === 0) {
+      const failure = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+      throw failure?.reason instanceof Error ? failure.reason : new Error('Apple recent releases are unavailable');
+    }
+    const candidates = fulfilled
+      .flatMap((result) => result.value)
+      .filter(isPlayableTrack)
+      .sort((left, right) => {
+        const leftRelease = Date.parse(left.releaseDate || '');
+        const rightRelease = Date.parse(right.releaseDate || '');
+        return (Number.isFinite(rightRelease) ? rightRelease : 0) - (Number.isFinite(leftRelease) ? leftRelease : 0);
+      });
+    const seen = new Set<string>();
+    const releases: Song[] = [];
+
+    for (const track of candidates) {
+      const songId = itunesSongId(track.trackId!);
+      if (seen.has(songId)) continue;
+      seen.add(songId);
+      releases.push(trackToSong(track, releases.length));
+      if (releases.length >= cappedLimit) break;
+    }
+
+    return releases;
   },
 
   /**
@@ -225,6 +274,7 @@ export const itunesProvider: ItunesProvider = {
       '/api/music/charts',
       { chart: 'billboard' },
       signal,
+      { timeoutMs: APPLE_CATALOG_TIMEOUT_MS },
     );
     return Array.isArray(data?.results) ? data.results.slice(0, limit) : [];
   },

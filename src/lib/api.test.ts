@@ -2,16 +2,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Artist, Song } from '@/types/music';
 import {
   archiveProvider,
+  audiusProvider,
   ccmixterProvider,
+  deezerProvider,
   getMusicProviderForAlbumId,
   getMusicProviderForArtistId,
   getMusicProviderForSongId,
   itunesProvider,
   jamendoProvider,
+  openverseProvider,
+  radioBrowserProvider,
+  somaFmProvider,
+  wikimediaProvider,
 } from '@/lib/providers';
 import { api, searchFederated } from './api';
 
 function song(id: string): Song {
+  const provider = id.startsWith('itunes-')
+    ? 'Apple Preview'
+    : id.startsWith('ccmixter-')
+      ? 'ccMixter'
+      : id.startsWith('archive-')
+        ? 'Archive'
+        : id.startsWith('wikimedia-')
+          ? 'Wikimedia Commons'
+          : 'Jamendo';
   return {
     id,
     title: id,
@@ -24,16 +39,21 @@ function song(id: string): Song {
     track: 1,
     year: 0,
     genre: '',
-    path: id.startsWith('ccmixter-')
-      ? `/api/music/ccmixter/stream/${id.replace('ccmixter-', '')}`
-      : id.startsWith('archive-')
-        ? `/api/music/archive/stream/${id.replace('archive-', '')}`
-        : `/api/music/jamendo/stream/${id.replace('jamendo-', '')}`,
+    path:
+      provider === 'Apple Preview'
+        ? `/api/music/itunes/stream/${id.replace('itunes-', '')}`
+        : provider === 'ccMixter'
+          ? `/api/music/ccmixter/stream/${id.replace('ccmixter-', '')}`
+          : provider === 'Archive'
+            ? `/api/music/archive/stream/${id.replace('archive-', '')}`
+            : provider === 'Wikimedia Commons'
+              ? `/api/music/wikimedia/stream/${id.replace('wikimedia-', '')}`
+              : `/api/music/jamendo/stream/${id.replace('jamendo-', '')}`,
     bitRate: 0,
     contentType: 'audio/mpeg',
     suffix: 'mp3',
     size: 1,
-    provider: id.startsWith('ccmixter-') ? 'ccMixter' : id.startsWith('archive-') ? 'Archive' : 'Jamendo',
+    provider,
     sourceUrl: 'https://example.com/track',
     creatorUrl: 'https://example.com/artist',
     licenseName: 'CC BY',
@@ -55,9 +75,41 @@ beforeEach(() => {
   vi.spyOn(itunesProvider, 'getAlbums').mockResolvedValue([]);
   vi.spyOn(itunesProvider, 'getArtists').mockResolvedValue([]);
   vi.spyOn(itunesProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(itunesProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(deezerProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(deezerProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(deezerProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(deezerProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(deezerProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(audiusProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(audiusProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(audiusProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(audiusProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(audiusProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(openverseProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(openverseProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(openverseProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(wikimediaProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(wikimediaProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(wikimediaProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(wikimediaProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(wikimediaProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(somaFmProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(somaFmProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(somaFmProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(somaFmProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(somaFmProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(radioBrowserProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(radioBrowserProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(radioBrowserProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(radioBrowserProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(radioBrowserProvider, 'getArtists').mockResolvedValue([]);
   vi.spyOn(jamendoProvider, 'search');
+  vi.spyOn(jamendoProvider, 'getSongsByTag').mockResolvedValue([]);
   vi.spyOn(ccmixterProvider, 'searchWithStatus');
+  vi.spyOn(ccmixterProvider, 'getSongsByTagWithStatus').mockResolvedValue({ results: [] });
   vi.spyOn(archiveProvider, 'search');
+  vi.spyOn(archiveProvider, 'getSongsByTag').mockResolvedValue([]);
   vi.spyOn(jamendoProvider, 'getAlbums');
   vi.spyOn(ccmixterProvider, 'getAlbumsWithStatus');
 });
@@ -77,7 +129,7 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
     expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(4);
+    expect(state.providerCount).toBe(10);
   });
 
   it('distinguishes true empty results from total provider failure', async () => {
@@ -97,7 +149,7 @@ describe('provider federation', () => {
     await expect(searchFederated('missing')).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter', 'Archive'],
-      providerCount: 4,
+      providerCount: 10,
     });
   });
 
@@ -113,7 +165,7 @@ describe('provider federation', () => {
       results: [song('ccmixter-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 4,
+      providerCount: 10,
     });
   });
 
@@ -126,7 +178,7 @@ describe('provider federation', () => {
     await expect(api.getArtists()).resolves.toEqual({
       results: [artist('ccmixter-artist-user')],
       failedProviders: ['Jamendo'],
-      providerCount: 3,
+      providerCount: 6,
     });
   });
 
@@ -138,7 +190,7 @@ describe('provider federation', () => {
       results: [artist('jamendo-artist-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 3,
+      providerCount: 6,
     });
   });
 
@@ -149,7 +201,7 @@ describe('provider federation', () => {
     await expect(api.getTrending()).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter'],
-      providerCount: 3,
+      providerCount: 10,
     });
   });
 
@@ -161,8 +213,55 @@ describe('provider federation', () => {
       results: [song('jamendo-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 3,
+      providerCount: 10,
     });
+  });
+
+  it('interleaves trending providers within the requested result window', async () => {
+    vi.mocked(itunesProvider.getTrending).mockResolvedValue([
+      { ...song('itunes-1'), provider: 'Apple Preview' },
+      { ...song('itunes-2'), provider: 'Apple Preview' },
+    ]);
+    vi.mocked(deezerProvider.getTrending).mockResolvedValue([
+      { ...song('deezer-1'), provider: 'Deezer Preview' },
+      { ...song('deezer-2'), provider: 'Deezer Preview' },
+    ]);
+    vi.mocked(audiusProvider.getTrending).mockResolvedValue([
+      { ...song('audius-1'), provider: 'Audius' },
+      { ...song('audius-2'), provider: 'Audius' },
+    ]);
+    vi.spyOn(jamendoProvider, 'getTrending').mockResolvedValue([song('jamendo-1'), song('jamendo-2')]);
+    vi.spyOn(ccmixterProvider, 'getTrendingWithStatus').mockResolvedValue({
+      results: [song('ccmixter-1'), song('ccmixter-2')],
+    });
+
+    const state = await api.getTrending(6);
+
+    expect(state.results.map((result) => result.id)).toEqual([
+      'audius-1',
+      'jamendo-1',
+      'ccmixter-1',
+      'itunes-1',
+      'deezer-1',
+      'audius-2',
+    ]);
+    expect(state.providerCount).toBe(10);
+  });
+
+  it('keeps live stations source-balanced and independent from the larger trending mix', async () => {
+    vi.mocked(somaFmProvider.getTrending).mockResolvedValue([
+      { ...song('somafm-1'), provider: 'SomaFM', isLive: true },
+      { ...song('somafm-2'), provider: 'SomaFM', isLive: true },
+    ]);
+    vi.mocked(radioBrowserProvider.getTrending).mockResolvedValue([
+      { ...song('radio-1'), provider: 'Radio Browser', isLive: true },
+      { ...song('radio-2'), provider: 'Radio Browser', isLive: true },
+    ]);
+
+    const state = await api.getLiveStations(4);
+
+    expect(state.results.map(({ id }) => id)).toEqual(['somafm-1', 'radio-1', 'somafm-2', 'radio-2']);
+    expect(state.providerCount).toBe(2);
   });
 
   it('preserves degradation for dedicated ccMixter categories', async () => {
@@ -210,6 +309,18 @@ describe('provider federation', () => {
     expect(state.results).toHaveLength(1);
     expect(state.results[0].id).toBe('jamendo-1');
   });
+
+  it('interleaves genre sources and keeps the shelf useful without Jamendo', async () => {
+    vi.mocked(itunesProvider.getSongsByTag).mockResolvedValue([song('itunes-1'), song('itunes-2')]);
+    vi.mocked(jamendoProvider.getSongsByTag).mockRejectedValue(new Error('Jamendo client id missing'));
+    vi.mocked(ccmixterProvider.getSongsByTagWithStatus).mockResolvedValue({ results: [song('ccmixter-1')] });
+
+    const state = await api.getGenreSongs('pop', 4);
+
+    expect(state.results.map((result) => result.id)).toEqual(['itunes-1', 'ccmixter-1', 'itunes-2']);
+    expect(state.failedProviders).toEqual(['Jamendo']);
+    expect(state.providerCount).toBe(9);
+  });
 });
 
 describe('album federation', () => {
@@ -232,7 +343,7 @@ describe('album federation', () => {
       results: [availableAlbum],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 3,
+      providerCount: 6,
     });
   });
 
@@ -243,7 +354,7 @@ describe('album federation', () => {
     await expect(api.getAlbums()).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter'],
-      providerCount: 3,
+      providerCount: 6,
     });
   });
 
@@ -301,15 +412,34 @@ describe('album federation', () => {
     expect(getMusicProviderForSongId('ccmixter-1')).toBe(ccmixterProvider);
     expect(getMusicProviderForSongId('archive-item')).toBe(archiveProvider);
     expect(getMusicProviderForSongId('itunes-1440872304')).toBe(itunesProvider);
+    expect(getMusicProviderForSongId('deezer-3881984711')).toBe(deezerProvider);
+    expect(getMusicProviderForSongId('audius-Evw5wAJ')).toBe(audiusProvider);
+    expect(getMusicProviderForSongId('openverse-9e755b4d-4f1f-42db-a841-b8b2ebb583be')).toBe(openverseProvider);
+    expect(getMusicProviderForSongId('wikimedia-175624708')).toBe(wikimediaProvider);
+    expect(getMusicProviderForSongId('somafm-7soul')).toBe(somaFmProvider);
+    expect(getMusicProviderForSongId('radio-4f9898ba-e8f0-46c8-a5f5-a4b21fa3a832')).toBe(radioBrowserProvider);
     expect(getMusicProviderForAlbumId('ccmixter-album-user')).toBe(ccmixterProvider);
     expect(getMusicProviderForAlbumId('archive-album-item')).toBe(archiveProvider);
     expect(getMusicProviderForAlbumId('itunes-album-1440871397')).toBe(itunesProvider);
+    expect(getMusicProviderForAlbumId('deezer-album-932772571')).toBe(deezerProvider);
+    expect(getMusicProviderForAlbumId('audius-album-79yV0vg')).toBe(audiusProvider);
+    expect(getMusicProviderForAlbumId('openverse-album-9e755b4d-4f1f-42db-a841-b8b2ebb583be')).toBe(openverseProvider);
+    expect(getMusicProviderForAlbumId('wikimedia-album-175624708')).toBe(wikimediaProvider);
+    expect(getMusicProviderForAlbumId('somafm-album-7soul')).toBe(somaFmProvider);
+    expect(getMusicProviderForAlbumId('radio-album-4f9898ba-e8f0-46c8-a5f5-a4b21fa3a832')).toBe(radioBrowserProvider);
     expect(getMusicProviderForArtistId('ccmixter-artist-user')).toBe(ccmixterProvider);
     expect(getMusicProviderForArtistId('archive-artist-user')).toBe(archiveProvider);
     expect(getMusicProviderForArtistId('itunes-artist-479756766')).toBe(itunesProvider);
+    expect(getMusicProviderForArtistId('deezer-artist-5313805')).toBe(deezerProvider);
+    expect(getMusicProviderForArtistId('audius-artist-Wem1e')).toBe(audiusProvider);
+    expect(getMusicProviderForArtistId('openverse-artist-Mazelo%20Nostra')).toBe(openverseProvider);
+    expect(getMusicProviderForArtistId('wikimedia-artist-Izi%20Music%20Production')).toBe(wikimediaProvider);
+    expect(getMusicProviderForArtistId('somafm-artist-7soul')).toBe(somaFmProvider);
+    expect(getMusicProviderForArtistId('radio-artist-US')).toBe(radioBrowserProvider);
 
     await expect(api.getStreamUrl(song('jamendo-7'))).resolves.toBe('/api/music/jamendo/stream/7');
     await expect(api.getStreamUrl(song('ccmixter-8'))).resolves.toBe('/api/music/ccmixter/stream/8');
     await expect(api.getStreamUrl(song('archive-item_9'))).resolves.toBe('/api/music/archive/stream/item_9');
+    await expect(api.getStreamUrl(song('wikimedia-7'))).resolves.toBe('/api/music/wikimedia/stream/7');
   });
 });

@@ -10,6 +10,19 @@ export type RouteBucket =
   | 'itunes:search'
   | 'itunes:lookup'
   | 'itunes:stream'
+  | 'deezer:tracks'
+  | 'deezer:albums'
+  | 'deezer:artists'
+  | 'deezer:stream'
+  | 'audius:tracks'
+  | 'audius:albums'
+  | 'audius:artists'
+  | 'openverse:tracks'
+  | 'somafm:stations'
+  | 'somafm:stream'
+  | 'radio:stations'
+  | 'wikimedia:tracks'
+  | 'wikimedia:stream'
   | 'invalid';
 
 const validBuckets = new Set<RouteBucket>([
@@ -24,6 +37,19 @@ const validBuckets = new Set<RouteBucket>([
   'itunes:search',
   'itunes:lookup',
   'itunes:stream',
+  'deezer:tracks',
+  'deezer:albums',
+  'deezer:artists',
+  'deezer:stream',
+  'audius:tracks',
+  'audius:albums',
+  'audius:artists',
+  'openverse:tracks',
+  'somafm:stations',
+  'somafm:stream',
+  'radio:stations',
+  'wikimedia:tracks',
+  'wikimedia:stream',
 ]);
 
 export function classifyRoute(

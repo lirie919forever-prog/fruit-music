@@ -4,16 +4,14 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, type FederatedResult } from '@/lib/api';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
-import { interleaveSongGroups, uniqueAlbumSongs } from './newViewModel';
+import { interleaveSongGroups, interleaveSongsByProvider, uniqueAlbumSongs } from './newViewModel';
 import type { Song } from '@/types/music';
-
-type ChartKey = 'billboard' | 'uk' | 'jp';
 
 /**
  * Everything the New view loads and everything it derives from that.
  *
- * Split out because the component was doing three jobs in one 610-line file:
- * fetching eight feeds, folding them into five different mixes, and rendering
+ * Split out because the component was doing three jobs in one large file:
+ * fetching catalog feeds, folding them into five different mixes, and rendering
  * fourteen presentational pieces. The fetching and folding have nothing to do
  * with the markup and are the part worth reading on its own.
  */
@@ -23,26 +21,10 @@ const shared = {
   retry: 1,
 } as const;
 
-function useChart(key: string[], chart: ChartKey) {
+function useGenre(key: string[], tag: string) {
   return useQuery({
     queryKey: key,
-    queryFn: ({ signal }): Promise<Song[]> => api.getChartSongs(chart, signal),
-    ...shared,
-  });
-}
-
-function useJamendo(key: string[], tag: string) {
-  return useQuery({
-    queryKey: key,
-    queryFn: ({ signal }): Promise<Song[]> => api.getSongsByTag(tag, 30, signal),
-    ...shared,
-  });
-}
-
-function useCCMixter(key: string[], tag: string) {
-  return useQuery({
-    queryKey: key,
-    queryFn: ({ signal }): Promise<FederatedResult<Song>> => api.getCcmixterSongsByTag(tag, 30, signal),
+    queryFn: ({ signal }): Promise<FederatedResult<Song>> => api.getGenreSongs(tag, 30, signal),
     ...shared,
   });
 }
@@ -55,30 +37,42 @@ function useTrending() {
   });
 }
 
-function collectUnavailable(result: FederatedResult<Song> | undefined, issues: Set<string>): void {
-  if (!result) return;
-  for (const provider of result.failedProviders) issues.add(provider);
-  for (const provider of result.degradedProviders ?? []) issues.add(provider);
+function useLiveStations() {
+  return useQuery({
+    queryKey: ['new', 'live-stations'],
+    queryFn: ({ signal }): Promise<FederatedResult<Song>> => api.getLiveStations(12, signal),
+    ...shared,
+  });
+}
+
+function useRecentReleases() {
+  return useQuery({
+    queryKey: ['new', 'recent-releases'],
+    queryFn: ({ signal }): Promise<Song[]> => api.getRecentReleases(18, signal),
+    ...shared,
+  });
+}
+
+function hasFailedProvider(result: FederatedResult<Song> | undefined): boolean {
+  return (result?.failedProviders.length ?? 0) > 0;
 }
 
 export function useNewViewData() {
   const trending = useTrending();
-  const pop = useJamendo(['new', 'featured'], 'pop');
-  const jazz = useCCMixter(['new', 'jazz'], 'jazz');
-  const remix = useCCMixter(['new', 'remix'], 'remix');
-  const classical = useJamendo(['new', 'classical'], 'classical');
-  const billboard = useChart(['new', 'billboard'], 'billboard');
-  const uk = useChart(['new', 'uk'], 'uk');
-  const jp = useChart(['new', 'jp'], 'jp');
+  const liveStations = useLiveStations();
+  const pop = useGenre(['new', 'genre', 'pop'], 'pop');
+  const jazz = useGenre(['new', 'genre', 'jazz'], 'jazz');
+  const remix = useGenre(['new', 'genre', 'remix'], 'remix');
+  const classical = useGenre(['new', 'genre', 'classical'], 'classical');
+  const recentReleases = useRecentReleases();
 
-  const popData = pop.data;
+  const popData = pop.data?.results;
   const trendingData = trending.data?.results;
+  const liveStationData = liveStations.data?.results;
   const jazzData = jazz.data?.results;
   const remixData = remix.data?.results;
-  const classicalData = classical.data;
-  const billboardData = billboard.data;
-  const ukData = uk.data;
-  const jpData = jp.data;
+  const classicalData = classical.data?.results;
+  const recentReleaseData = recentReleases.data;
 
   // These interleaves walk every loaded shelf and rebuild an array each time.
   // In the component they recomputed on any state it subscribed to, and it
@@ -92,45 +86,44 @@ export function useNewViewData() {
     [popData, trendingData, jazzData, remixData, classicalData],
   );
   const spotlightSongs = useMemo(
-    () => interleaveSongGroups([popData, trendingData, billboardData, jpData, ukData, jazzData, remixData], 2),
-    [popData, trendingData, billboardData, jpData, ukData, jazzData, remixData],
-  );
-  const bestNewSongs = useMemo(
     () =>
-      interleaveSongGroups(
-        [billboardData, jpData, trendingData, popData, ukData, jazzData, remixData, classicalData],
+      uniqueAlbumSongs(
+        interleaveSongsByProvider([recentReleaseData, trendingData, popData, jazzData, remixData], 48),
         12,
       ),
-    [billboardData, jpData, trendingData, popData, ukData, jazzData, remixData, classicalData],
+    [recentReleaseData, trendingData, popData, jazzData, remixData],
   );
-  const releaseSongs = useMemo(() => uniqueAlbumSongs(verifiedMix, 10), [verifiedMix]);
+  const bestNewSongs = useMemo(
+    () => interleaveSongsByProvider([trendingData, recentReleaseData, popData, jazzData, remixData, classicalData], 48),
+    [trendingData, recentReleaseData, popData, jazzData, remixData, classicalData],
+  );
+  const releaseSongs = useMemo(
+    () => uniqueAlbumSongs(interleaveSongGroups([recentReleaseData, verifiedMix], 64), 24),
+    [recentReleaseData, verifiedMix],
+  );
+  // The US Chart Watch tab reads the same Billboard feed that contributes
+  // Apple tracks to trending. Keep those entries so the deferred chart can
+  // render from discovery data instead of requesting the same feed again.
+  const billboardSongs = useMemo(
+    () => (trendingData ?? []).filter((song) => song.provider === 'Apple Preview').slice(0, 6),
+    [trendingData],
+  );
 
-  const queries = [trending, pop, jazz, remix, classical, billboard, uk, jp];
+  const queries = [trending, liveStations, pop, jazz, remix, classical, recentReleases];
 
-  const unavailableSources = useMemo(() => {
-    const issues = new Set<string>();
-    if (pop.isError || classical.isError) issues.add('Jamendo');
-    if (jazz.isError || remix.isError) issues.add('ccMixter');
-    collectUnavailable(trending.data, issues);
-    collectUnavailable(jazz.data, issues);
-    collectUnavailable(remix.data, issues);
-    if (billboard.isError || uk.isError || jp.isError) issues.add('Apple Preview');
-    return [...issues];
-  }, [
-    pop.isError,
-    classical.isError,
-    jazz.isError,
-    remix.isError,
-    trending.data,
-    jazz.data,
-    remix.data,
-    billboard.isError,
-    uk.isError,
-    jp.isError,
-  ]);
+  const hasCatalogFailure = useMemo(() => {
+    return (
+      hasFailedProvider(trending.data) ||
+      hasFailedProvider(liveStations.data) ||
+      hasFailedProvider(pop.data) ||
+      hasFailedProvider(jazz.data) ||
+      hasFailedProvider(remix.data) ||
+      hasFailedProvider(classical.data) ||
+      recentReleases.isError
+    );
+  }, [trending.data, liveStations.data, pop.data, jazz.data, remix.data, classical.data, recentReleases.isError]);
 
   return {
-    charts: { billboard, uk, jp },
     // The genre panels render one shelf each, so they need the raw lists as
     // well as the mixes derived from them.
     genres: {
@@ -141,9 +134,11 @@ export function useNewViewData() {
     },
     spotlightSongs,
     bestNewSongs,
+    liveStations: liveStationData ?? [],
     releaseSongs,
-    unavailableSources,
-    isLoading: queries.some((query) => query.isPending || query.isFetching),
+    billboardSongs,
+    hasCatalogFailure,
+    isLoading: queries.some((query) => query.isPending),
     retry: () => {
       void Promise.all(queries.map((query) => query.refetch()));
     },

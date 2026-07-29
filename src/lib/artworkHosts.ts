@@ -32,6 +32,7 @@ export const ARTWORK_REMOTE_PATTERNS: ArtworkPattern[] = [
   { protocol: 'https', hostname: 'ccmixter.org', pathname: '/**' },
   { protocol: 'https', hostname: 'www.ccmixter.org', pathname: '/**' },
   { protocol: 'https', hostname: 'is1-ssl.mzstatic.com', pathname: '/**' },
+  { protocol: 'https', hostname: 'cdn-images.dzcdn.net', pathname: '/**' },
   ...(LX_ENABLED ? [{ protocol: 'https' as const, hostname: 'api.vkeys.cn', pathname: '/**' }] : []),
 ];
 

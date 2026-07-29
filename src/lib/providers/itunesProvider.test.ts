@@ -126,6 +126,27 @@ describe('Apple preview provider', () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  it('builds the recent-release rail from the newest playable Apple results', async () => {
+    let call = 0;
+    vi.mocked(fetch).mockImplementation(() => {
+      const index = call++;
+      const results =
+        index === 0
+          ? [track({ trackId: 1, releaseDate: '2026-01-03T08:00:00Z' })]
+          : index === 1
+            ? [track({ trackId: 2, releaseDate: '2026-06-15T08:00:00Z' })]
+            : index === 2
+              ? [track({ trackId: 1, releaseDate: '2026-01-03T08:00:00Z' })]
+              : [];
+      return Promise.resolve(Response.json({ results }));
+    });
+
+    const songs = await itunesProvider.getRecentReleases(2);
+
+    expect(songs.map((song) => song.id)).toEqual(['itunes-2', 'itunes-1']);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(5);
+  });
+
   it('derives searched artists from albums, because Apple ships artist records with no artwork', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json({

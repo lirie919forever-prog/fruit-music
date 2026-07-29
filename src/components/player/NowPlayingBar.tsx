@@ -50,13 +50,16 @@ function SeekSlider({
   progressPct,
   progress,
   duration,
+  isLive,
   onSeek,
 }: {
   progressPct: number;
   progress: number;
   duration: number;
+  isLive: boolean;
   onSeek: (time: number) => void;
 }) {
+  const seekable = duration > 0 && !isLive;
   return (
     <div className="group flex w-full max-w-[280px] flex-col gap-1">
       <div className="relative h-[2px] rounded-full bg-[var(--salt-ghost)] transition-all duration-200 group-hover:h-[6px] group-focus-within:h-[6px]">
@@ -71,8 +74,8 @@ function SeekSlider({
           step={0.1}
           value={Math.max(0, Math.min(Number.isFinite(progress) ? progress : 0, duration || 0))}
           aria-label="Seek"
-          disabled={duration <= 0}
-          aria-valuetext={`${formatTime(progress)} of ${formatTime(duration)}`}
+          disabled={!seekable}
+          aria-valuetext={isLive ? 'Live stream' : `${formatTime(progress)} of ${formatTime(duration)}`}
           onChange={(event) => onSeek(Number(event.target.value))}
           className="player-range absolute inset-0"
         />
@@ -81,8 +84,8 @@ function SeekSlider({
         className="flex justify-between text-[10px] tabular-nums text-[var(--salt-mist)]"
         style={{ fontFamily: 'var(--font-mono)' }}
       >
-        <span>{formatTime(progress)}</span>
-        <span>{formatTime(duration)}</span>
+        <span>{isLive ? 'LIVE' : formatTime(progress)}</span>
+        <span>{isLive ? 'LIVE' : formatTime(duration)}</span>
       </div>
     </div>
   );
@@ -114,11 +117,12 @@ export function NowPlayingBar({
   const setCurrentView = usePlayerStore((s) => s.setCurrentView);
   const { seek } = useAudio();
   const isFavorite = currentSong ? favorites.some((song) => song.id === currentSong.id) : false;
+  const isLive = currentSong?.isLive === true;
 
   const safeProgress = duration > 0 ? Math.max(0, Math.min(Number.isFinite(progress) ? progress : 0, duration)) : 0;
   const progressPct = duration > 0 ? Math.max(0, Math.min(100, (safeProgress / duration) * 100)) : 0;
   const hasTrack = Boolean(currentSong);
-  const canSeek = hasTrack && duration > 0;
+  const canSeek = hasTrack && duration > 0 && !isLive;
   const isLoading = status === 'loading' && playbackIntent;
   const canGoNext = hasTrack && hasNextInQueue({ queue, queueIndex, shuffle, repeat });
   const playLabel = status === 'error' ? 'Retry playback' : isLoading ? 'Cancel loading' : isPlaying ? 'Pause' : 'Play';
@@ -257,7 +261,13 @@ export function NowPlayingBar({
             </ControlButton>
           </div>
 
-          <SeekSlider progressPct={progressPct} progress={progress} duration={canSeek ? duration : 0} onSeek={seek} />
+          <SeekSlider
+            progressPct={progressPct}
+            progress={progress}
+            duration={canSeek ? duration : 0}
+            isLive={isLive}
+            onSeek={seek}
+          />
         </div>
 
         <div className="flex items-center justify-end gap-1 md:gap-3">

@@ -17,7 +17,18 @@ export interface Artist {
   albumCount: number;
 }
 
-export type MusicProviderName = 'Jamendo' | 'ccMixter' | 'Archive' | 'LX Music' | 'Apple Preview';
+export type MusicProviderName =
+  | 'Jamendo'
+  | 'ccMixter'
+  | 'Archive'
+  | 'LX Music'
+  | 'Apple Preview'
+  | 'Deezer Preview'
+  | 'Audius'
+  | 'Openverse'
+  | 'Wikimedia Commons'
+  | 'SomaFM'
+  | 'Radio Browser';
 
 export interface Song {
   id: string;
@@ -43,6 +54,8 @@ export interface Song {
   licenseUrl: string;
   attributionUrl: string;
   metadataVerified: boolean;
+  /** Continuous station streams have no finite duration or seek position. */
+  isLive?: boolean;
   playbackUnavailable?: boolean;
 }
 

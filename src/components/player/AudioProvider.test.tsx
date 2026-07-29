@@ -19,6 +19,7 @@ class FakeHowl {
 
   readonly src: string[];
   readonly options: Record<string, unknown>;
+  readonly canPlayEventAtConstruction: string | undefined;
   unloaded = false;
   playCalls = 0;
   seekValue = 0;
@@ -29,6 +30,7 @@ class FakeHowl {
   constructor(options: Record<string, unknown>) {
     this.src = options.src as string[];
     this.options = options;
+    this.canPlayEventAtConstruction = fakeHowler._canPlayEvent;
     FakeHowl.instances.push(this);
     if (FakeHowl.loadShouldFail) {
       // Howler reports a load failure asynchronously, after the constructor.
@@ -83,7 +85,9 @@ class FakeHowl {
   }
 }
 
-vi.mock('howler', () => ({ Howl: FakeHowl }));
+const fakeHowler: { _canPlayEvent?: string } = { _canPlayEvent: 'canplaythrough' };
+
+vi.mock('howler', () => ({ Howl: FakeHowl, Howler: fakeHowler }));
 
 const streamUrl = vi.fn<(song: Song) => Promise<string>>();
 vi.mock('@/lib/api', () => ({
@@ -166,6 +170,7 @@ async function latestHowl(index = 0): Promise<FakeHowl> {
 beforeEach(() => {
   FakeHowl.instances = [];
   FakeHowl.loadShouldFail = false;
+  fakeHowler._canPlayEvent = 'canplaythrough';
   streamUrl.mockReset();
   streamUrl.mockResolvedValue('https://cdn.example/audio.mp3');
   window.localStorage.clear();
@@ -239,6 +244,25 @@ describe('load and play', () => {
       status: 'error',
       error: 'The provider returned audio without a valid duration.',
     });
+    view.unmount();
+  });
+
+  it('starts a continuous live stream without inventing a finite duration', async () => {
+    const view = mount();
+    act(() => {
+      store.getState().playSong(song('live', { duration: 0, isLive: true }));
+    });
+
+    const howl = await latestHowl();
+    howl.setDuration(Number.POSITIVE_INFINITY);
+    act(() => {
+      howl.fire('onload');
+    });
+
+    expect(store.getState()).toMatchObject({ duration: 0, isPlaying: true, status: 'playing' });
+    expect(howl.options.preload).toBe('metadata');
+    expect(howl.canPlayEventAtConstruction).toBe('canplay');
+    expect(fakeHowler._canPlayEvent).toBe('canplaythrough');
     view.unmount();
   });
 });

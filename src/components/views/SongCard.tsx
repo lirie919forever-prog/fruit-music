@@ -156,7 +156,7 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
         </span>
       )}
       <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-[var(--salt-mist)] sm:block">
-        {formatDuration(song.duration)}
+        {song.isLive ? 'LIVE' : formatDuration(song.duration)}
       </span>
       <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
       {trailing}

@@ -82,8 +82,8 @@ const VIEWS = {
   pop: category({
     view: 'pop',
     title: 'Pop',
-    description: 'Pop tracks from the Creative Commons catalog',
-    fetchFn: (signal) => api.getSongsByTag('pop', 50, signal),
+    description: 'Apple previews and full-length Creative Commons tracks',
+    fetchFn: (signal) => api.getGenreSongs('pop', 50, signal),
     queryKey: ['pop'],
   }),
   billboard: category({
@@ -117,22 +117,22 @@ const VIEWS = {
   remixes: category({
     view: 'remixes',
     title: 'Remixes',
-    description: 'Creative remixes from ccMixter',
-    fetchFn: (signal) => api.getCcmixterSongsByTag('remix', 50, signal),
+    description: 'Remixes from Apple previews and the open music catalog',
+    fetchFn: (signal) => api.getGenreSongs('remix', 50, signal),
     queryKey: ['remixes'],
   }),
   jazz: category({
     view: 'jazz',
     title: 'Jazz',
-    description: 'Jazz tracks from ccMixter',
-    fetchFn: (signal) => api.getCcmixterSongsByTag('jazz', 50, signal),
+    description: 'Jazz from Apple previews and the open music catalog',
+    fetchFn: (signal) => api.getGenreSongs('jazz', 50, signal),
     queryKey: ['jazz'],
   }),
   classical: category({
     view: 'classical',
     title: 'Classical',
-    description: 'Classical tracks from Jamendo',
-    fetchFn: (signal) => api.getSongsByTag('classical', 50, signal),
+    description: 'Classical previews and full-length open recordings',
+    fetchFn: (signal) => api.getGenreSongs('classical', 50, signal),
     queryKey: ['classical'],
   }),
 } satisfies Record<ViewType, (context: ViewContext) => ReactNode>;

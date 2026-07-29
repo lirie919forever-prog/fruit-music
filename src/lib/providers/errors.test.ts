@@ -44,9 +44,17 @@ describe('providerFetch', () => {
   });
 
   it('keeps provider HTTP and invalid response classifications', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(new Response('', { status: 503 }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: 'Jamendo client_id not configured' }, { status: 503 }),
+    );
     await expect(providerFetch('Jamendo', 'tracks', '/api/music/jamendo/tracks')).rejects.toMatchObject({
       code: 'not_configured',
+      status: 503,
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: 'Radio Browser upstream error' }, { status: 503 }));
+    await expect(providerFetch('Radio Browser', 'stations', '/api/music/radio/stations')).rejects.toMatchObject({
+      code: 'upstream',
       status: 503,
     });
 
@@ -75,6 +83,27 @@ describe('providerFetch', () => {
     const request = providerFetch('Archive', 'tracks', '/api/music/archive/tracks');
     const result = expect(request).rejects.toMatchObject({ code: 'timeout', status: 504 });
     await vi.advanceTimersByTimeAsync(9_000);
+    await result;
+  });
+
+  it('accepts a longer deadline for fan-out catalog requests', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          requestSignal = init?.signal as AbortSignal;
+          requestSignal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+        }),
+    );
+
+    const request = providerFetch('Apple Preview', 'chart', '/api/music/charts', {}, undefined, {
+      timeoutMs: 15_000,
+    });
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(requestSignal?.aborted).toBe(false);
+    const result = expect(request).rejects.toMatchObject({ code: 'timeout', status: 504 });
+    await vi.advanceTimersByTimeAsync(6_000);
     await result;
   });
 });

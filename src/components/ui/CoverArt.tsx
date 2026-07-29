@@ -1,17 +1,26 @@
 'use client';
 
+import { useState } from 'react';
 import Image, { type ImageProps } from 'next/image';
 import { safeCoverArt } from '@/lib/coverArt';
 
 const FALLBACK = '/placeholder-album.svg';
-/** Next's own optimizer endpoint, which now stands where `/api/images` did. */
-const OPTIMIZER_PATH = '/_next/image';
 
-export function isOptimizedArtwork(src: string): boolean {
+/**
+ * These sources are already safe to serve as-is. Remote URLs reach this point
+ * only after `safeCoverArt` has checked the shared host allowlist.
+ */
+export function shouldServeArtworkDirectly(src: string): boolean {
+  return src.startsWith('https://') || src.startsWith('data:') || src === FALLBACK;
+}
+
+function retrySource(src: string): string {
   try {
-    return new URL(src, 'http://localhost').pathname === OPTIMIZER_PATH;
+    const url = new URL(src, 'http://localhost');
+    url.searchParams.set('marea_retry', '1');
+    return src.startsWith('/') ? `${url.pathname}${url.search}${url.hash}` : url.toString();
   } catch {
-    return false;
+    return src;
   }
 }
 
@@ -21,49 +30,45 @@ export function CoverArt({
   onError,
   sizes = '(max-width: 640px) 50vw, 200px',
   loading,
+  preload,
   priority,
   ...props
 }: Omit<ImageProps, 'src' | 'alt'> & { src?: string; alt: string }) {
   const safeSrc = safeCoverArt(src);
-  // The generated data-URI covers are already the exact bytes to display, and
-  // the optimizer refuses a data: source anyway.
-  const isGenerated = safeSrc.startsWith('data:');
-  // An eagerly requested cover is deliberately above the fold and is usually
-  // the LCP element, so it is marked high priority. `priority` already implies
-  // eager loading, and Next rejects being given both.
-  const isPriority = priority ?? loading === 'eager';
+  const [attempt, setAttempt] = useState({ source: safeSrc, count: 0 });
+  // A tile can be reused while a virtualized list changes its song. Treating a
+  // new source as a fresh image prevents a prior fallback from sticking to it.
+  const count = attempt.source === safeSrc ? attempt.count : 0;
+  const displaySrc = count === 0 ? safeSrc : count === 1 ? retrySource(safeSrc) : FALLBACK;
+  // Next 16 deprecated `priority`. Keep accepting it from callers while
+  // forwarding the supported equivalent, and never combine preload + loading.
+  const shouldPreload = preload ?? priority ?? false;
   return (
     <Image
       {...props}
-      src={safeSrc}
+      src={displaySrc}
       alt={alt}
       width={200}
       height={200}
       sizes={sizes}
-      {...(isPriority ? { priority: true } : { loading })}
-      {...(isGenerated ? { unoptimized: true } : {})}
+      {...(shouldPreload ? { preload: true } : { loading })}
+      unoptimized={shouldServeArtworkDirectly(displaySrc)}
       onError={(event) => {
         onError?.(event);
         if (event.defaultPrevented) return;
-        const image = event.currentTarget;
+        if (safeSrc === FALLBACK || safeSrc.startsWith('data:')) return;
         // A page of Apple artwork asks for thirty-odd covers at once and one of
         // them occasionally fails under that burst. Falling straight back to
         // the placeholder pins a real cover to a grey square for the rest of
         // the session, so each image is allowed one retry first. The query
         // parameter is what makes it a fresh request: without it the browser
         // serves the cached failure straight back.
-        //
-        // Scoped to the optimizer specifically: the placeholder and the
-        // generated data-URI covers are same-origin too, and appending
-        // `&retry=1` to a path that carries no query string would only produce
-        // a second 404.
-        if (isOptimizedArtwork(image.src) && !image.dataset.retried) {
-          image.dataset.retried = '1';
-          image.src = `${image.src}&retry=1`;
-          return;
-        }
-        image.onerror = null;
-        image.src = FALLBACK;
+        // React owns the source transition. Mutating the image element leaves
+        // Next Image's generated srcset pointing at the failed remote artwork.
+        setAttempt((current) => ({
+          source: safeSrc,
+          count: Math.min(2, (current.source === safeSrc ? current.count : 0) + 1),
+        }));
       }}
     />
   );

@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { SongCard } from './SongCard';
 import { AlbumTile, ArtistTile, TILE_GRID } from '@/components/ui/CatalogTile';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { providerErrorMessage } from '@/lib/providers/errors';
+import type { AudioAccessMode } from './newViewModel';
+import { areAllSearchProvidersUnavailable, rankSearchSongsForAccess, splitTopSearchMatches } from './searchViewModel';
 import type { NavigationItem } from '@/lib/navigation';
-import type { Song, ViewType } from '@/types/music';
+import type { ViewType } from '@/types/music';
 
 // Two rows of tiles at the widest breakpoint. Search is a way through to the
 // tracks, so the artist and album sections stay a glance rather than a page the
@@ -17,7 +19,23 @@ const ARTIST_LIMIT = 12;
 const ALBUM_LIMIT = 12;
 
 /** Named so the empty state promises exactly what the federation actually queries. */
-const SEARCH_SOURCES = ['Apple', 'Jamendo', 'ccMixter', 'Archive'];
+const SEARCH_SOURCES = [
+  'Apple Music',
+  'Deezer',
+  'Audius',
+  'Wikimedia Commons',
+  'Jamendo',
+  'ccMixter',
+  'Archive',
+  'Openverse',
+  'SomaFM',
+  'Radio Browser',
+];
+const AUDIO_ACCESS_OPTIONS: Array<{ mode: AudioAccessMode; label: string }> = [
+  { mode: 'full', label: 'Full tracks' },
+  { mode: 'all', label: 'All audio' },
+  { mode: 'preview', label: 'Previews' },
+];
 
 function ResultSection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
@@ -39,28 +57,6 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
-function dedupeAndSort(songs: Song[], query: string): Song[] {
-  const seen = new Set<string>();
-  const unique = songs.filter((song) => {
-    const key = `${song.title.toLowerCase()}|${song.artist.toLowerCase()}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  const normalizedQuery = query.toLowerCase();
-  return unique.sort((left, right) => {
-    const score = (song: Song) =>
-      song.title.toLowerCase() === normalizedQuery
-        ? 3
-        : song.title.toLowerCase().startsWith(normalizedQuery)
-          ? 2
-          : song.artist.toLowerCase().includes(normalizedQuery)
-            ? 1
-            : 0;
-    return score(right) - score(left);
-  });
-}
-
 export function SearchView({
   query,
   onQueryChange,
@@ -73,6 +69,7 @@ export function SearchView({
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
   const canSearch = debouncedQuery.trim().length >= 2;
+  const [accessMode, setAccessMode] = useState<AudioAccessMode>('full');
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -86,10 +83,7 @@ export function SearchView({
     refetch,
   } = useQuery({
     queryKey: ['search-federated', debouncedQuery],
-    queryFn: async ({ signal }) => {
-      const state = await api.search(debouncedQuery, signal);
-      return { ...state, results: dedupeAndSort(state.results, debouncedQuery) };
-    },
+    queryFn: ({ signal }) => api.search(debouncedQuery, signal),
     enabled: canSearch,
     staleTime: 30_000,
   });
@@ -111,15 +105,21 @@ export function SearchView({
     staleTime: 30_000,
   });
 
-  const artists = canSearch ? (artistState?.results ?? []).slice(0, ARTIST_LIMIT) : [];
-  const albums = canSearch ? (albumState?.results ?? []).slice(0, ALBUM_LIMIT) : [];
-  const results = canSearch ? searchState?.results : undefined;
-  const failedProviders = searchState?.failedProviders ?? [];
-  const degradedProviders = searchState?.degradedProviders ?? [];
-  const unavailableProviders = [...new Set([...failedProviders, ...degradedProviders])];
-  const allProvidersFailed = searchState
-    ? searchState.results.length === 0 && unavailableProviders.length === searchState.providerCount
-    : false;
+  const artists = useMemo(
+    () => (canSearch ? (artistState?.results ?? []).slice(0, ARTIST_LIMIT) : []),
+    [artistState?.results, canSearch],
+  );
+  const albums = useMemo(
+    () => (canSearch ? (albumState?.results ?? []).slice(0, ALBUM_LIMIT) : []),
+    [albumState?.results, canSearch],
+  );
+  const rawResults = canSearch ? searchState?.results : undefined;
+  const results = useMemo(
+    () => (rawResults ? rankSearchSongsForAccess(rawResults, debouncedQuery, accessMode) : undefined),
+    [accessMode, debouncedQuery, rawResults],
+  );
+  const { topMatches, remainingTracks } = useMemo(() => splitTopSearchMatches(results ?? []), [results]);
+  const allProvidersFailed = searchState ? areAllSearchProvidersUnavailable(searchState) : false;
 
   return (
     <section className="space-y-6 pb-6">
@@ -151,6 +151,28 @@ export function SearchView({
         />
       </div>
 
+      <div
+        className="grid w-full max-w-xl grid-cols-3 gap-1 rounded-lg bg-[var(--salt-ghost)] p-1 sm:w-auto sm:min-w-[300px]"
+        role="radiogroup"
+        aria-label="Filter search results by playback access"
+      >
+        {AUDIO_ACCESS_OPTIONS.map((option) => {
+          const selected = option.mode === accessMode;
+          return (
+            <button
+              key={option.mode}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setAccessMode(option.mode)}
+              className={`h-8 min-w-0 rounded-md px-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${selected ? 'bg-white text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
+            >
+              <span className="block truncate">{option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {!canSearch && (
         <p className="py-12 text-center text-[13px] text-[var(--pearl-dim)]">
           {debouncedQuery
@@ -168,14 +190,29 @@ export function SearchView({
           actions={<StatusButton onClick={() => void refetch()}>Try again</StatusButton>}
         />
       )}
-      {results && unavailableProviders.length > 0 && !allProvidersFailed && (
-        <p className="text-xs text-[var(--pearl-dim)]">
-          {unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'was' : 'were'} unavailable or
-          degraded. Showing available results.
+      {results && !results.length && !artists.length && !albums.length && !allProvidersFailed && !isLoading && (
+        <p className="py-12 text-center text-[13px] text-[var(--pearl-dim)]">
+          {rawResults?.length && accessMode === 'full'
+            ? 'No full tracks match this search.'
+            : `Nothing matches "${debouncedQuery}"`}
         </p>
       )}
-      {results && !results.length && !artists.length && !albums.length && !allProvidersFailed && !isLoading && (
-        <p className="py-12 text-center text-[13px] text-[var(--pearl-dim)]">Nothing matches “{debouncedQuery}”.</p>
+
+      {topMatches.length > 0 && results && (
+        <ResultSection title="Top results" count={topMatches.length}>
+          <div className="grid">
+            {topMatches.map((song, index) => (
+              <SongCard
+                key={song.id}
+                song={song}
+                index={index}
+                tracks={results}
+                showIndex={false}
+                onNavigateWithItem={onNavigateWithItem}
+              />
+            ))}
+          </div>
+        </ResultSection>
       )}
 
       {artists.length > 0 && (
@@ -198,24 +235,21 @@ export function SearchView({
         </ResultSection>
       )}
 
-      {results && results.length > 0 && (
-        <div>
-          <h2 className="mb-1 text-[17px] font-bold tracking-[-0.01em] text-[var(--salt-white)]">
-            Tracks <span className="font-normal text-[var(--salt-mist)]">· {results.length}</span>
-          </h2>
+      {remainingTracks.length > 0 && results && (
+        <ResultSection title="More tracks" count={remainingTracks.length}>
           <div className="grid">
-            {results.map((song, index) => (
+            {remainingTracks.map((song, index) => (
               <SongCard
                 key={song.id}
                 song={song}
-                index={index}
+                index={topMatches.length + index}
                 tracks={results}
                 showIndex={false}
                 onNavigateWithItem={onNavigateWithItem}
               />
             ))}
           </div>
-        </div>
+        </ResultSection>
       )}
     </section>
   );

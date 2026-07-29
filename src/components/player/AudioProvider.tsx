@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
-import { Howl } from 'howler';
+import { Howl, Howler } from 'howler';
 import { usePlayerStore, usePlayerStoreApi } from '@/store/playerStore';
 import { api } from '@/lib/api';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -40,6 +40,30 @@ const LOAD_TIMEOUT_MS = 15_000;
 // Gives the mini-player a moment to show the failure reason before the queue
 // moves on, so a skip doesn't read as the track silently vanishing.
 const AUTO_SKIP_DELAY_MS = 1_500;
+
+interface InternalHowler {
+  _canPlayEvent?: string;
+}
+
+/**
+ * Howler normally waits for `canplaythrough`, which a continuous station may
+ * never emit because there is no finish line to buffer toward. Its internal
+ * listener is attached synchronously while a Howl is constructed, so scope a
+ * `canplay` override to that construction only and immediately restore the
+ * global default for regular tracks.
+ */
+function createAudioHowl(options: ConstructorParameters<typeof Howl>[0], isLive: boolean): Howl {
+  if (!isLive) return new Howl(options);
+
+  const internalHowler = Howler as unknown as InternalHowler;
+  const previousCanPlayEvent = internalHowler._canPlayEvent;
+  internalHowler._canPlayEvent = 'canplay';
+  try {
+    return new Howl({ ...options, preload: 'metadata' });
+  } finally {
+    internalHowler._canPlayEvent = previousCanPlayEvent;
+  }
+}
 
 export function getHowlerFormat(song: Pick<Song, 'contentType' | 'suffix'>): string {
   const suffix = song.suffix.trim().toLowerCase().replace(/^\./, '');
@@ -227,115 +251,125 @@ export function AudioProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          const howl = new Howl({
-            src: [streamUrl],
-            format: [getHowlerFormat(song)],
-            html5: true,
-            volume: playerStore.getState().volume,
-            onloaderror: () => {
-              clearLoadWait();
-              fail('The audio stream could not be loaded. Try again.', howl);
-            },
-            onplayerror: () => {
-              if (!isCurrent() || !playerStore.getState().playbackIntent) return;
-              clearUnlockWait();
-              unlockHowlRef.current = howl;
-              const retryAfterUnlock = () => {
-                if (unlockHowlRef.current !== howl) return;
+          const howl = createAudioHowl(
+            {
+              src: [streamUrl],
+              format: [getHowlerFormat(song)],
+              html5: true,
+              volume: playerStore.getState().volume,
+              onloaderror: () => {
+                clearLoadWait();
+                fail('The audio stream could not be loaded. Try again.', howl);
+              },
+              onplayerror: () => {
+                if (!isCurrent() || !playerStore.getState().playbackIntent) return;
                 clearUnlockWait();
-                if (isCurrent() && playerStore.getState().playbackIntent) howl.play();
-              };
-              howl.once('unlock', retryAfterUnlock);
-              unlockTimerRef.current = setTimeout(() => {
-                if (unlockHowlRef.current !== howl) return;
-                clearUnlockWait();
-                if (isCurrent() && playerStore.getState().playbackIntent) {
+                unlockHowlRef.current = howl;
+                const retryAfterUnlock = () => {
+                  if (unlockHowlRef.current !== howl) return;
+                  clearUnlockWait();
+                  if (isCurrent() && playerStore.getState().playbackIntent) howl.play();
+                };
+                howl.once('unlock', retryAfterUnlock);
+                unlockTimerRef.current = setTimeout(() => {
+                  if (unlockHowlRef.current !== howl) return;
+                  clearUnlockWait();
+                  if (isCurrent() && playerStore.getState().playbackIntent) {
+                    unloadHowl(howl);
+                    setStatus('error', 'The browser blocked audio playback. Press Play to try again.');
+                  }
+                }, UNLOCK_TIMEOUT_MS);
+              },
+              onload: () => {
+                clearLoadWait();
+                if (!isCurrent() || pendingHowlRef.current !== howl || requestId !== streamRequestIdRef.current) {
                   unloadHowl(howl);
-                  setStatus('error', 'The browser blocked audio playback. Press Play to try again.');
+                  return;
                 }
-              }, UNLOCK_TIMEOUT_MS);
-            },
-            onload: () => {
-              clearLoadWait();
-              if (!isCurrent() || pendingHowlRef.current !== howl || requestId !== streamRequestIdRef.current) {
-                unloadHowl(howl);
-                return;
-              }
 
-              pendingHowlRef.current = null;
-              howlRef.current = howl;
-              const loadedDuration = howl.duration();
-              // Some browsers cannot expose duration while the first response is
-              // a valid 206 range. Catalog metadata is verified and is a safe
-              // fallback until the media element learns the total duration.
-              const resolvedDuration = effectiveDuration(loadedDuration, song.duration);
-              if (resolvedDuration <= 0) {
-                fail('The provider returned audio without a valid duration.', howl);
-                return;
-              }
+                pendingHowlRef.current = null;
+                howlRef.current = howl;
+                const loadedDuration = howl.duration();
+                // Some browsers cannot expose duration while the first response is
+                // a valid 206 range. Catalog metadata is verified and is a safe
+                // fallback until the media element learns the total duration.
+                const resolvedDuration = song.isLive ? 0 : effectiveDuration(loadedDuration, song.duration);
+                if (!song.isLive && resolvedDuration <= 0) {
+                  fail('The provider returned audio without a valid duration.', howl);
+                  return;
+                }
 
-              setDuration(resolvedDuration);
-              setStatus('ready');
-              if (playerStore.getState().playbackIntent) {
-                if (prematureEndRecoveries > 0)
-                  howl.seek(getResumePosition(playerStore.getState().progress, loadedDuration));
-                howl.play();
-              }
-            },
-            onplay: () => {
-              if (!isCurrent() || howlRef.current !== howl) return;
-              if (!playerStore.getState().playbackIntent) {
-                howl.pause();
-                return;
-              }
-              setEnginePlaying(song.id, true);
-              startProgress();
-            },
-            onpause: () => {
-              if (!isCurrent() || howlRef.current !== howl) return;
-              stopProgress();
-              setEnginePlaying(song.id, false);
-              setPlaybackIntent(false);
-            },
-            onstop: () => {
-              if (!isCurrent() || howlRef.current !== howl) return;
-              stopProgress();
-              setEnginePlaying(song.id, false);
-              setPlaybackIntent(false);
-            },
-            onend: () => {
-              if (!isCurrent() || howlRef.current !== howl) return;
-              stopProgress();
-              const state = playerStore.getState();
-              const position = howl.seek();
-              const decodedDuration = howl.duration();
-              if (
-                state.playbackIntent &&
-                !isNaturalTrackEnd(typeof position === 'number' ? position : 0, decodedDuration, song.duration)
-              ) {
-                prematureEndRecoveries += 1;
-                const resumePosition = typeof position === 'number' ? position : state.progress;
-                unloadHowl(howl);
-                if (prematureEndRecoveries <= MAX_PREMATURE_END_RECOVERIES) {
-                  setProgress(resumePosition);
-                  setStatus('loading');
-                  retryCountRef.current = 0;
-                  attemptLoadRef.current?.();
+                setDuration(resolvedDuration);
+                setStatus('ready');
+                if (playerStore.getState().playbackIntent) {
+                  if (prematureEndRecoveries > 0)
+                    howl.seek(getResumePosition(playerStore.getState().progress, loadedDuration));
+                  howl.play();
+                }
+              },
+              onplay: () => {
+                if (!isCurrent() || howlRef.current !== howl) return;
+                if (!playerStore.getState().playbackIntent) {
+                  howl.pause();
+                  return;
+                }
+                setEnginePlaying(song.id, true);
+                startProgress();
+              },
+              onpause: () => {
+                if (!isCurrent() || howlRef.current !== howl) return;
+                stopProgress();
+                setEnginePlaying(song.id, false);
+                setPlaybackIntent(false);
+              },
+              onstop: () => {
+                if (!isCurrent() || howlRef.current !== howl) return;
+                stopProgress();
+                setEnginePlaying(song.id, false);
+                setPlaybackIntent(false);
+              },
+              onend: () => {
+                if (!isCurrent() || howlRef.current !== howl) return;
+                stopProgress();
+                const state = playerStore.getState();
+                if (song.isLive) {
+                  if (state.playbackIntent) {
+                    setStatus('error', 'The live station went offline. Try again.');
+                    scheduleAutoSkip();
+                  }
+                  return;
+                }
+                const position = howl.seek();
+                const decodedDuration = howl.duration();
+                if (
+                  state.playbackIntent &&
+                  !isNaturalTrackEnd(typeof position === 'number' ? position : 0, decodedDuration, song.duration)
+                ) {
+                  prematureEndRecoveries += 1;
+                  const resumePosition = typeof position === 'number' ? position : state.progress;
+                  unloadHowl(howl);
+                  if (prematureEndRecoveries <= MAX_PREMATURE_END_RECOVERIES) {
+                    setProgress(resumePosition);
+                    setStatus('loading');
+                    retryCountRef.current = 0;
+                    attemptLoadRef.current?.();
+                  } else {
+                    setStatus('error', 'The audio stream ended before the track finished. Try again.');
+                    scheduleAutoSkip();
+                  }
+                  return;
+                }
+                if (state.repeat === 'one' && state.playbackIntent) {
+                  howl.seek(0);
+                  setProgress(0);
+                  howl.play();
                 } else {
-                  setStatus('error', 'The audio stream ended before the track finished. Try again.');
-                  scheduleAutoSkip();
+                  state.next();
                 }
-                return;
-              }
-              if (state.repeat === 'one' && state.playbackIntent) {
-                howl.seek(0);
-                setProgress(0);
-                howl.play();
-              } else {
-                state.next();
-              }
+              },
             },
-          });
+            song.isLive === true,
+          );
 
           pendingHowlRef.current = howl;
           clearLoadWait();

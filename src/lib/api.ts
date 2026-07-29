@@ -1,13 +1,19 @@
 import type { Album, Artist, Song } from '@/types/music';
 import {
   archiveProvider,
+  audiusProvider,
   ccmixterProvider,
+  deezerProvider,
   getMusicProviderForAlbumId,
   getMusicProviderForArtistId,
   getMusicProviderForSongId,
   itunesProvider,
   jamendoProvider,
   lxmusicProvider,
+  openverseProvider,
+  radioBrowserProvider,
+  somaFmProvider,
+  wikimediaProvider,
 } from '@/lib/providers';
 import type { ProviderCatalogResult } from '@/lib/providers/types';
 import { ProviderError, providerFetch } from '@/lib/providers/errors';
@@ -21,6 +27,30 @@ function dedupeEntities<T extends { id: string }>(entities: T[]): T[] {
     seen.add(entity.id);
     return true;
   });
+}
+
+/**
+ * A source-first flat list makes one large provider feel like the whole
+ * catalog. Genre shelves should alternate providers where possible, both for
+ * variety and so a healthy public source remains visible when Jamendo has not
+ * been configured for a local demo.
+ */
+function interleaveEntities<T extends { id: string }>(groups: T[][], limit: number): T[] {
+  const seen = new Set<string>();
+  const results: T[] = [];
+  const longest = Math.max(0, ...groups.map((group) => group.length));
+
+  for (let index = 0; index < longest && results.length < limit; index += 1) {
+    for (const group of groups) {
+      const item = group[index];
+      if (!item || seen.has(item.id)) continue;
+      seen.add(item.id);
+      results.push(item);
+      if (results.length >= limit) break;
+    }
+  }
+
+  return results;
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -50,8 +80,15 @@ async function federateCatalog<T extends { id: string }>(
 ): Promise<FederatedResult<T>> {
   const settled = await Promise.allSettled(providers.map((provider) => provider.get()));
   throwIfAborted(signal);
+  // Jamendo is deliberately optional in a local Marea install. Treating a
+  // missing client id as an outage made every otherwise healthy New page show
+  // a permanent warning, which is neither useful nor truthful.
+  const notConfigured = settled.map(
+    (result) =>
+      result.status === 'rejected' && result.reason instanceof ProviderError && result.reason.code === 'not_configured',
+  );
   const failedProviders = settled.flatMap((result, index) =>
-    result.status === 'rejected' ? [providers[index].name] : [],
+    result.status === 'rejected' && !notConfigured[index] ? [providers[index].name] : [],
   );
   const degradedProviders = settled.flatMap((result, index) =>
     result.status === 'fulfilled' && result.value.degraded ? [providers[index].name] : [],
@@ -64,7 +101,7 @@ async function federateCatalog<T extends { id: string }>(
     results,
     failedProviders,
     ...(degradedProviders.length > 0 ? { degradedProviders } : {}),
-    providerCount: providers.length,
+    providerCount: providers.length - notConfigured.filter(Boolean).length,
   };
 }
 
@@ -74,16 +111,124 @@ export async function searchFederated(query: string, signal?: AbortSignal): Prom
   // they carry the full-length recordings Apple only previews — but a query for
   // a song everybody knows used to return nothing at all.
   const providers: Array<CatalogProvider<Song>> = [
-    { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.search(query, signal) }) },
+    { name: 'Audius', get: async () => ({ results: await audiusProvider.search(query, signal) }) },
+    { name: 'Wikimedia Commons', get: async () => ({ results: await wikimediaProvider.search(query, signal) }) },
     { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.search(query, signal) }) },
     { name: 'ccMixter', get: () => ccmixterProvider.searchWithStatus(query, signal) },
     { name: 'Archive', get: async () => ({ results: await archiveProvider.search(query, signal) }) },
+    { name: 'Openverse', get: async () => ({ results: await openverseProvider.search(query, signal) }) },
+    { name: 'SomaFM', get: async () => ({ results: await somaFmProvider.search(query, signal) }) },
+    { name: 'Radio Browser', get: async () => ({ results: await radioBrowserProvider.search(query, signal) }) },
+    { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.search(query, signal) }) },
+    { name: 'Deezer Preview', get: async () => ({ results: await deezerProvider.search(query, signal) }) },
   ];
   const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
   if (lxEnabled) {
     providers.push({ name: 'LX Music', get: async () => ({ results: await lxmusicProvider.search(query, signal) }) });
   }
   return federateCatalog(providers, signal);
+}
+
+/**
+ * A genre is a discovery request, not a Jamendo-only feature. Apple makes the
+ * shelf recognisable with official previews, Audius contributes creator-owned
+ * streams, and the Creative Commons providers broaden the long tail. Jamendo
+ * remains optional when no local client id is configured.
+ */
+export async function getGenreSongs(tag: string, limit = 50, signal?: AbortSignal): Promise<FederatedResult<Song>> {
+  const normalizedTag = tag.trim();
+  if (!normalizedTag) {
+    return { results: [], failedProviders: [], providerCount: 0 };
+  }
+
+  const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 50;
+  const cappedLimit = Math.max(1, Math.min(normalizedLimit, 50));
+  // Archive enriches its search records one at a time, so it cannot be treated
+  // like a cheap keyword endpoint. Small, balanced pages let nine independent
+  // sources contribute without one New-page visit becoming an upstream burst.
+  const perProviderLimit = Math.min(20, Math.max(8, Math.ceil(cappedLimit / 9)));
+  const providers: Array<CatalogProvider<Song>> = [
+    {
+      name: 'Audius',
+      get: async () => ({ results: await audiusProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    },
+    {
+      name: 'Wikimedia Commons',
+      get: async () => ({ results: await wikimediaProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    },
+    {
+      name: 'Jamendo',
+      get: async () => ({ results: await jamendoProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    },
+    {
+      name: 'Openverse',
+      get: async () => ({ results: await openverseProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    },
+    {
+      name: 'SomaFM',
+      get: async () => ({ results: await somaFmProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    },
+    {
+      name: 'Radio Browser',
+      get: async () => ({ results: await radioBrowserProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    },
+    {
+      name: 'Apple Preview',
+      get: async () => ({ results: await itunesProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    },
+    {
+      name: 'Deezer Preview',
+      get: async () => ({ results: await deezerProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    },
+  ];
+  if (normalizedTag.toLowerCase() === 'classical') {
+    providers.push({
+      name: 'Archive',
+      get: async () => ({ results: await archiveProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    });
+  } else {
+    providers.push({
+      name: 'ccMixter',
+      get: () => ccmixterProvider.getSongsByTagWithStatus(normalizedTag, perProviderLimit, signal),
+    });
+  }
+  const catalog = await federateCatalog(providers, signal);
+
+  return {
+    ...catalog,
+    results: interleaveEntities(
+      providers.map(({ name }) => catalog.results.filter((song) => song.provider === name)),
+      cappedLimit,
+    ),
+  };
+}
+
+/**
+ * A small, dependable live shelf deserves its own request rather than being a
+ * side effect of a much larger trending federation. Both providers deliver
+ * continuous audio, so this can be a listener's fastest route into playback
+ * while the on-demand catalog is still loading.
+ */
+export async function getLiveStations(limit = 12, signal?: AbortSignal): Promise<FederatedResult<Song>> {
+  const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 12;
+  const cappedLimit = Math.max(1, Math.min(normalizedLimit, 24));
+  const perProviderLimit = Math.min(20, Math.max(8, Math.ceil(cappedLimit / 2)));
+  const providers: Array<CatalogProvider<Song>> = [
+    { name: 'SomaFM', get: async () => ({ results: await somaFmProvider.getTrending(perProviderLimit, signal) }) },
+    {
+      name: 'Radio Browser',
+      get: async () => ({ results: await radioBrowserProvider.getTrending(perProviderLimit, signal) }),
+    },
+  ];
+  const catalog = await federateCatalog(providers, signal);
+
+  return {
+    ...catalog,
+    results: interleaveEntities(
+      providers.map(({ name }) => catalog.results.filter((song) => song.provider === name)),
+      cappedLimit,
+    ),
+  };
 }
 
 /**
@@ -99,8 +244,14 @@ export async function searchFederated(query: string, signal?: AbortSignal): Prom
 export async function searchAlbumsFederated(query: string, signal?: AbortSignal): Promise<FederatedResult<Album>> {
   return federateCatalog(
     [
-      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchAlbums(query, signal) }) },
+      { name: 'Audius', get: async () => ({ results: await audiusProvider.searchAlbums(query, signal) }) },
+      {
+        name: 'Wikimedia Commons',
+        get: async () => ({ results: await wikimediaProvider.searchAlbums(query, signal) }),
+      },
       { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.searchAlbums(query, signal) }) },
+      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchAlbums(query, signal) }) },
+      { name: 'Deezer Preview', get: async () => ({ results: await deezerProvider.searchAlbums(query, signal) }) },
     ],
     signal,
   );
@@ -109,8 +260,14 @@ export async function searchAlbumsFederated(query: string, signal?: AbortSignal)
 export async function searchArtistsFederated(query: string, signal?: AbortSignal): Promise<FederatedResult<Artist>> {
   return federateCatalog(
     [
-      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchArtists(query, signal) }) },
+      { name: 'Audius', get: async () => ({ results: await audiusProvider.searchArtists(query, signal) }) },
+      {
+        name: 'Wikimedia Commons',
+        get: async () => ({ results: await wikimediaProvider.searchArtists(query, signal) }),
+      },
       { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.searchArtists(query, signal) }) },
+      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.searchArtists(query, signal) }) },
+      { name: 'Deezer Preview', get: async () => ({ results: await deezerProvider.searchArtists(query, signal) }) },
     ],
     signal,
   );
@@ -123,18 +280,24 @@ export function isServerConfigured(): boolean {
 export const api = {
   async getAlbums(signal?: AbortSignal): Promise<FederatedResult<Album>> {
     const providers: Array<CatalogProvider<Album>> = [
-      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.getAlbums(signal) }) },
+      { name: 'Audius', get: async () => ({ results: await audiusProvider.getAlbums(signal) }) },
+      { name: 'Wikimedia Commons', get: async () => ({ results: await wikimediaProvider.getAlbums(signal) }) },
       { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getAlbums(signal) }) },
       { name: 'ccMixter', get: () => ccmixterProvider.getAlbumsWithStatus(signal) },
+      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.getAlbums(signal) }) },
+      { name: 'Deezer Preview', get: async () => ({ results: await deezerProvider.getAlbums(signal) }) },
     ];
     return federateCatalog(providers, signal);
   },
 
   async getArtists(signal?: AbortSignal): Promise<FederatedResult<Artist>> {
     const providers: Array<CatalogProvider<Artist>> = [
-      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.getArtists(signal) }) },
+      { name: 'Audius', get: async () => ({ results: await audiusProvider.getArtists(signal) }) },
+      { name: 'Wikimedia Commons', get: async () => ({ results: await wikimediaProvider.getArtists(signal) }) },
       { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getArtists(signal) }) },
       { name: 'ccMixter', get: () => ccmixterProvider.getArtistsWithStatus(signal) },
+      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.getArtists(signal) }) },
+      { name: 'Deezer Preview', get: async () => ({ results: await deezerProvider.getArtists(signal) }) },
     ];
     return federateCatalog(providers, signal);
   },
@@ -187,7 +350,15 @@ export const api = {
   searchArtists: searchArtistsFederated,
 
   async getSongsByTag(tag: string, limit?: number, signal?: AbortSignal): Promise<Song[]> {
-    return jamendoProvider.getSongsByTag(tag, limit, signal);
+    return (await getGenreSongs(tag, limit, signal)).results;
+  },
+
+  getGenreSongs,
+
+  getLiveStations,
+
+  async getRecentReleases(limit = 20, signal?: AbortSignal): Promise<Song[]> {
+    return itunesProvider.getRecentReleases(limit, signal);
   },
 
   async getCcmixterSongsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<FederatedResult<Song>> {
@@ -203,12 +374,43 @@ export const api = {
   },
 
   async getTrending(limit = 50, signal?: AbortSignal): Promise<FederatedResult<Song>> {
+    const requestedLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 50;
     const providers: Array<CatalogProvider<Song>> = [
-      { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.getTrending(limit, signal) }) },
-      { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getTrending(limit, signal) }) },
-      { name: 'ccMixter', get: () => ccmixterProvider.getTrendingWithStatus(limit, signal) },
+      { name: 'Audius', get: async () => ({ results: await audiusProvider.getTrending(requestedLimit, signal) }) },
+      {
+        name: 'Wikimedia Commons',
+        get: async () => ({ results: await wikimediaProvider.getTrending(requestedLimit, signal) }),
+      },
+      { name: 'Jamendo', get: async () => ({ results: await jamendoProvider.getTrending(requestedLimit, signal) }) },
+      { name: 'ccMixter', get: () => ccmixterProvider.getTrendingWithStatus(requestedLimit, signal) },
+      { name: 'Archive', get: async () => ({ results: await archiveProvider.getTrending(requestedLimit, signal) }) },
+      {
+        name: 'Openverse',
+        get: async () => ({ results: await openverseProvider.getTrending(requestedLimit, signal) }),
+      },
+      { name: 'SomaFM', get: async () => ({ results: await somaFmProvider.getTrending(requestedLimit, signal) }) },
+      {
+        name: 'Radio Browser',
+        get: async () => ({ results: await radioBrowserProvider.getTrending(requestedLimit, signal) }),
+      },
+      {
+        name: 'Apple Preview',
+        get: async () => ({ results: await itunesProvider.getTrending(requestedLimit, signal) }),
+      },
+      {
+        name: 'Deezer Preview',
+        get: async () => ({ results: await deezerProvider.getTrending(requestedLimit, signal) }),
+      },
     ];
-    return federateCatalog(providers, signal);
+    const catalog = await federateCatalog(providers, signal);
+
+    return {
+      ...catalog,
+      results: interleaveEntities(
+        providers.map(({ name }) => catalog.results.filter((song) => song.provider === name)),
+        requestedLimit,
+      ),
+    };
   },
 
   async getChartSongs(chart: ChartKey, signal?: AbortSignal): Promise<Song[]> {
@@ -218,6 +420,7 @@ export const api = {
       '/api/music/charts',
       { chart },
       signal,
+      { timeoutMs: 15_000 },
     );
     if (data.error) {
       throw new ProviderError('Apple Preview', 'chart', 'upstream', 502, data.error);

@@ -23,14 +23,17 @@ function formatTime(seconds: number): string {
 function SeekBar({
   progress,
   duration,
+  isLive,
   onSeek,
 }: {
   progress: number;
   duration: number;
+  isLive: boolean;
   onSeek: (time: number) => void;
 }) {
-  const safeProgress = duration > 0 ? Math.max(0, Math.min(Number.isFinite(progress) ? progress : 0, duration)) : 0;
-  const pct = duration > 0 ? Math.max(0, Math.min(100, (safeProgress / duration) * 100)) : 0;
+  const seekable = duration > 0 && !isLive;
+  const safeProgress = seekable ? Math.max(0, Math.min(Number.isFinite(progress) ? progress : 0, duration)) : 0;
+  const pct = seekable ? Math.max(0, Math.min(100, (safeProgress / duration) * 100)) : 0;
 
   return (
     <div className="group w-full space-y-2">
@@ -45,9 +48,9 @@ function SeekBar({
           max={Math.max(duration, 0)}
           step={0.1}
           value={safeProgress}
-          disabled={duration <= 0}
+          disabled={!seekable}
           aria-label="Seek"
-          aria-valuetext={`${formatTime(progress)} of ${formatTime(duration)}`}
+          aria-valuetext={isLive ? 'Live stream' : `${formatTime(progress)} of ${formatTime(duration)}`}
           onChange={(event) => onSeek(Number(event.target.value))}
           className="player-range absolute inset-0"
         />
@@ -56,8 +59,8 @@ function SeekBar({
         className="flex justify-between text-[11px] tabular-nums text-[var(--pearl-dim)]"
         style={{ fontFamily: 'var(--font-mono)' }}
       >
-        <span>{formatTime(progress)}</span>
-        <span>{formatTime(duration)}</span>
+        <span>{isLive ? 'LIVE' : formatTime(progress)}</span>
+        <span>{isLive ? 'LIVE' : formatTime(duration)}</span>
       </div>
     </div>
   );
@@ -168,6 +171,7 @@ export function NowPlayingView({
   const favorites = usePlayerStore((s) => s.favorites);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const { seek } = useAudio();
+  const isLive = currentSong?.isLive === true;
   const [panel, setPanel] = useState<Panel>('queue');
   const isFavorite = currentSong ? favorites.some((song) => song.id === currentSong.id) : false;
   const isLoading = status === 'loading' && playbackIntent;
@@ -246,7 +250,7 @@ export function NowPlayingView({
         </div>
 
         <div className="w-full max-w-md px-4">
-          <SeekBar progress={progress} duration={duration} onSeek={seek} />
+          <SeekBar progress={progress} duration={duration} isLive={isLive} onSeek={seek} />
         </div>
 
         <div className="flex items-center gap-3 sm:gap-5">
@@ -377,7 +381,7 @@ export function NowPlayingView({
                   />
                   <span className="min-w-0 flex-1 truncate font-medium">{item.song.title}</span>
                   <span className="shrink-0 text-[11px] tabular-nums text-[var(--salt-mist)]">
-                    {formatTime(item.song.duration)}
+                    {item.song.isLive ? 'LIVE' : formatTime(item.song.duration)}
                   </span>
                 </button>
                 {/* No favorite control here: at this panel's width six actions
