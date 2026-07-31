@@ -51,6 +51,15 @@ interface FeedEntry {
   id?: string;
 }
 
+function chartTrackToSong(item: ItunesTrack): Song {
+  const durationSeconds =
+    typeof item.trackTimeMillis === 'number' && Number.isFinite(item.trackTimeMillis)
+      ? Math.max(1, Math.round(item.trackTimeMillis / 1000))
+      : 0;
+  return trackToSong(item, 0, durationSeconds);
+}
+
+
 function upstreamSignal(signal?: AbortSignal): AbortSignal {
   const timeout = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
@@ -95,7 +104,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     for (const result of settled) {
       if (result.status !== 'fulfilled') continue;
       for (const item of result.value) {
-        if (isPlayableTrack(item)) byTrackId.set(String(item.trackId), trackToSong(item));
+        if (isPlayableTrack(item)) byTrackId.set(String(item.trackId), chartTrackToSong(item));
       }
     }
 

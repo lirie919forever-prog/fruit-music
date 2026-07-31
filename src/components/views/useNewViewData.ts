@@ -71,10 +71,6 @@ export function useNewViewData() {
     [trendingData, popData, jazzData, remixData, classicalData],
   );
   const releaseSongs = useMemo(() => uniqueAlbumSongs(verifiedMix, 24), [verifiedMix]);
-  const billboardSongs = useMemo(
-    () => (trendingData ?? []).filter((song) => song.provider === 'Apple Preview').slice(0, 6),
-    [trendingData],
-  );
 
   const queries = [trending, liveStations, pop, jazz, remix, classical];
 
@@ -91,7 +87,6 @@ export function useNewViewData() {
     bestNewSongs,
     liveStations: liveStationData ?? [],
     releaseSongs,
-    billboardSongs,
     hasCatalogFailure,
     isLoading: queries.some((query) => query.isFetching),
     retry: () => {

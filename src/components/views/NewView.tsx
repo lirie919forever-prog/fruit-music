@@ -591,17 +591,14 @@ function GenrePanel({
 function ChartPreview({
   onNavigateWithItem,
   discoveryReady,
-  billboardSongs,
 }: {
   onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void;
   discoveryReady: boolean;
-  billboardSongs: Song[];
 }) {
   const [activeKey, setActiveKey] = useState<ChartKey>(CHART_OPTIONS[0].key);
   const [isVisible, setIsVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selected = CHART_OPTIONS.find((option) => option.key === activeKey) ?? CHART_OPTIONS[0];
-  const hasCompleteBillboardSeed = selected.key === 'billboard' && billboardSongs.length >= CHART_PREVIEW_LIMIT;
 
   useEffect(() => {
     if (!discoveryReady || isVisible) return;
@@ -643,10 +640,10 @@ function ChartPreview({
     queryFn: ({ signal }) => api.getChartSongs(selected.key, signal),
     staleTime: catalogStaleTime(countListResults),
     retry: 1,
-    enabled: discoveryReady && isVisible && !hasCompleteBillboardSeed,
+    enabled: discoveryReady && isVisible,
   });
-  const songs = hasCompleteBillboardSeed ? billboardSongs : queriedSongs;
-  const isPending = !hasCompleteBillboardSeed && queryPending;
+  const songs = queriedSongs;
+  const isPending = queryPending;
 
   return (
     <div ref={containerRef}>
@@ -722,9 +719,8 @@ function ExploreGrid() {
     { view: 'favorites', icon: <HiHeart />, label: 'Favorites' },
     { view: 'history', icon: <HiClock />, label: 'History' },
     { view: 'billboard', icon: <HiChartBar />, label: 'Charts' },
-    // The `jp` view renders Apple's Japan Top Songs chart — a real ranking as
-    // 30-second previews. Audius/Jamendo carry no J-Pop, so the chart is the
-    // J-Pop showcase rather than a federated full-track shelf.
+    // The chart preview is intentionally loaded only outside Full tracks mode,
+    // but every returned entry is still resolved to a verified full recording.
     { view: 'jp', icon: <HiGlobeAlt />, label: 'J-Pop' },
   ];
 
@@ -767,7 +763,6 @@ export function NewView({
     bestNewSongs,
     liveStations,
     releaseSongs,
-    billboardSongs,
     hasCatalogFailure,
     isLoading: discoveryLoading,
     retry: retrySources,
@@ -952,7 +947,6 @@ export function NewView({
 
       {accessMode !== 'full' && (
         <ChartPreview
-          billboardSongs={billboardSongs}
           discoveryReady={!discoveryLoading}
           onNavigateWithItem={onNavigateWithItem}
         />

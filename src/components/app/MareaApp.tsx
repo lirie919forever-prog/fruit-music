@@ -26,7 +26,7 @@ import type { ViewType } from '@/types/music';
  * page has to state up front rather than let a listener discover when the audio
  * stops a third of the way through.
  */
-const CHART_NOTE = 'Apple’s published chart — each track plays as a 30-second preview';
+const CHART_NOTE = 'Official regional chart ranking — verified full tracks where available';
 
 /** Everything a view needs from the shell to render itself. */
 interface ViewContext {
@@ -92,7 +92,6 @@ const VIEWS = {
     description: CHART_NOTE,
     fetchFn: (signal) => api.getChartSongs('billboard', signal),
     queryKey: ['chart', 'billboard'],
-    includePreviews: true,
   }),
   uk: category({
     view: 'uk',
@@ -100,7 +99,6 @@ const VIEWS = {
     description: CHART_NOTE,
     fetchFn: (signal) => api.getChartSongs('uk', signal),
     queryKey: ['chart', 'uk'],
-    includePreviews: true,
   }),
   jp: category({
     view: 'jp',
@@ -108,7 +106,6 @@ const VIEWS = {
     description: CHART_NOTE,
     fetchFn: (signal) => api.getChartSongs('jp', signal),
     queryKey: ['chart', 'jp'],
-    includePreviews: true,
   }),
   trending: category({
     view: 'trending',

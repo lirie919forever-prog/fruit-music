@@ -71,18 +71,18 @@ function isPreviewSong(song: Song): boolean {
   return song.provider === 'Apple Preview' || song.provider === 'Deezer Preview' || song.id.startsWith('itunes-') || song.id.startsWith('deezer-');
 }
 
-async function findFullTrackFallback(song: Song, signal?: AbortSignal): Promise<Song | null> {
-  const title = normalizePlaybackText(song.title);
-  const artist = normalizePlaybackText(song.artist);
-  if (!title || !artist) return null;
-
-  const candidates = await kuwoProvider.search(`${song.artist} ${song.title}`, signal);
+function matchingFullTrack(
+  candidates: Song[],
+  title: string,
+  artist: string,
+  requireDuration = true,
+): Song | null {
   const matches = candidates.flatMap((candidate, index) => {
     const candidateTitle = normalizePlaybackText(candidate.title);
     const candidateArtist = normalizePlaybackText(candidate.artist);
     const artistMatch = candidateArtist === artist || candidateArtist.includes(artist) || artist.includes(candidateArtist);
     const titleMatch = candidateTitle === title || candidateTitle.includes(title) || title.includes(candidateTitle);
-    if (!artistMatch || !titleMatch || candidate.duration <= 0) return [];
+    if (!artistMatch || !titleMatch || (requireDuration && candidate.duration <= 0)) return [];
 
     const score =
       (candidateArtist === artist ? 4 : 2) +
@@ -93,6 +93,52 @@ async function findFullTrackFallback(song: Song, signal?: AbortSignal): Promise<
 
   matches.sort((left, right) => right.score - left.score || left.index - right.index);
   return matches[0]?.candidate ?? null;
+}
+
+async function findFullTrackFallback(song: Song, signal?: AbortSignal): Promise<Song | null> {
+  const title = normalizePlaybackText(song.title);
+  const artist = normalizePlaybackText(song.artist);
+  if (!title || !artist) return null;
+
+  try {
+    const kuwoMatch = matchingFullTrack(await kuwoProvider.search(`${song.artist} ${song.title}`, signal), title, artist);
+    if (kuwoMatch) return kuwoMatch;
+  } catch {
+    throwIfAborted(signal);
+  }
+
+  if (process.env.NEXT_PUBLIC_LX_ENABLED === 'true') {
+    try {
+      return matchingFullTrack(await lxmusicProvider.search(`${song.artist} ${song.title}`, signal), title, artist, false);
+    } catch {
+      throwIfAborted(signal);
+    }
+  }
+  return null;
+}
+
+const CHART_FULL_TRACK_LIMIT = 12;
+const CHART_FULL_TRACK_WORKERS = 3;
+
+async function resolveChartFullTracks(songs: Song[], signal?: AbortSignal): Promise<Song[]> {
+  const resolved: Song[] = [];
+  let nextIndex = 0;
+  const candidates = songs.slice(0, CHART_FULL_TRACK_LIMIT);
+
+  await Promise.all(
+    Array.from({ length: Math.min(CHART_FULL_TRACK_WORKERS, candidates.length) }, async () => {
+      while (nextIndex < candidates.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const fullTrack = await findFullTrackFallback(candidates[index], signal);
+        if (fullTrack) {
+          resolved[index] = fullTrack.duration > 0 ? fullTrack : { ...fullTrack, duration: candidates[index].duration };
+        }
+      }
+    }),
+  );
+
+  return resolved.filter((song): song is Song => Boolean(song));
 }
 
 export interface PlaybackSource {
@@ -492,7 +538,11 @@ export const api = {
     if (results.length === 0) {
       throw new ProviderError('Apple Preview', 'chart', 'invalid_response');
     }
-    return results;
+    const fullTracks = (await resolveChartFullTracks(results, signal)).filter((song) => !isPreviewSong(song));
+    if (fullTracks.length === 0) {
+      throw new ProviderError('Kuwo', 'chart', 'upstream', 503, 'No verified full tracks are available for this chart.');
+    }
+    return fullTracks;
   },
 
   /**

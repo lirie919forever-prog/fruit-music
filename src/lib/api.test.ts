@@ -444,6 +444,47 @@ describe('album federation', () => {
     });
   });
 
+  it('hydrates chart rankings with verified full-track sources', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          results: [
+            {
+              id: 'itunes-101',
+              title: 'Chart song',
+              artist: 'Chart artist',
+              artistId: 'itunes-artist-1',
+              album: 'Chart album',
+              albumId: 'itunes-album-1',
+              coverArt: '/placeholder-album.svg',
+              duration: 30,
+              track: 1,
+              year: 2026,
+              genre: 'Pop',
+              path: '/api/music/itunes/stream/101',
+              bitRate: 0,
+              contentType: 'audio/mp4',
+              suffix: 'm4a',
+              size: 0,
+              provider: 'Apple Preview',
+              sourceUrl: 'https://example.com/chart',
+              creatorUrl: 'https://example.com/artist',
+              licenseName: '30-second preview',
+              licenseUrl: 'https://example.com/license',
+              attributionUrl: 'https://example.com/chart',
+              metadataVerified: true,
+            },
+          ],
+        }),
+      ),
+    );
+    const fullTrack = { ...song('kuwo-101'), title: 'Chart song', artist: 'Chart artist', duration: 244, provider: 'Kuwo' as const };
+    vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
+
+    await expect(api.getChartSongs('billboard')).resolves.toEqual([fullTrack]);
+  });
+
   it('routes song, album, and artist IDs to their owner', async () => {
     expect(getMusicProviderForSongId('jamendo-1')).toBe(jamendoProvider);
     expect(getMusicProviderForSongId('ccmixter-1')).toBe(ccmixterProvider);

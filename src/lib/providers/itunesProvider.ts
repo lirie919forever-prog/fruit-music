@@ -72,7 +72,7 @@ export function itunesSongId(trackId: number | string): string {
   return `itunes-${trackId}`;
 }
 
-export function trackToSong(item: ItunesTrack, index = 0): Song {
+export function trackToSong(item: ItunesTrack, index = 0, durationSeconds = PREVIEW_DURATION_SECONDS): Song {
   const trackId = String(item.trackId);
   return {
     id: itunesSongId(trackId),
@@ -82,7 +82,7 @@ export function trackToSong(item: ItunesTrack, index = 0): Song {
     album: item.collectionName || item.trackName!,
     albumId: `itunes-album-${item.collectionId}`,
     coverArt: artworkAt(item.artworkUrl100, 600),
-    duration: PREVIEW_DURATION_SECONDS,
+    duration: durationSeconds,
     track: item.trackNumber ?? index + 1,
     year: releaseYear(item.releaseDate),
     genre: item.primaryGenreName || '',
@@ -133,7 +133,7 @@ async function itunesFetch(
 }
 
 function songsFrom(results: ItunesTrack[]): Song[] {
-  return results.filter(isPlayableTrack).map(trackToSong);
+  return results.filter(isPlayableTrack).map((item, index) => trackToSong(item, index));
 }
 
 /**
