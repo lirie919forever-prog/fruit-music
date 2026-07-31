@@ -9,6 +9,7 @@ import {
   getMusicProviderForSongId,
   itunesProvider,
   jamendoProvider,
+  kuwoProvider,
   lxmusicProvider,
   openverseProvider,
   radioBrowserProvider,
@@ -74,11 +75,28 @@ type CatalogProvider<T> = {
   get: () => Promise<ProviderCatalogResult<T>>;
 };
 
+const CATALOG_PROVIDER_TIMEOUT_MS = 5_000;
+
+async function settleCatalogProvider<T>(provider: CatalogProvider<T>): Promise<ProviderCatalogResult<T>> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<ProviderCatalogResult<T>>((_, reject) => {
+    timeout = setTimeout(
+      () => reject(new ProviderError(provider.name, 'catalog', 'timeout', 504)),
+      CATALOG_PROVIDER_TIMEOUT_MS,
+    );
+  });
+  try {
+    return await Promise.race([provider.get(), deadline]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function federateCatalog<T extends { id: string }>(
   providers: Array<CatalogProvider<T>>,
   signal?: AbortSignal,
 ): Promise<FederatedResult<T>> {
-  const settled = await Promise.allSettled(providers.map((provider) => provider.get()));
+  const settled = await Promise.allSettled(providers.map((provider) => settleCatalogProvider(provider)));
   throwIfAborted(signal);
   // Jamendo is deliberately optional in a local Marea install. Treating a
   // missing client id as an outage made every otherwise healthy New page show
@@ -121,6 +139,7 @@ export async function searchFederated(query: string, signal?: AbortSignal): Prom
     { name: 'Radio Browser', get: async () => ({ results: await radioBrowserProvider.search(query, signal) }) },
     { name: 'Apple Preview', get: async () => ({ results: await itunesProvider.search(query, signal) }) },
     { name: 'Deezer Preview', get: async () => ({ results: await deezerProvider.search(query, signal) }) },
+    { name: 'Kuwo', get: async () => ({ results: await kuwoProvider.search(query, signal) }) },
   ];
   const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
   if (lxEnabled) {
@@ -181,6 +200,17 @@ export async function getGenreSongs(tag: string, limit = 50, signal?: AbortSigna
       get: async () => ({ results: await deezerProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
     },
   ];
+  const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
+  if (lxEnabled) {
+    providers.push({
+      name: 'LX Music',
+      get: async () => ({ results: await lxmusicProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+    });
+  }
+  providers.push({
+    name: 'Kuwo',
+    get: async () => ({ results: await kuwoProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
+  });
   if (normalizedTag.toLowerCase() === 'classical') {
     providers.push({
       name: 'Archive',
@@ -401,7 +431,18 @@ export const api = {
         name: 'Deezer Preview',
         get: async () => ({ results: await deezerProvider.getTrending(requestedLimit, signal) }),
       },
+      {
+        name: 'Kuwo',
+        get: async () => ({ results: await kuwoProvider.getTrending(requestedLimit, signal) }),
+      },
     ];
+    const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
+    if (lxEnabled) {
+      providers.push({
+        name: 'LX Music',
+        get: async () => ({ results: await lxmusicProvider.getTrending(requestedLimit, signal) }),
+      });
+    }
     const catalog = await federateCatalog(providers, signal);
 
     return {

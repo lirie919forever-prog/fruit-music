@@ -22,6 +22,7 @@ export type MusicProviderName =
   | 'ccMixter'
   | 'Archive'
   | 'LX Music'
+  | 'Kuwo'
   | 'Apple Preview'
   | 'Deezer Preview'
   | 'Audius'

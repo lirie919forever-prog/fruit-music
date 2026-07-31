@@ -11,6 +11,7 @@ const PROVIDER_RELEVANCE: Record<MusicProviderName, number> = {
   Openverse: 32,
   Audius: 24,
   'LX Music': 16,
+  Kuwo: 45,
   SomaFM: 12,
   'Radio Browser': 10,
 };

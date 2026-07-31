@@ -30,6 +30,7 @@ const SEARCH_SOURCES = [
   'Openverse',
   'SomaFM',
   'Radio Browser',
+  'Kuwo',
 ];
 const AUDIO_ACCESS_OPTIONS: Array<{ mode: AudioAccessMode; label: string }> = [
   { mode: 'full', label: 'Full tracks' },

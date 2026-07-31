@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { motion, type Variants } from 'motion/react';
 import {
   HiArrowPath,
   HiChartBar,
   HiChevronRight,
   HiClock,
+  HiGlobeAlt,
   HiHeart,
   HiLockClosed,
   HiMagnifyingGlass,
@@ -17,6 +19,7 @@ import {
 import { usePlayerStore } from '@/store/playerStore';
 import { ArtistLink, ChartRail, SongRail } from './SongCard';
 import { EditorialBanner } from './EditorialBanner';
+import { CinematicHero } from './CinematicHero';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { TrackMenu } from '@/components/ui/TrackMenu';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
@@ -55,6 +58,20 @@ const CHART_OPTIONS: ChartOption[] = [
 ];
 const CHART_PREVIEW_LIMIT = 6;
 
+// The page-load orchestration Anthropic's frontend-design skill asks for:
+// each top-level shelf lifts in slightly out-of-phase with its neighbours so
+// /new assembles top-to-bottom on first paint instead of materialising at once.
+// Reduced-motion is honoured by the resolver automatically (motion skips the
+// transform/opacity when the user has asked the OS for less motion).
+const SHELF_VARIANTS: Variants = {
+  hidden: { opacity: 0, y: 16 },
+  shown: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+};
+const STAGGER: Variants = {
+  hidden: {},
+  shown: { transition: { staggerChildren: 0.07, delayChildren: 0.04 } },
+};
+
 function navigateTo(view: ViewType): void {
   window.history.pushState(null, '', buildNavigationUrl(window.location, view));
 }
@@ -74,7 +91,7 @@ function Shelf({ title, view, action, children }: ShelfProps) {
   };
 
   return (
-    <section className="space-y-2">
+    <motion.section variants={SHELF_VARIANTS} className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         {view ? (
           <button
@@ -82,7 +99,7 @@ function Shelf({ title, view, action, children }: ShelfProps) {
             onClick={openSection}
             className="group -mx-1 flex min-w-0 items-center gap-0.5 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
           >
-            <h2 className="min-w-0 truncate text-[17px] font-bold tracking-[-0.01em] text-[var(--salt-white)]">
+            <h2 className="min-w-0 truncate font-headline text-[17px] font-semibold tracking-[-0.01em] text-[var(--salt-white)]">
               {title}
             </h2>
             <HiChevronRight
@@ -92,14 +109,14 @@ function Shelf({ title, view, action, children }: ShelfProps) {
             <span className="sr-only">See all</span>
           </button>
         ) : (
-          <h2 className="min-w-0 truncate text-[17px] font-bold tracking-[-0.01em] text-[var(--salt-white)]">
+          <h2 className="min-w-0 truncate font-headline text-[17px] font-semibold tracking-[-0.01em] text-[var(--salt-white)]">
             {title}
           </h2>
         )}
         {action}
       </div>
       {children}
-    </section>
+    </motion.section>
   );
 }
 
@@ -187,11 +204,11 @@ function DiscoveryMasthead({
       : 'Loading live catalog';
 
   return (
-    <section className="border-b border-[var(--glass-border)] pb-5 sm:pb-6">
+    <motion.section variants={SHELF_VARIANTS} className="border-b border-[var(--glass-border)] pb-5 sm:pb-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#bd3f4f]">Fresh picks</p>
-          <h2 className="mt-1 text-[25px] font-bold leading-tight text-[var(--salt-white)] sm:text-[32px]">
+          <h2 className="mt-1 font-headline text-[25px] font-semibold leading-[1.1] tracking-[-0.02em] text-[var(--salt-white)] sm:text-[32px]">
             New music
           </h2>
           <p className="mt-1 text-[13px] text-[var(--salt-mist)]">{summary}</p>
@@ -201,7 +218,7 @@ function DiscoveryMasthead({
       <div className="mt-4">
         <AudioAccessControl mode={mode} onChange={onModeChange} />
       </div>
-    </section>
+    </motion.section>
   );
 }
 
@@ -702,6 +719,10 @@ function ExploreGrid() {
     { view: 'favorites', icon: <HiHeart />, label: 'Favorites' },
     { view: 'history', icon: <HiClock />, label: 'History' },
     { view: 'billboard', icon: <HiChartBar />, label: 'Charts' },
+    // The `jp` view renders Apple's Japan Top Songs chart — a real ranking as
+    // 30-second previews. Audius/Jamendo carry no J-Pop, so the chart is the
+    // J-Pop showcase rather than a federated full-track shelf.
+    { view: 'jp', icon: <HiGlobeAlt />, label: 'J-Pop' },
   ];
 
   return (
@@ -819,7 +840,12 @@ export function NewView({
     Object.values(genres).some((songs) => songs.length > 0);
 
   return (
-    <div className="space-y-7 pb-8 sm:space-y-9">
+    <motion.div
+      initial="hidden"
+      animate="shown"
+      variants={STAGGER}
+      className="space-y-7 pb-8 sm:space-y-9"
+    >
       <DiscoveryMasthead songs={mastheadSongs} mode={accessMode} onModeChange={setAccessMode} />
 
       {(history.length > 0 || favorites.length > 0) && personalizedMix.length > 0 && (
@@ -835,37 +861,37 @@ export function NewView({
       )}
 
       {filteredSpotlightSongs.length > 0 ? (
-        <Shelf title="In the spotlight">
-          <div
-            ref={spotlightRailRef}
-            className={
-              filteredSpotlightSongs.length > 1
-                ? 'rail-scroll flex snap-x snap-mandatory scroll-pl-0 gap-3 overflow-x-auto [overflow-anchor:none] lg:grid lg:grid-cols-2 lg:gap-4 lg:overflow-visible'
-                : 'grid'
+        <div ref={spotlightRailRef}>
+          <CinematicHero
+            song={filteredSpotlightSongs[0]}
+            eyebrow={filteredSpotlightSongs[0].metadataVerified ? 'Marea pick' : 'Chart watch'}
+            onQueue={
+              filteredSpotlightSongs[0].playbackUnavailable
+                ? undefined
+                : () => addToQueue(filteredSpotlightSongs[0])
             }
-          >
-            {filteredSpotlightSongs.map((song, index) => (
-              <div
-                key={song.id}
-                className={
-                  filteredSpotlightSongs.length > 1
-                    ? 'w-[88%] max-w-[480px] shrink-0 snap-start lg:w-auto lg:max-w-none'
-                    : ''
-                }
-              >
-                <EditorialBanner
-                  song={song}
-                  eyebrow={song.metadataVerified ? (index === 0 ? 'Marea pick' : 'New release') : 'Chart watch'}
-                  // Both spotlight cards share the fold on wide viewports, so
-                  // either can become the LCP element.
-                  eager
-                  onQueue={song.playbackUnavailable ? undefined : () => addToQueue(song)}
-                  onNavigateWithItem={onNavigateWithItem}
-                />
+            onNavigateWithItem={onNavigateWithItem}
+          />
+          {filteredSpotlightSongs.length > 1 && (
+            <Shelf title="Also in the spotlight">
+              <div className="rail-scroll flex snap-x snap-mandatory scroll-pl-0 gap-3 overflow-x-auto [overflow-anchor:none] lg:grid lg:grid-cols-2 lg:gap-4 lg:overflow-visible">
+                {filteredSpotlightSongs.slice(1).map((song) => (
+                  <div
+                    key={song.id}
+                    className="w-[88%] max-w-[480px] shrink-0 snap-start lg:w-auto lg:max-w-none"
+                  >
+                    <EditorialBanner
+                      song={song}
+                      eyebrow={song.metadataVerified ? 'New release' : 'Chart watch'}
+                      onQueue={song.playbackUnavailable ? undefined : () => addToQueue(song)}
+                      onNavigateWithItem={onNavigateWithItem}
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Shelf>
+            </Shelf>
+          )}
+        </div>
       ) : discoveryLoading ? (
         <Shelf title="In the spotlight">
           <div className="grid gap-4 lg:grid-cols-2">
@@ -932,6 +958,6 @@ export function NewView({
       <Shelf title="Explore Marea">
         <ExploreGrid />
       </Shelf>
-    </div>
+    </motion.div>
   );
 }

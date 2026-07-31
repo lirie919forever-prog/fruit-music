@@ -10,6 +10,7 @@ import {
   getMusicProviderForSongId,
   itunesProvider,
   jamendoProvider,
+  kuwoProvider,
   openverseProvider,
   radioBrowserProvider,
   somaFmProvider,
@@ -26,7 +27,9 @@ function song(id: string): Song {
         ? 'Archive'
         : id.startsWith('wikimedia-')
           ? 'Wikimedia Commons'
-          : 'Jamendo';
+          : id.startsWith('kuwo-')
+            ? 'Kuwo'
+            : 'Jamendo';
   return {
     id,
     title: id,
@@ -48,7 +51,9 @@ function song(id: string): Song {
             ? `/api/music/archive/stream/${id.replace('archive-', '')}`
             : provider === 'Wikimedia Commons'
               ? `/api/music/wikimedia/stream/${id.replace('wikimedia-', '')}`
-              : `/api/music/jamendo/stream/${id.replace('jamendo-', '')}`,
+              : provider === 'Kuwo'
+                ? `/api/music/kuwo/url?rid=${id.replace('kuwo-', '')}`
+                : `/api/music/jamendo/stream/${id.replace('jamendo-', '')}`,
     bitRate: 0,
     contentType: 'audio/mpeg',
     suffix: 'mp3',
@@ -81,6 +86,9 @@ beforeEach(() => {
   vi.spyOn(deezerProvider, 'getArtists').mockResolvedValue([]);
   vi.spyOn(deezerProvider, 'getTrending').mockResolvedValue([]);
   vi.spyOn(deezerProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(kuwoProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(kuwoProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(kuwoProvider, 'getSongsByTag').mockResolvedValue([]);
   vi.spyOn(audiusProvider, 'search').mockResolvedValue([]);
   vi.spyOn(audiusProvider, 'getAlbums').mockResolvedValue([]);
   vi.spyOn(audiusProvider, 'getArtists').mockResolvedValue([]);
@@ -129,7 +137,7 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
     expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(10);
+    expect(state.providerCount).toBe(11);
   });
 
   it('distinguishes true empty results from total provider failure', async () => {
@@ -149,7 +157,7 @@ describe('provider federation', () => {
     await expect(searchFederated('missing')).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter', 'Archive'],
-      providerCount: 10,
+      providerCount: 11,
     });
   });
 
@@ -165,7 +173,7 @@ describe('provider federation', () => {
       results: [song('ccmixter-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 10,
+      providerCount: 11,
     });
   });
 
@@ -201,7 +209,7 @@ describe('provider federation', () => {
     await expect(api.getTrending()).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter'],
-      providerCount: 10,
+      providerCount: 11,
     });
   });
 
@@ -213,7 +221,7 @@ describe('provider federation', () => {
       results: [song('jamendo-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 10,
+      providerCount: 11,
     });
   });
 
@@ -245,7 +253,7 @@ describe('provider federation', () => {
       'deezer-1',
       'audius-2',
     ]);
-    expect(state.providerCount).toBe(10);
+    expect(state.providerCount).toBe(11);
   });
 
   it('keeps live stations source-balanced and independent from the larger trending mix', async () => {
@@ -319,7 +327,7 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['itunes-1', 'ccmixter-1', 'itunes-2']);
     expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(9);
+    expect(state.providerCount).toBe(10);
   });
 });
 

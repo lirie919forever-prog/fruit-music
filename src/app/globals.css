@@ -3,7 +3,8 @@
 @theme inline {
   --color-background: var(--sea-abyss);
   --color-foreground: var(--salt-white);
-  --font-sans: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif);
+  --font-sans: var(--font-body, var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif));
+  --font-display: var(--font-display, var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif));
   --font-mono: var(--font-mono-var, 'JetBrains Mono', ui-monospace, monospace);
 }
 
@@ -48,6 +49,8 @@
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-body: var(--font-body, var(--font-ui));
+  --font-headline: var(--font-display, var(--font-ui));
 }
 
 * {
@@ -80,13 +83,21 @@ body {
 
 /* Browse surfaces stay a near-flat near-white on purpose: cover art is the only
    saturated thing on the page, and a tinted gradient behind it drags every
-   thumbnail toward the same blue. The sea palette now lives in the accents. */
+   thumbnail toward the same blue. The sea palette now lives in the accents.
+   The hairline radial veil underneath is atmosphere, not chart: two faint
+   pools of light placed where the hero and the first shelf render, so the
+   near-white field has depth instead of reading as a flat sheet. */
 body {
-  font-family: var(--font-ui);
+  font-family: var(--font-body, var(--font-ui));
   color: var(--salt-white);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--sea-abyss);
+  background-image:
+    radial-gradient(78rem 32rem at 18% -8%, rgba(116, 190, 229, 0.16), transparent 64%),
+    radial-gradient(64rem 30rem at 92% 0%, rgba(154, 221, 247, 0.12), transparent 60%),
+    radial-gradient(48rem 28rem at 50% 116%, rgba(36, 136, 194, 0.06), transparent 62%);
+  background-attachment: fixed, fixed, fixed;
 }
 
 /* Must stay inside `base`. Unlayered rules outrank every layered one no matter
@@ -220,6 +231,41 @@ select:focus-visible {
 
 ::selection {
   background: rgba(67, 169, 222, 0.24);
+}
+
+/* One orchestrated entrance: shelves lift in with a slight rise-and-fade,
+   staggered by index so the page assembles top-to-bottom rather than popping.
+   Anthropic's frontend-design skill rates a single well-choreographed load
+   above scattered micro-interactions, so this is the only entrance motion on
+   browse surfaces. Motion-library variants handle the React-driven version;
+   this is the CSS fallback for server-rendered and Suspense-fallback shells. */
+@keyframes marea-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.marea-rise {
+  animation: marea-rise 0.62s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.marea-rise-1 {
+  animation-delay: 0.04s;
+}
+.marea-rise-2 {
+  animation-delay: 0.1s;
+}
+.marea-rise-3 {
+  animation-delay: 0.16s;
+}
+.marea-rise-4 {
+  animation-delay: 0.24s;
+}
+.marea-rise-5 {
+  animation-delay: 0.32s;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -40,23 +40,57 @@ function configuredBase(value: string | undefined): string | null {
  * Read fresh on each call rather than captured at module load: the env is
  * stubbed per test, and a cached set would answer with whichever value happened
  * to be set when the module was first imported.
+ *
+ * NetEase hands back media URLs on `http://m70x.music.126.net/...` (audio) and
+ * `http://pN.music.126.net/...` (artwork). Those nodes rotate, so enumerating
+ * hosts is not possible — the registrable domain is the real boundary. They
+ * serve identical bytes over https, so the rewrite here keeps every hop on a
+ * checked scheme rather than widening the proxy accept plain http. The suffix
+ * stays narrow: `.126.net` is NetEase's CDN, the id feeding the resolver is
+ * already validated, and the resolver host itself is allowlisted above, so the
+ * resolved URL is not attacker-controllable — this grants nothing the trusted
+ * resolver could not already direct playback to.
  */
+const NETEASE_MEDIA_SUFFIXES = ['music.126.net', '126.net'];
+
+function isNetEaseMediaHost(url: URL): boolean {
+  if (url.username || url.password || url.port) return false;
+  const host = url.hostname.toLowerCase();
+  return NETEASE_MEDIA_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+}
+
 function isApprovedLxMedia(url: URL): boolean {
-  if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
+  if (url.username || url.password || url.port || url.hash) return false;
+  if (url.protocol !== 'https:') {
+    // NetEase's CDN is the one trusted upstream that answers on plain http;
+    // every other scheme/host is rejected. The rewrite keeps the proxy on https.
+    return false;
+  }
   const host = url.hostname.toLowerCase();
   if (LX_APPROVED_MEDIA_HOSTS.has(host)) return true;
+  if (isNetEaseMediaHost(url)) return true;
   return [configuredBase(LX_API_BASE), configuredBase(LX_RESOLVER_BASE)]
     .filter((base): base is string => Boolean(base))
     .some((base) => new URL(base).hostname.toLowerCase() === host);
 }
 
+/**
+ * Maps a resolved URL onto an allowlisted https endpoint. NetEase's resolver
+ * returns `http://*.126.net` nodes; the CDN serves the same media over https,
+ * so the upgrade is transparent to playback and keeps the proxy on a checked
+ * scheme. Anything else is left untouched for `isApprovedLxMedia` to judge.
+ */
 function approvedMediaUrl(value: string): URL | null {
+  let url: URL;
   try {
-    const url = new URL(value);
-    return isApprovedLxMedia(url) ? url : null;
+    url = new URL(value);
   } catch {
     return null;
   }
+  if (url.protocol === 'http:' && isNetEaseMediaHost(url)) {
+    url.protocol = 'https:';
+  }
+  return isApprovedLxMedia(url) ? url : null;
 }
 const LX_API_KEY = 'share-v3';
 const DEFAULT_LEVEL = process.env.LX_DEFAULT_LEVEL || '320';
