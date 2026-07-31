@@ -209,7 +209,7 @@ describe('provider federation', () => {
     await expect(api.getTrending()).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter'],
-      providerCount: 11,
+      providerCount: 7,
     });
   });
 
@@ -221,7 +221,7 @@ describe('provider federation', () => {
       results: [song('jamendo-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 11,
+      providerCount: 7,
     });
   });
 
@@ -245,15 +245,8 @@ describe('provider federation', () => {
 
     const state = await api.getTrending(6);
 
-    expect(state.results.map((result) => result.id)).toEqual([
-      'audius-1',
-      'jamendo-1',
-      'ccmixter-1',
-      'itunes-1',
-      'deezer-1',
-      'audius-2',
-    ]);
-    expect(state.providerCount).toBe(11);
+    expect(state.results.map((result) => result.id)).toEqual(['audius-1', 'jamendo-1', 'ccmixter-1', 'audius-2', 'jamendo-2', 'ccmixter-2']);
+    expect(state.providerCount).toBe(7);
   });
 
   it('keeps live stations source-balanced and independent from the larger trending mix', async () => {
@@ -318,16 +311,15 @@ describe('provider federation', () => {
     expect(state.results[0].id).toBe('jamendo-1');
   });
 
-  it('interleaves genre sources and keeps the shelf useful without Jamendo', async () => {
-    vi.mocked(itunesProvider.getSongsByTag).mockResolvedValue([song('itunes-1'), song('itunes-2')]);
-    vi.mocked(jamendoProvider.getSongsByTag).mockRejectedValue(new Error('Jamendo client id missing'));
+  it('keeps full-track genre sources balanced without preview providers', async () => {
+    vi.mocked(jamendoProvider.getSongsByTag).mockResolvedValue([song('jamendo-1')]);
     vi.mocked(ccmixterProvider.getSongsByTagWithStatus).mockResolvedValue({ results: [song('ccmixter-1')] });
 
     const state = await api.getGenreSongs('pop', 4);
 
-    expect(state.results.map((result) => result.id)).toEqual(['itunes-1', 'ccmixter-1', 'itunes-2']);
-    expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(10);
+    expect(state.results.map((result) => result.id)).toEqual(['jamendo-1', 'ccmixter-1']);
+    expect(state.failedProviders).toEqual([]);
+    expect(state.providerCount).toBe(6);
   });
 });
 
@@ -413,6 +405,43 @@ describe('album federation', () => {
 
     await expect(api.resolveArtist('jamendo-artist-602037')).resolves.toEqual(deepLinked);
     expect(jamendoProvider.getArtists).not.toHaveBeenCalled();
+  });
+
+  it('resolves an Apple preview to a matching Kuwo full-track source', async () => {
+    const preview = {
+      ...song('itunes-1440872304'),
+      title: '夜に駆ける',
+      artist: 'YOASOBI',
+      duration: 30,
+      provider: 'Apple Preview' as const,
+    };
+    const fullTrack = {
+      ...song('kuwo-123456'),
+      title: '夜に駆ける',
+      artist: 'YOASOBI',
+      duration: 261,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
+
+    await expect(api.getPlaybackSource(preview)).resolves.toEqual({
+      song: fullTrack,
+      streamUrl: '/api/music/kuwo/url?rid=123456',
+    });
+  });
+
+  it('keeps the official preview when no full-track match exists', async () => {
+    const preview = {
+      ...song('itunes-1440872304'),
+      title: 'Unindexed release',
+      artist: 'Unknown artist',
+      provider: 'Apple Preview' as const,
+    };
+
+    await expect(api.getPlaybackSource(preview)).resolves.toEqual({
+      song: preview,
+      streamUrl: '/api/music/itunes/stream/1440872304',
+    });
   });
 
   it('routes song, album, and artist IDs to their owner', async () => {

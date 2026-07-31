@@ -91,7 +91,10 @@ vi.mock('howler', () => ({ Howl: FakeHowl, Howler: fakeHowler }));
 
 const streamUrl = vi.fn<(song: Song) => Promise<string>>();
 vi.mock('@/lib/api', () => ({
-  api: { getStreamUrl: (song: Song) => streamUrl(song) },
+  api: {
+    getStreamUrl: (song: Song) => streamUrl(song),
+    getPlaybackSource: (song: Song) => streamUrl(song).then((url) => ({ song, streamUrl: url })),
+  },
 }));
 
 const { AudioProvider, useAudio } = await import('./AudioProvider');

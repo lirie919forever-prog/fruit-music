@@ -58,6 +58,48 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError');
 }
 
+function normalizePlaybackText(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+function isPreviewSong(song: Song): boolean {
+  return song.provider === 'Apple Preview' || song.provider === 'Deezer Preview' || song.id.startsWith('itunes-') || song.id.startsWith('deezer-');
+}
+
+async function findFullTrackFallback(song: Song, signal?: AbortSignal): Promise<Song | null> {
+  const title = normalizePlaybackText(song.title);
+  const artist = normalizePlaybackText(song.artist);
+  if (!title || !artist) return null;
+
+  const candidates = await kuwoProvider.search(`${song.artist} ${song.title}`, signal);
+  const matches = candidates.flatMap((candidate, index) => {
+    const candidateTitle = normalizePlaybackText(candidate.title);
+    const candidateArtist = normalizePlaybackText(candidate.artist);
+    const artistMatch = candidateArtist === artist || candidateArtist.includes(artist) || artist.includes(candidateArtist);
+    const titleMatch = candidateTitle === title || candidateTitle.includes(title) || title.includes(candidateTitle);
+    if (!artistMatch || !titleMatch || candidate.duration <= 0) return [];
+
+    const score =
+      (candidateArtist === artist ? 4 : 2) +
+      (candidateTitle === title ? 4 : 2) +
+      (candidate.metadataVerified ? 1 : 0);
+    return [{ candidate, index, score }];
+  });
+
+  matches.sort((left, right) => right.score - left.score || left.index - right.index);
+  return matches[0]?.candidate ?? null;
+}
+
+export interface PlaybackSource {
+  song: Song;
+  streamUrl: string;
+}
+
 export interface FederatedResult<T> {
   results: T[];
   failedProviders: string[];
@@ -182,22 +224,6 @@ export async function getGenreSongs(tag: string, limit = 50, signal?: AbortSigna
     {
       name: 'Openverse',
       get: async () => ({ results: await openverseProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
-    },
-    {
-      name: 'SomaFM',
-      get: async () => ({ results: await somaFmProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
-    },
-    {
-      name: 'Radio Browser',
-      get: async () => ({ results: await radioBrowserProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
-    },
-    {
-      name: 'Apple Preview',
-      get: async () => ({ results: await itunesProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
-    },
-    {
-      name: 'Deezer Preview',
-      get: async () => ({ results: await deezerProvider.getSongsByTag(normalizedTag, perProviderLimit, signal) }),
     },
   ];
   const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
@@ -418,19 +444,6 @@ export const api = {
         name: 'Openverse',
         get: async () => ({ results: await openverseProvider.getTrending(requestedLimit, signal) }),
       },
-      { name: 'SomaFM', get: async () => ({ results: await somaFmProvider.getTrending(requestedLimit, signal) }) },
-      {
-        name: 'Radio Browser',
-        get: async () => ({ results: await radioBrowserProvider.getTrending(requestedLimit, signal) }),
-      },
-      {
-        name: 'Apple Preview',
-        get: async () => ({ results: await itunesProvider.getTrending(requestedLimit, signal) }),
-      },
-      {
-        name: 'Deezer Preview',
-        get: async () => ({ results: await deezerProvider.getTrending(requestedLimit, signal) }),
-      },
       {
         name: 'Kuwo',
         get: async () => ({ results: await kuwoProvider.getTrending(requestedLimit, signal) }),
@@ -514,6 +527,18 @@ export const api = {
 
   async getStreamUrl(song: Song, signal?: AbortSignal): Promise<string> {
     return getMusicProviderForSongId(song.id).getStreamUrl(song, signal);
+  },
+
+  async getPlaybackSource(song: Song, signal?: AbortSignal): Promise<PlaybackSource> {
+    if (isPreviewSong(song)) {
+      try {
+        const fallback = await findFullTrackFallback(song, signal);
+        if (fallback) return { song: fallback, streamUrl: await kuwoProvider.getStreamUrl(fallback, signal) };
+      } catch {
+        throwIfAborted(signal);
+      }
+    }
+    return { song, streamUrl: await this.getStreamUrl(song, signal) };
   },
 
   isServerConfigured,

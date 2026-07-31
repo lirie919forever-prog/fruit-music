@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { SongCard } from './SongCard';
+import { isFullTrack } from './newViewModel';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
@@ -15,6 +16,7 @@ export interface CategoryConfig {
   description: string;
   fetchFn: (signal?: AbortSignal) => Promise<Song[] | FederatedResult<Song>>;
   queryKey: string[];
+  includePreviews?: boolean;
 }
 
 export function getCategoryState(data: Song[] | FederatedResult<Song> | undefined) {
@@ -49,12 +51,11 @@ export function CategoryGrid({
     queryFn: ({ signal }) => config.fetchFn(signal),
     staleTime: catalogStaleTime(countListResults),
   });
-  const {
-    songs,
-    failedProviders,
-    degradedProviders,
-    totalFailure: allProvidersFailed,
-  } = getCategoryState(categoryState);
+  const allSongs = getCategoryState(categoryState).songs;
+  const songs = config.includePreviews === true ? allSongs : allSongs.filter(isFullTrack);
+  const failedProviders = getCategoryState(categoryState).failedProviders;
+  const degradedProviders = getCategoryState(categoryState).degradedProviders;
+  const allProvidersFailed = getCategoryState(categoryState).totalFailure;
   const unavailableProviders = [...new Set([...failedProviders, ...degradedProviders])];
   const hasUnavailableTracks = songs.some((song) => song.playbackUnavailable);
 

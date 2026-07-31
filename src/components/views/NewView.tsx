@@ -31,6 +31,7 @@ import {
   filterSongsByAccess,
   playableSongs,
   selectSongsByAccess,
+  uniqueSongs,
   type AudioAccessMode,
 } from './newViewModel';
 import { useNewViewData } from './useNewViewData';
@@ -351,10 +352,11 @@ function DiscoverySongGrid({
   songs: Song[];
   onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void;
 }) {
-  const readySongs = playableSongs(songs);
+  const visibleSongs = uniqueSongs(songs);
+  const readySongs = playableSongs(visibleSongs);
   return (
     <div className="grid gap-x-8 md:grid-cols-2 xl:grid-cols-3">
-      {songs.map((song) => (
+      {visibleSongs.map((song) => (
         <DiscoverySongRow
           key={song.id}
           song={song}
@@ -375,11 +377,12 @@ function LiveStationGrid({
 }) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
   const currentSong = usePlayerStore((state) => state.currentSong);
-  const readySongs = playableSongs(songs);
+  const visibleSongs = uniqueSongs(songs);
+  const readySongs = playableSongs(visibleSongs);
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {songs.slice(0, 6).map((song, index) => {
+      {visibleSongs.slice(0, 6).map((song, index) => {
         const playableIndex = readySongs.findIndex((track) => track.id === song.id);
         const unavailable = playableIndex < 0;
         const active = currentSong?.id === song.id;
@@ -771,19 +774,19 @@ export function NewView({
   } = useNewViewData();
 
   const filteredBestNewSongs = useMemo(
-    () => selectSongsByAccess(bestNewSongs, accessMode, 12),
+    () => uniqueSongs(selectSongsByAccess(bestNewSongs, accessMode, 12)),
     [accessMode, bestNewSongs],
   );
   const filteredSpotlightSongs = useMemo(() => {
-    const directMatches = selectSongsByAccess(spotlightSongs, accessMode, 2);
+    const directMatches = uniqueSongs(selectSongsByAccess(spotlightSongs, accessMode, 2));
     return directMatches.length > 0 ? directMatches : filteredBestNewSongs.slice(0, 2);
   }, [accessMode, filteredBestNewSongs, spotlightSongs]);
   const filteredReleaseSongs = useMemo(
-    () => selectSongsByAccess(releaseSongs, accessMode, 10),
+    () => uniqueSongs(selectSongsByAccess(releaseSongs, accessMode, 10)),
     [accessMode, releaseSongs],
   );
   const filteredLiveStations = useMemo(
-    () => selectSongsByAccess(liveStations, accessMode, 12),
+    () => uniqueSongs(selectSongsByAccess(liveStations, accessMode, 12)),
     [accessMode, liveStations],
   );
   const personalizedMix = useMemo(
@@ -821,10 +824,10 @@ export function NewView({
   };
 
   const genrePanels = [
-    { title: 'Pop', view: 'pop' as const, songs: filterSongsByAccess(genres.pop, accessMode) },
-    { title: 'Jazz', view: 'jazz' as const, songs: filterSongsByAccess(genres.jazz, accessMode) },
-    { title: 'Remixes', view: 'remixes' as const, songs: filterSongsByAccess(genres.remix, accessMode) },
-    { title: 'Classical', view: 'classical' as const, songs: filterSongsByAccess(genres.classical, accessMode) },
+    { title: 'Pop', view: 'pop' as const, songs: uniqueSongs(filterSongsByAccess(genres.pop, accessMode)) },
+    { title: 'Jazz', view: 'jazz' as const, songs: uniqueSongs(filterSongsByAccess(genres.jazz, accessMode)) },
+    { title: 'Remixes', view: 'remixes' as const, songs: uniqueSongs(filterSongsByAccess(genres.remix, accessMode)) },
+    { title: 'Classical', view: 'classical' as const, songs: uniqueSongs(filterSongsByAccess(genres.classical, accessMode)) },
   ].filter(({ songs }) => songs.length > 0);
   const hasFilteredDiscovery =
     filteredSpotlightSongs.length > 0 ||

@@ -183,6 +183,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
 
     const song = currentSong;
+    let sourceSong = song;
     const loadToken = loadIdRef.current;
     clearUnlockWait();
     retryCountRef.current = 0;
@@ -235,8 +236,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setStatus('loading');
 
       api
-        .getStreamUrl(song)
-        .then((streamUrl) => {
+        .getPlaybackSource(song)
+        .then(({ song: resolvedSong, streamUrl }) => {
+          sourceSong = resolvedSong;
           if (
             requestId !== streamRequestIdRef.current ||
             !isCurrent() ||
@@ -254,7 +256,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           const howl = createAudioHowl(
             {
               src: [streamUrl],
-              format: [getHowlerFormat(song)],
+              format: [getHowlerFormat(sourceSong)],
               html5: true,
               volume: playerStore.getState().volume,
               onloaderror: () => {
@@ -293,8 +295,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                 // Some browsers cannot expose duration while the first response is
                 // a valid 206 range. Catalog metadata is verified and is a safe
                 // fallback until the media element learns the total duration.
-                const resolvedDuration = song.isLive ? 0 : effectiveDuration(loadedDuration, song.duration);
-                if (!song.isLive && resolvedDuration <= 0) {
+                const resolvedDuration = sourceSong.isLive ? 0 : effectiveDuration(loadedDuration, sourceSong.duration);
+                if (!sourceSong.isLive && resolvedDuration <= 0) {
                   fail('The provider returned audio without a valid duration.', howl);
                   return;
                 }
@@ -343,7 +345,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                 const decodedDuration = howl.duration();
                 if (
                   state.playbackIntent &&
-                  !isNaturalTrackEnd(typeof position === 'number' ? position : 0, decodedDuration, song.duration)
+                  !isNaturalTrackEnd(typeof position === 'number' ? position : 0, decodedDuration, sourceSong.duration)
                 ) {
                   prematureEndRecoveries += 1;
                   const resumePosition = typeof position === 'number' ? position : state.progress;

@@ -2,12 +2,25 @@ import type { Song } from '@/types/music';
 
 export type AudioAccessMode = 'all' | 'full' | 'preview';
 
-function isPreviewProvider(provider: Song['provider']): boolean {
+export function isPreviewProvider(provider: Song['provider']): boolean {
   return provider === 'Apple Preview' || provider === 'Deezer Preview';
 }
 
 export function isPreviewOnlyEntityId(id: string): boolean {
   return id.startsWith('itunes-') || id.startsWith('deezer-');
+}
+
+export function isFullTrack(song: Song): boolean {
+  return !isPreviewProvider(song.provider) && !isPreviewOnlyEntityId(song.id);
+}
+
+export function uniqueSongs(songs: Song[]): Song[] {
+  const seen = new Set<string>();
+  return songs.filter((song) => {
+    if (seen.has(song.id)) return false;
+    seen.add(song.id);
+    return true;
+  });
 }
 
 export function interleaveSongGroups(groups: Array<Song[] | undefined>, limit = Number.POSITIVE_INFINITY): Song[] {

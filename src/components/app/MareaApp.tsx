@@ -92,6 +92,7 @@ const VIEWS = {
     description: CHART_NOTE,
     fetchFn: (signal) => api.getChartSongs('billboard', signal),
     queryKey: ['chart', 'billboard'],
+    includePreviews: true,
   }),
   uk: category({
     view: 'uk',
@@ -99,6 +100,7 @@ const VIEWS = {
     description: CHART_NOTE,
     fetchFn: (signal) => api.getChartSongs('uk', signal),
     queryKey: ['chart', 'uk'],
+    includePreviews: true,
   }),
   jp: category({
     view: 'jp',
@@ -106,6 +108,7 @@ const VIEWS = {
     description: CHART_NOTE,
     fetchFn: (signal) => api.getChartSongs('jp', signal),
     queryKey: ['chart', 'jp'],
+    includePreviews: true,
   }),
   trending: category({
     view: 'trending',
