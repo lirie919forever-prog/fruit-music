@@ -56,3 +56,6 @@ next-env.d.ts
 /.edge-profile-2/
 /.edge-profile-3/
 deploy*.log
+*.png
+homepage-full.png
+uk-charts.png

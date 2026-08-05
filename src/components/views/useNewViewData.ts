@@ -169,7 +169,7 @@ export function useNewViewData(): NewViewData {
     [trendingData, popData, jazzData, remixData],
   );
   const bestNewSongs = useMemo(
-    () => interleaveSongsByProvider([trendingData, popData, jazzData, remixData, classicalData], 48),
+    () => interleaveSongsByProvider([trendingData, popData, jazzData, remixData, classicalData], 48).filter(isCuratableTitle),
     [trendingData, popData, jazzData, remixData, classicalData],
   );
   const releaseSongs = useMemo(
