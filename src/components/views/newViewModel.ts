@@ -28,7 +28,24 @@ export function isFullTrack(song: Song): boolean {
  * full-track filter so that label only promises direct, full-length sources.
  */
 export function isDirectFullTrack(song: Song): boolean {
-  return song.isLive !== true && isFullTrack(song) && !isResolverSource(song.provider);
+  // Include resolver sources (Kuwo, LX Music) whose tracks pass the full-track
+  // duration check. Excluding them entirely hid mainstream full-track search
+  // results behind the CC-only sources: a user searching for a chart artist
+  // saw covers and remixes, not the real full track that exists on Kuwo at
+  // 320kbps. isFullTrack already enforces a 45-second minimum for resolver
+  // tracks, so short preview clips are still excluded.
+  return song.isLive !== true && isFullTrack(song);
+}
+
+/**
+ * A track title ending in '.wav', '.ogg', '.mp3' or '.flac' is a raw filename
+ * from a public-domain media archive, not a curated release. These surface in
+ * the spotlight from time to time and produce a homepage hero that reads like a
+ * file manager. The spotlight and release-rail selections filter them out so
+ * the first impression is actual music, not a field recording.
+ */
+export function isCuratableTitle(song: Song): boolean {
+  return !/\.(wav|ogg|mp3|flac|m4a|aac|opus)$/i.test(song.title);
 }
 
 function isPreviewTrack(song: Song): boolean {

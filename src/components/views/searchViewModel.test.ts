@@ -114,17 +114,22 @@ describe('search view model', () => {
     ]);
   });
 
-  it('does not present an unverified resolver match as a direct full track', () => {
-    const direct = song('audius-direct', { provider: 'Audius' });
-    const resolverMatch = song('kuwo-match', { provider: 'Kuwo', duration: 241 });
+  it('presents full-length resolver matches alongside direct full tracks in full mode', () => {
+    // Different titles so they don't deduplicate as the same recording.
+    const direct = song('audius-direct', { provider: 'Audius', title: 'Direct Song' });
+    const resolverMatch = song('kuwo-match', { provider: 'Kuwo', duration: 241, title: 'Resolver Song' });
 
-    expect(rankSearchSongsForAccess([resolverMatch, direct], 'Cruel Summer', 'full').map(({ id }) => id)).toEqual([
-      'audius-direct',
-    ]);
-    expect(rankSearchSongsForAccess([resolverMatch, direct], 'Cruel Summer', 'preview')).toEqual([]);
-    expect(rankSearchSongsForAccess([resolverMatch, direct], 'Cruel Summer', 'all').map(({ id }) => id)).toEqual([
-      'audius-direct',
-    ]);
+    // Both are now included in 'full' mode: the Kuwo track has a full-track
+    // duration (241s >= 45s minimum) and the playback system handles resolver
+    // resolution with fallbacks. Hiding it from searches showed users only
+    // covers instead of the real track.
+    const fullResults = rankSearchSongsForAccess([resolverMatch, direct], 'Resolver Song', 'full').map(({ id }) => id);
+    expect(fullResults).toContain('audius-direct');
+    expect(fullResults).toContain('kuwo-match');
+    expect(rankSearchSongsForAccess([resolverMatch, direct], 'Resolver Song', 'preview')).toEqual([]);
+    const allResults = rankSearchSongsForAccess([resolverMatch, direct], 'Resolver Song', 'all').map(({ id }) => id);
+    expect(allResults).toContain('audius-direct');
+    expect(allResults).toContain('kuwo-match');
   });
 
   it('keeps every ranked track while separating a compact top-results shelf', () => {

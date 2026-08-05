@@ -5,7 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import type { FederatedResult, MusicCatalog } from '@/lib/catalogTypes';
 import { useMusicCatalog } from '@/lib/musicCatalog';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
-import { interleaveSongGroups, interleaveSongsByProvider, uniqueAlbumSongs } from './newViewModel';
+import { interleaveSongGroups, interleaveSongsByProvider,
+  isCuratableTitle, uniqueAlbumSongs } from './newViewModel';
 import type { Song } from '@/types/music';
 
 const shared = {
@@ -164,7 +165,7 @@ export function useNewViewData(): NewViewData {
     [popData, trendingData, jazzData, remixData, classicalData],
   );
   const spotlightSongs = useMemo(
-    () => uniqueAlbumSongs(interleaveSongsByProvider([trendingData, popData, jazzData, remixData], 48), 12),
+    () => uniqueAlbumSongs(interleaveSongsByProvider([trendingData, popData, jazzData, remixData], 48), 12).filter(isCuratableTitle),
     [trendingData, popData, jazzData, remixData],
   );
   const bestNewSongs = useMemo(
@@ -172,7 +173,7 @@ export function useNewViewData(): NewViewData {
     [trendingData, popData, jazzData, remixData, classicalData],
   );
   const releaseSongs = useMemo(
-    () => uniqueAlbumSongs([...(recentReleases.data ?? []), ...verifiedMix], 24),
+    () => uniqueAlbumSongs([...(recentReleases.data ?? []), ...verifiedMix], 24).filter(isCuratableTitle),
     [recentReleases.data, verifiedMix],
   );
 

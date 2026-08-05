@@ -139,12 +139,15 @@ describe('New view model', () => {
     expect(filterSongsByAccess([shortKuwo], 'preview')).toEqual([]);
   });
 
-  it('keeps unresolved full-length resolver matches out of explicit access filters', () => {
+  it('includes full-length resolver matches in explicit access filters', () => {
     const resolverMatch = { ...song('kuwo-match'), provider: 'Kuwo' as const, duration: 241 };
 
     expect(isFullTrack(resolverMatch)).toBe(true);
-    expect(isDirectFullTrack(resolverMatch)).toBe(false);
-    expect(filterSongsByAccess([resolverMatch], 'full')).toEqual([]);
+    // Resolver sources with a full-track duration (>= 45s) are now included
+    // in the 'Full tracks' filter so users searching for mainstream artists
+    // actually see the real, playable tracks from Kuwo/LX, not just CC covers.
+    expect(isDirectFullTrack(resolverMatch)).toBe(true);
+    expect(filterSongsByAccess([resolverMatch], 'full')).toEqual([resolverMatch]);
     expect(filterSongsByAccess([resolverMatch], 'preview')).toEqual([]);
     expect(filterSongsByAccess([resolverMatch], 'all')).toEqual([resolverMatch]);
   });
