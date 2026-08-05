@@ -1,24 +1,41 @@
 'use client';
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  HiArrowTopRightOnSquare,
-  HiChevronDoubleRight,
-  HiEllipsisHorizontal,
-  HiHeart,
-  HiOutlineHeart,
-  HiPlus,
-  HiQueueList,
-  HiSquares2X2,
-  HiUser,
-} from 'react-icons/hi2';
+  ExternalLink,
+  ChevronsRight,
+  MoreHorizontal,
+  Heart,
+  Plus,
+  ListMusic,
+  LayoutGrid,
+  Sparkles,
+  User,
+} from 'lucide-react';
+import { motion } from 'motion/react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { usePlayerStore } from '@/store/playerStore';
 import { AddToPlaylistDialog } from '@/components/ui/AddToPlaylistDialog';
 import type { NavigationItem } from '@/lib/navigation';
+import { buildStationQueue } from '@/components/views/newViewModel';
 import type { Song, ViewType } from '@/types/music';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 
 const MENU_WIDTH = 232;
 const VIEWPORT_MARGIN = 8;
+const OPEN_SCROLL_GRACE_MS = 250;
+
+function findScrollContainer(element: HTMLElement | null): HTMLElement | null {
+  let current = element?.parentElement ?? null;
+  while (current && current !== document.body) {
+    const styles = window.getComputedStyle(current);
+    if (/(?:auto|scroll|overlay)/.test(`${styles.overflow} ${styles.overflowX} ${styles.overflowY}`)) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
 
 interface MenuAction {
   key: string;
@@ -26,6 +43,8 @@ interface MenuAction {
   icon: ReactNode;
   href?: string;
   onSelect?: () => void;
+  closeOnSelect?: boolean;
+  disabled?: boolean;
   /**
    * Marks an item that toggles rather than fires. Rendered as
    * `role="menuitemcheckbox"` with `aria-checked`, which is the only way a menu
@@ -56,18 +75,23 @@ export function TrackMenu({
   const menuId = useId();
   const [open, setOpen] = useState(false);
   const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false);
+  const [stationStatus, setStationStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef<Array<HTMLButtonElement | HTMLAnchorElement | null>>([]);
+  const scrollGraceUntilRef = useRef(0);
 
   const playNext = usePlayerStore((state) => state.playNext);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
+  const playAlbum = usePlayerStore((state) => state.playAlbum);
+  const catalog = useMusicCatalog();
   const favorites = usePlayerStore((state) => state.favorites);
   const toggleFavorite = usePlayerStore((state) => state.toggleFavorite);
   const isFavorite = favorites.some((item) => item.id === song.id);
   const unavailable = song.playbackUnavailable === true;
+  const canStartStation = !unavailable && !song.isLive && song.genre.trim().length > 0;
 
   const close = useCallback((returnFocus = true) => {
     setOpen(false);
@@ -75,20 +99,52 @@ export function TrackMenu({
     if (returnFocus) triggerRef.current?.focus();
   }, []);
 
+  const startStation = useCallback(async () => {
+    if (stationStatus === 'loading') return;
+    setStationStatus('loading');
+    try {
+      const stationCatalog = await catalog.getGenreSongs(song.genre, 30);
+      const queue = buildStationQueue(song, stationCatalog.results, 12);
+      if (queue.length === 0) throw new Error('No playable station tracks were returned.');
+      playAlbum(queue, 0);
+      setStationStatus('idle');
+      close();
+    } catch {
+      setStationStatus('error');
+    }
+  }, [catalog, close, playAlbum, song, stationStatus]);
+
   const actions: MenuAction[] = [
+    ...(canStartStation
+      ? [
+          {
+            key: 'station',
+            label:
+              stationStatus === 'loading'
+                ? 'Starting station...'
+                : stationStatus === 'error'
+                  ? 'Try station again'
+                  : 'Start station',
+            icon: <Sparkles className="h-4 w-4" aria-hidden />,
+            onSelect: () => void startStation(),
+            closeOnSelect: false,
+            disabled: stationStatus === 'loading',
+          },
+        ]
+      : []),
     ...(unavailable
       ? []
       : [
           {
             key: 'next',
             label: 'Play next',
-            icon: <HiChevronDoubleRight className="h-4 w-4" aria-hidden />,
+            icon: <ChevronsRight className="h-4 w-4" aria-hidden />,
             onSelect: () => playNext(song),
           },
           {
             key: 'queue',
             label: 'Add to queue',
-            icon: <HiPlus className="h-4 w-4" aria-hidden />,
+            icon: <Plus className="h-4 w-4" aria-hidden />,
             onSelect: () => addToQueue(song),
           },
         ]),
@@ -96,17 +152,17 @@ export function TrackMenu({
       key: 'favorite',
       label: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
       icon: isFavorite ? (
-        <HiHeart className="h-4 w-4" aria-hidden />
+        <Heart className="h-4 w-4 fill-current" aria-hidden />
       ) : (
-        <HiOutlineHeart className="h-4 w-4" aria-hidden />
+        <Heart className="h-4 w-4" aria-hidden />
       ),
       onSelect: () => toggleFavorite(song),
       checked: isFavorite,
     },
     {
       key: 'playlist',
-      label: 'Add to playlist…',
-      icon: <HiQueueList className="h-4 w-4" aria-hidden />,
+      label: 'Add to playlist',
+      icon: <ListMusic className="h-4 w-4" aria-hidden />,
       onSelect: () => setPlaylistDialogOpen(true),
     },
     ...(onNavigateWithItem
@@ -114,7 +170,7 @@ export function TrackMenu({
           {
             key: 'artist',
             label: 'Go to artist',
-            icon: <HiUser className="h-4 w-4" aria-hidden />,
+            icon: <User className="h-4 w-4" aria-hidden />,
             onSelect: () => onNavigateWithItem('artists', { kind: 'artist', id: song.artistId }),
           },
           ...(song.albumId
@@ -122,7 +178,7 @@ export function TrackMenu({
                 {
                   key: 'album',
                   label: 'Go to album',
-                  icon: <HiSquares2X2 className="h-4 w-4" aria-hidden />,
+                  icon: <LayoutGrid className="h-4 w-4" aria-hidden />,
                   onSelect: () => onNavigateWithItem('albums', { kind: 'album', id: song.albumId }),
                 },
               ]
@@ -135,8 +191,8 @@ export function TrackMenu({
             key: 'source',
             // The licence name is the point of this entry, not decoration: it is how
             // a listener checks the terms the track is actually offered under.
-            label: `${song.provider} · ${song.licenseName || 'Provider terms'}`,
-            icon: <HiArrowTopRightOnSquare className="h-4 w-4" aria-hidden />,
+            label: `${song.provider} - ${song.licenseName || 'Provider terms'}`,
+            icon: <ExternalLink className="h-4 w-4" aria-hidden />,
             href: song.sourceUrl,
           },
         ]
@@ -163,12 +219,17 @@ export function TrackMenu({
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
-    itemsRef.current[activeIndex]?.focus();
+    // The first render is intentionally hidden at top:0 while the fixed panel
+    // measures itself. Focusing before placement makes the browser scroll to
+    // that temporary location, which the dismissal listener correctly sees as
+    // a user scroll and closes the menu during the same click.
+    if (!open || !position) return;
+    itemsRef.current[activeIndex]?.focus({ preventScroll: true });
   }, [open, activeIndex, position]);
 
   useEffect(() => {
     if (!open) return;
+    const scrollContainer = findScrollContainer(triggerRef.current);
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
@@ -176,7 +237,18 @@ export function TrackMenu({
     };
     // A menu anchored to the viewport would drift away from its row on scroll,
     // so scrolling dismisses it rather than chasing the trigger.
-    const onScroll = () => close(false);
+    const onScroll = (event: Event) => {
+      const target = event.target;
+      const isDocumentScroll =
+        target === window || target === document || target === document.documentElement || target === document.body;
+      if (!isDocumentScroll && target !== scrollContainer) return;
+      if (Date.now() < scrollGraceUntilRef.current) return;
+      // VirtualList emits an untrusted scroll event when it resynchronizes a
+      // newly visible scrollport. That is layout bookkeeping, not listener
+      // intent, and closing here makes a cold-load click look unreliable.
+      if (!event.isTrusted) return;
+      close(false);
+    };
     document.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
@@ -214,13 +286,17 @@ export function TrackMenu({
   };
 
   const openWith = (index: number) => {
+    // Focusing the first item and the surrounding virtualizer can produce a
+    // browser scroll while the fixed panel settles. It is not listener intent.
+    scrollGraceUntilRef.current = Date.now() + OPEN_SCROLL_GRACE_MS;
     setActiveIndex(index);
     setOpen(true);
   };
 
   return (
     <>
-      <button
+      <motion.button
+        whileTap={{ scale: 0.96 }}
         ref={triggerRef}
         type="button"
         aria-haspopup="menu"
@@ -240,84 +316,109 @@ export function TrackMenu({
         }}
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${open ? 'bg-[var(--glass-bg-hover)] text-[var(--salt-white)]' : ''} ${className}`}
       >
-        <HiEllipsisHorizontal className="h-5 w-5" aria-hidden />
-      </button>
-      {open && (
-        <div
-          ref={panelRef}
-          id={menuId}
-          role="menu"
-          aria-label={`Options for ${song.title}`}
-          onKeyDown={onKeyDown}
-          style={{
-            width: MENU_WIDTH,
-            // `visibility` rather than conditional rendering: the panel must be
-            // laid out before its height can decide up-versus-down placement.
-            top: position?.top ?? 0,
-            left: position?.left ?? 0,
-            visibility: position ? 'visible' : 'hidden',
-          }}
-          className="fixed z-[80] overflow-hidden rounded-xl border border-[var(--glass-border)] bg-white py-1 shadow-[0_16px_40px_rgba(16,47,69,0.18)]"
-        >
-          {actions.map((action, index) => {
-            const shared = {
-              tabIndex: index === activeIndex ? 0 : -1,
-              onMouseEnter: () => setActiveIndex(index),
-              className:
-                'flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] text-[var(--salt-white)] transition-colors hover:bg-[var(--glass-bg-hover)] focus:bg-[var(--glass-bg-hover)] focus:outline-none',
-            };
-            if (action.href) {
+        <MoreHorizontal className="h-5 w-5" aria-hidden />
+      </motion.button>
+      {open &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={panelRef}
+            id={menuId}
+            role="menu"
+            aria-label={`Options for ${song.title}`}
+            onKeyDown={onKeyDown}
+            style={{
+              width: MENU_WIDTH,
+              // `visibility` rather than conditional rendering: the panel must be
+              // laid out before its height can decide up-versus-down placement.
+              top: position?.top ?? 0,
+              left: position?.left ?? 0,
+              visibility: position ? 'visible' : 'hidden',
+            }}
+            className="marea-glass-panel fixed z-[80] overflow-hidden rounded-xl border py-1"
+          >
+            {actions.map((action, index) => {
+              const shared = {
+                tabIndex: index === activeIndex ? 0 : -1,
+                onMouseEnter: () => setActiveIndex(index),
+                className:
+                  'flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] text-[var(--salt-white)] transition-colors hover:bg-[var(--glass-bg-hover)] focus:bg-[var(--glass-bg-hover)] focus:outline-none disabled:cursor-wait disabled:opacity-60',
+              };
+              if (action.href) {
+                return (
+                  <motion.a
+                    whileTap={{ scale: 0.96 }}
+                    key={action.key}
+                    role="menuitem"
+                    {...shared}
+                    ref={(node) => {
+                      itemsRef.current[index] = node;
+                    }}
+                    href={action.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => close(false)}
+                  >
+                    <span className="shrink-0 text-[var(--salt-mist)]">{action.icon}</span>
+                    <span className="min-w-0 flex-1 truncate">{action.label}</span>
+                  </motion.a>
+                );
+              }
               return (
-                <a
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
                   key={action.key}
-                  role="menuitem"
                   {...shared}
                   ref={(node) => {
                     itemsRef.current[index] = node;
                   }}
-                  href={action.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => close(false)}
+                  type="button"
+                  disabled={action.disabled}
+                  role={action.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+                  aria-checked={action.checked}
+                  onClick={() => {
+                    action.onSelect?.();
+                    if (action.closeOnSelect !== false) close();
+                  }}
                 >
-                  <span className="shrink-0 text-[var(--salt-mist)]">{action.icon}</span>
+                  <span className={`shrink-0 ${action.checked ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'}`}>
+                    {action.icon}
+                  </span>
                   <span className="min-w-0 flex-1 truncate">{action.label}</span>
-                </a>
+                </motion.button>
               );
-            }
-            return (
-              <button
-                key={action.key}
-                {...shared}
-                ref={(node) => {
-                  itemsRef.current[index] = node;
-                }}
-                type="button"
-                role={action.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
-                aria-checked={action.checked}
-                onClick={() => {
-                  action.onSelect?.();
-                  close();
-                }}
+            })}
+            {stationStatus === 'loading' && (
+              <p
+                className="border-t border-[var(--glass-border)] px-3 py-2 text-[11px] leading-relaxed text-[var(--salt-mist)]"
+                role="status"
               >
-                <span className={`shrink-0 ${action.checked ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'}`}>
-                  {action.icon}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{action.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {playlistDialogOpen && (
-        <AddToPlaylistDialog
-          song={song}
-          onClose={() => {
-            setPlaylistDialogOpen(false);
-            triggerRef.current?.focus();
-          }}
-        />
-      )}
+                Finding similar full tracks...
+              </p>
+            )}
+            {stationStatus === 'error' && (
+              <p
+                className="border-t border-[var(--glass-border)] px-3 py-2 text-[11px] leading-relaxed text-[#8a5b19]"
+                role="alert"
+              >
+                The station could not be started. Try again.
+              </p>
+            )}
+          </div>,
+          document.body,
+        )}
+      {playlistDialogOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <AddToPlaylistDialog
+            song={song}
+            onClose={() => {
+              setPlaylistDialogOpen(false);
+              triggerRef.current?.focus();
+            }}
+          />,
+          document.body,
+        )}
     </>
   );
 }

@@ -39,6 +39,7 @@ describe('Deezer preview provider', () => {
     expect(song).toMatchObject({
       id: 'deezer-3881984711',
       duration: 30,
+      recordingDuration: 216,
       provider: 'Deezer Preview',
       path: '/api/music/deezer/stream/3881984711',
       licenseName: '30-second preview',

@@ -5,7 +5,12 @@ export interface ProviderCatalogResult<T> {
   degraded?: boolean;
 }
 
-export interface MusicProvider {
+/**
+ * Shared adapter contract for local files, public catalogs, and server-backed
+ * sources. UI code only receives normalized domain objects and never needs to
+ * know how a provider resolves or streams them.
+ */
+export interface IMusicProviderAdapter {
   getAlbums(signal?: AbortSignal): Promise<Album[]>;
   getAlbumsWithStatus?(signal?: AbortSignal): Promise<ProviderCatalogResult<Album>>;
   getAlbumById?(albumId: string, signal?: AbortSignal): Promise<Album | null>;
@@ -29,3 +34,6 @@ export interface MusicProvider {
   getTrendingWithStatus?(limit?: number, signal?: AbortSignal): Promise<ProviderCatalogResult<Song>>;
   lastCatalogDegraded?: boolean;
 }
+
+/** Backwards-compatible name used by the existing provider modules. */
+export type MusicProvider = IMusicProviderAdapter;

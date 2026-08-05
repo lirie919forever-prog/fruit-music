@@ -1,4 +1,5 @@
 import type { Song } from '@/types/music';
+import { isRuntimeProviderName } from '@/lib/sourceRegistry';
 
 /**
  * The shape check every untrusted `Song` has to pass before it reaches render.
@@ -32,6 +33,8 @@ export function isSong(value: unknown): value is Song {
     REQUIRED_STRINGS.every((field) => typeof song[field] === 'string') &&
     song.id !== '' &&
     typeof song.duration === 'number' &&
-    Number.isFinite(song.duration)
+    Number.isFinite(song.duration) &&
+    typeof song.provider === 'string' &&
+    isRuntimeProviderName(song.provider)
   );
 }

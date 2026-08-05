@@ -22,9 +22,12 @@ describe('Kuwo API route', () => {
   it('normalizes Kuwo search JSON and preserves query parameters', async () => {
     const GET = await loadRoute();
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response("{'abslist':[{'DC_TARGETID':'376838694','NAME':'海のまにまに&nbsp;','ARTIST':'YOASOBI','DURATION':'292'}]}", {
-        status: 200,
-      }),
+      new Response(
+        "{'abslist':[{'DC_TARGETID':'376838694','NAME':'海のまにまに&nbsp;','ARTIST':'YOASOBI','DURATION':'292'}]}",
+        {
+          status: 200,
+        },
+      ),
     );
 
     const response = await GET(request('search?key=YOASOBI'), { params: Promise.resolve({ path: ['search'] }) });
@@ -38,12 +41,75 @@ describe('Kuwo API route', () => {
     expect(new URL(String(url)).searchParams.get('all')).toBe('YOASOBI');
   });
 
+  it('repairs mojibake in parsed search metadata before returning JSON', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        "{'abslist':[{'DC_TARGETID':'1','NAME':'\u00e6\u00b5\u00b7\u00e3\u0081\u00ae\u00e3\u0081\u00be\u00e3\u0081\u00ab\u00e3\u0081\u00be\u00e3\u0081\u00ab','ARTIST':'YOASOBI','DURATION':'292'}]}",
+        { status: 200 },
+      ),
+    );
+
+    const response = await GET(request('search?key=YOASOBI'), { params: Promise.resolve({ path: ['search'] }) });
+
+    await expect(response.json()).resolves.toEqual({
+      abslist: [{ DC_TARGETID: '1', NAME: '\u6d77\u306e\u307e\u306b\u307e\u306b', ARTIST: 'YOASOBI', DURATION: '292' }],
+    });
+  });
+
+  it('parses apostrophes in Kuwo metadata without corrupting the payload', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        "{'abslist':[{'DC_TARGETID':'1','NAME':'Don\'t Stop Me Now','ARTIST':'Guns N\' Roses','ALBUM':'Greatest &amp; Hits','DURATION':'211'}]}",
+        { status: 200 },
+      ),
+    );
+
+    const response = await GET(request('search?key=queen'), { params: Promise.resolve({ path: ['search'] }) });
+
+    expect(await response.json()).toEqual({
+      abslist: [
+        {
+          DC_TARGETID: '1',
+          NAME: "Don't Stop Me Now",
+          ARTIST: "Guns N' Roses",
+          ALBUM: 'Greatest &amp; Hits',
+          DURATION: '211',
+        },
+      ],
+    });
+  });
+
+  it('recovers records with a missing quote before the next Kuwo field', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        "{'abslist':[{'DC_TARGETID':'556359138','NAME':'Blinding Lights','ALBUM':'BlindingLights24066249\\\\&quot;,'ALBUMID':'89229471','ARTIST':'The Weeknd','ARTISTID':'479756766','DURATION':'200'}]}",
+        { status: 200 },
+      ),
+    );
+
+    const response = await GET(request('search?key=Blinding%20Lights'), {
+      params: Promise.resolve({ path: ['search'] }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      abslist: [
+        expect.objectContaining({
+          DC_TARGETID: '556359138',
+          ALBUM: 'BlindingLights24066249\\&quot;',
+          ALBUMID: '89229471',
+        }),
+      ],
+    });
+  });
+
   it('proxies a full audio response and forwards range headers', async () => {
     const GET = await loadRoute();
     vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        new Response('http://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }),
-      )
+      .mockResolvedValueOnce(new Response('http://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
       .mockResolvedValueOnce(
         new Response('audio', {
           status: 206,
@@ -68,7 +134,91 @@ describe('Kuwo API route', () => {
     expect(new Headers(options?.headers).get('range')).toBe('bytes=0-4');
   });
 
-  it('rejects a resolver URL outside the Kuwo media CDN', async () => {
+  it('probes the resolved media before reporting a stream as available', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('http://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-1/181521',
+          },
+        }),
+      );
+
+    const response = await GET(request('url?rid=376838694&probe=1'), {
+      params: Promise.resolve({ path: ['url'] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ available: true, provider: 'Kuwo' });
+    const [, options] = vi.mocked(fetch).mock.calls[1];
+    expect(new Headers(options?.headers).get('range')).toBe('bytes=0-1');
+  });
+
+  it('rejects a resolver payload that is too small for the expected recording', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('http://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-1/181521',
+          },
+        }),
+      );
+
+    const response = await GET(request('url?rid=376838694&probe=1&expected=180'), {
+      params: Promise.resolve({ path: ['url'] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ available: false, provider: 'Kuwo', code: 'short' });
+  });
+
+  it('reports an unavailable media probe as a normal provider result', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('http://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
+      .mockResolvedValueOnce(new Response('blocked', { status: 403, headers: { 'content-type': 'text/plain' } }));
+
+    const response = await GET(request('url?rid=376838694&probe=1'), {
+      params: Promise.resolve({ path: ['url'] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ available: false, provider: 'Kuwo', code: 'unavailable' });
+  });
+
+  it('classifies Kuwo mobile-only resolver responses without exposing upstream text', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('当前音乐只在酷我手机端', { status: 200 }));
+
+    const response = await GET(request('url?rid=376838694'), { params: Promise.resolve({ path: ['url'] }) });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'This track is only available in the Kuwo mobile app.',
+      code: 'mobile_only',
+      provider: 'Kuwo',
+    });
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('keeps unknown non-URL resolver text generic', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('temporary upstream notice', { status: 200 }));
+
+    const response = await GET(request('url?rid=376838694'), { params: Promise.resolve({ path: ['url'] }) });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'Kuwo returned an invalid stream URL' });
+  });
+  it('rejects a resolver URL outside approved Kuwo media hosts', async () => {
     const GET = await loadRoute();
     vi.mocked(fetch).mockResolvedValueOnce(new Response('http://169.254.169.254/latest/meta-data', { status: 200 }));
 

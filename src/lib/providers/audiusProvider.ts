@@ -1,6 +1,6 @@
 import type { MusicProvider } from './types';
 import { providerFetch } from './errors';
-import { createDeterministicCover } from '@/lib/coverArt';
+import { createDeterministicCover, safeCoverArt } from '@/lib/coverArt';
 import type { Album, Artist, Song } from '@/types/music';
 
 const PROXY_BASE = '/api/music/audius';
@@ -18,6 +18,13 @@ interface AudiusUser {
   album_count?: number;
   is_available?: boolean;
   is_deactivated?: boolean;
+  profile_picture?: AudiusArtwork | null;
+}
+
+interface AudiusArtwork {
+  '150x150'?: string;
+  '480x480'?: string;
+  '1000x1000'?: string;
 }
 
 interface AudiusAlbumBacklink {
@@ -40,6 +47,7 @@ export interface AudiusTrack {
   permalink?: string;
   user?: AudiusUser;
   album_backlink?: AudiusAlbumBacklink | null;
+  artwork?: AudiusArtwork | null;
 }
 
 interface AudiusAlbum {
@@ -97,6 +105,12 @@ function albumNameFor(track: AudiusTrack): string {
   return track.album_backlink?.title || track.album_backlink?.playlist_name || 'Audius singles';
 }
 
+function artworkOrFallback(artwork: AudiusArtwork | null | undefined, seed: string, hueOffset = 175): string {
+  const source = artwork?.['1000x1000'] || artwork?.['480x480'] || artwork?.['150x150'];
+  const safe = safeCoverArt(source);
+  return safe === '/placeholder-album.svg' ? createDeterministicCover(seed, hueOffset) : safe;
+}
+
 function isPlayableTrack(track: AudiusTrack): track is AudiusTrack & { id: string; title: string; user: AudiusUser } {
   return (
     isAudiusId(track.id) &&
@@ -133,10 +147,10 @@ export function audiusTrackToSong(track: AudiusTrack, index = 0): Song | null {
     artistId: `audius-artist-${user.id}`,
     album: albumNameFor(track),
     albumId: albumIdFor(track, user),
-    // Artwork and audio are served from a changing validator mesh. The stream
-    // stays on Audius's stable API endpoint, while a deterministic cover avoids
-    // granting the image optimizer a broad, mutable node-host allowlist.
-    coverArt: createDeterministicCover(`${user.name}:${track.title}`, 175),
+    // Artwork and audio are served from a changing validator mesh. The shared
+    // artwork guard accepts only Audius's known content host shapes, with a
+    // generated cover as the fallback for older records with no artwork.
+    coverArt: artworkOrFallback(track.artwork, `${user.name}:${track.title}`, 175),
     duration: Math.round(track.duration!),
     track: index + 1,
     year: year(track.release_date || track.created_at),
@@ -171,7 +185,7 @@ function audiusAlbumToAlbum(album: AudiusAlbum): Album | null {
     name: album.playlist_name,
     artist: album.user.name,
     artistId: `audius-artist-${album.user.id}`,
-    coverArt: createDeterministicCover(`${album.user.name}:${album.playlist_name}`, 175),
+    coverArt: artworkOrFallback(album.user.profile_picture, `${album.user.name}:${album.playlist_name}`, 175),
     songCount: album.track_count ?? 0,
     duration: 0,
     year: year(album.created_at),
@@ -184,7 +198,7 @@ function audiusUserToArtist(user: AudiusUser): Artist | null {
   return {
     id: `audius-artist-${user.id}`,
     name: user.name,
-    coverArt: createDeterministicCover(user.name, 175),
+    coverArt: artworkOrFallback(user.profile_picture, user.name, 175),
     albumCount: user.album_count ?? 0,
   };
 }

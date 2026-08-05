@@ -1,6 +1,6 @@
 # Marea
 
-Marea is a blue-white ocean Creative Commons music app built with Next.js 16, React 19, Zustand, React Query, and Howler. It browses verified music from Jamendo, ccMixter, and the Internet Archive, plus Apple's published charts as 30-second previews, with a separate opt-in LX Music integration. It installs as a PWA, drives the OS media controls, shows synced lyrics from LRCLIB where they honestly fit the audio, and can stop itself on a sleep timer.
+Marea is a blue-white Ocean music app built with Next.js 16, React 19, Zustand, React Query, and Howler. It browses verified music from Jamendo, ccMixter, the Internet Archive, Audius, Kuwo, and Apple's published charts, with a separate opt-in LX Music integration. It can run in a browser or Electron, imports local audio, drives OS media controls, shows synced lyrics from LRCLIB where they fit the actual recording, and can stop itself on a sleep timer.
 
 ## Requirements
 
@@ -44,6 +44,15 @@ Marea is a blue-white ocean Creative Commons music app built with Next.js 16, Re
 
 4. Open [http://localhost:3000](http://localhost:3000).
 
+For the desktop shell, use `npm run electron:dev`. It starts the Next development server and a secured Electron window. If a Next server is already running, attach to it without competing for the `.next` lock:
+
+```powershell
+$env:MAREA_URL = 'http://localhost:3021'
+npm run desktop:dev
+```
+
+Set `MAREA_PORT` instead when the launcher should start a fresh server on a different local port. `npm run electron:build` verifies the production renderer build; packaging can be added later without changing the renderer/preload boundary.
+
 Curated Pop, J-Pop, and Classical views use verified Jamendo tracks. Trending combines provider-backed Jamendo and ccMixter signals; federated search can include verified Archive tracks after exact media and licensing metadata are resolved. Albums are provider-backed summaries, and ccMixter/Archive remain available where their metadata satisfies the app's provenance and playback requirements. When a provider fails, healthy provider results remain available and the UI reports the degraded source honestly.
 
 LX Music custom sources are intentionally unsupported, even when LX is enabled. The application never downloads or executes arbitrary custom-source scripts. Those scripts are executable, undocumented provider adapters rather than a stable, rights-cleared HTTP API; running them would bypass this app's host validation and credential boundaries.
@@ -58,15 +67,18 @@ npm run test       # Vitest unit and route tests
 npm run check      # lint, typecheck, and tests
 npm run build      # production build
 npm run start      # serve the production build
+npm run electron:dev   # Next dev server plus Electron shell
+npm run electron:build # production renderer build used by the shell
 ```
 
 ## Architecture constraints
 
 [PRD.md](PRD.md) is the current source of truth. In particular:
 
-- Lists and grids render their complete in-memory arrays without virtualization or pagination.
+- Large lists use `VirtualList` backed by `@tanstack/react-virtual`; collection fetches remain provider-owned and are not duplicated in UI state.
 - Albums and artists are summaries; full song queues are fetched on demand.
 - The bottom player height and the clearance the scrolling pane leaves for it are one pair of CSS custom properties, `--player-bar-height` (72px) and `--player-bar-clearance`, rather than two numbers written out separately in the bar and the shell.
+- Shell preferences persist through Electron `userData` when available and browser storage otherwise, including Ocean/Midnight theme, queue panel mode, sidebar mode, typography, and player atmosphere controls.
 
 ## Installing as an app
 
@@ -91,6 +103,10 @@ Lyrics come from [LRCLIB](https://lrclib.net), a free public database of communi
 **Why the panel often refuses to scroll.** LRCLIB's timings are measured from the start of the full commercial recording. Most chart tracks here play as Apple's thirty-second previews, which are a clip from the middle of that recording — so every timestamp is measured from a zero that is not the clip's zero. Following them anyway highlights the wrong line for the whole clip and makes clicking one seek somewhere unrelated. `syncFitsTrack` in `src/lib/lyrics/lrc.ts` detects a document that outruns what is playing and the panel falls back to plain text with a note saying why. Full-length Creative Commons recordings scroll normally when LRCLIB happens to hold them, which is rarely — independent CC music is not what its contributors transcribe.
 
 The built-in rate limiter is a bounded, best-effort guard keyed by trusted proxy client address and route bucket. Its state is local to one application instance. Production deployments that need deployment-wide enforcement must add a distributed or platform-level rate limit and ensure the proxy overwrites `X-Real-IP` or `X-Forwarded-For`.
+
+### Keyboard controls
+
+Space toggles playback; Left/Right seek by five seconds; Up/Down change volume by five percent; `M` toggles mute; `N` and `P` move through the queue. `Ctrl/Cmd+O` imports local audio, `Ctrl/Cmd+L` opens lyrics, `Ctrl/Cmd+Q` toggles the queue surface, `Ctrl/Cmd+,` opens settings, `F` toggles fullscreen lyrics, and `T` switches Ocean/Midnight. Editable fields keep their normal text-editing behavior.
 
 ### ccMixter response headers
 

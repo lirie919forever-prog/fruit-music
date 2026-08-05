@@ -41,6 +41,31 @@ describe('Audius provider', () => {
     expect(song?.coverArt).toMatch(/^data:image\/svg\+xml/);
   });
 
+  it('uses the creator artwork when Audius returns an approved content URL', () => {
+    const song = audiusTrackToSong(
+      track({
+        artwork: {
+          '150x150': 'https://audius-content-12.figment.io/content/cid/150x150.jpg',
+          '480x480': 'https://audius-content-12.figment.io/content/cid/480x480.jpg',
+        },
+      }),
+    );
+
+    expect(song?.coverArt).toBe('https://audius-content-12.figment.io/content/cid/480x480.jpg');
+  });
+
+  it('keeps artwork served by the live Audius validator mesh', () => {
+    const song = audiusTrackToSong(
+      track({
+        artwork: {
+          '1000x1000': 'https://val011.open-audio-validator.com/content/cid/1000x1000.jpg',
+        },
+      }),
+    );
+
+    expect(song?.coverArt).toBe('https://val011.open-audio-validator.com/content/cid/1000x1000.jpg');
+  });
+
   it('uses a fresh Audius redirect URL for every playback attempt', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1_785_222_409_000);
     const song = audiusTrackToSong(track())!;

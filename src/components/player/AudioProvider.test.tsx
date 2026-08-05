@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEffect } from 'react';
 import { act, render, waitFor } from '@testing-library/react';
 import type { Song } from '@/types/music';
+import type { MusicCatalog } from '@/lib/catalogTypes';
+import { MusicCatalogProvider } from '@/lib/musicCatalog';
 
 /**
  * A stand-in for Howler that never touches audio.
@@ -90,12 +92,25 @@ const fakeHowler: { _canPlayEvent?: string } = { _canPlayEvent: 'canplaythrough'
 vi.mock('howler', () => ({ Howl: FakeHowl, Howler: fakeHowler }));
 
 const streamUrl = vi.fn<(song: Song) => Promise<string>>();
-vi.mock('@/lib/api', () => ({
-  api: {
-    getStreamUrl: (song: Song) => streamUrl(song),
-    getPlaybackSource: (song: Song) => streamUrl(song).then((url) => ({ song, streamUrl: url })),
-  },
-}));
+const getPlaybackSource =
+  vi.fn<
+    (song: Song) => Promise<{ song: Song; streamUrl: string; candidates?: Array<{ song: Song; streamUrl?: string }> }>
+  >();
+const getPlaybackAlternates = vi.fn<(song: Song) => Promise<Array<{ song: Song; streamUrl?: string }>>>();
+const getGenreSongs =
+  vi.fn<
+    (
+      tag: string,
+      limit?: number,
+      signal?: AbortSignal,
+    ) => Promise<{ results: Song[]; failedProviders: string[]; providerCount: number }>
+  >();
+const catalog = {
+  getStreamUrl: (song: Song) => streamUrl(song),
+  getPlaybackSource: (song: Song) => getPlaybackSource(song),
+  getPlaybackAlternates: (song: Song) => getPlaybackAlternates(song),
+  getGenreSongs: (tag: string, limit?: number, signal?: AbortSignal) => getGenreSongs(tag, limit, signal),
+} as MusicCatalog;
 
 const { AudioProvider, useAudio } = await import('./AudioProvider');
 const { PlayerStoreProvider, usePlayerStoreApi } = await import('@/store/playerStore');
@@ -156,10 +171,12 @@ function SeekProbe() {
 function mount() {
   return render(
     <PlayerStoreProvider initialView="albums" initialQuery="">
-      <AudioProvider>
-        <Probe />
-        <SeekProbe />
-      </AudioProvider>
+      <MusicCatalogProvider catalog={catalog}>
+        <AudioProvider>
+          <Probe />
+          <SeekProbe />
+        </AudioProvider>
+      </MusicCatalogProvider>
     </PlayerStoreProvider>,
   );
 }
@@ -176,6 +193,14 @@ beforeEach(() => {
   fakeHowler._canPlayEvent = 'canplaythrough';
   streamUrl.mockReset();
   streamUrl.mockResolvedValue('https://cdn.example/audio.mp3');
+  getPlaybackSource.mockReset();
+  // The default: getPlaybackSource resolves the catalog song itself to a stream,
+  // so no fallback identity is published (resolvedSong.id === song.id).
+  getPlaybackSource.mockImplementation((s) => streamUrl(s).then((url) => ({ song: s, streamUrl: url })));
+  getPlaybackAlternates.mockReset();
+  getPlaybackAlternates.mockResolvedValue([]);
+  getGenreSongs.mockReset();
+  getGenreSongs.mockResolvedValue({ results: [], failedProviders: [], providerCount: 0 });
   window.localStorage.clear();
   vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1 as unknown as number);
   vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
@@ -221,6 +246,95 @@ describe('load and play', () => {
     view.unmount();
   });
 
+  it('skips a short decoded clip and advances to an attached full-track candidate', async () => {
+    const catalogSong = song('catalog', { provider: 'Kuwo', duration: 184 });
+    const alternate = song('alternate', { provider: 'Jamendo', duration: 184 });
+    getPlaybackSource.mockResolvedValue({
+      song: catalogSong,
+      streamUrl: 'https://cdn.example/short.mp3',
+      candidates: [{ song: catalogSong, streamUrl: 'https://cdn.example/short.mp3' }, { song: alternate }],
+    });
+
+    const view = mount();
+    act(() => {
+      store.getState().playSong(catalogSong);
+    });
+
+    const first = await latestHowl();
+    first.setDuration(11);
+    act(() => {
+      first.fire('onload');
+    });
+
+    expect(first.unloaded).toBe(true);
+    expect(store.getState().status).toBe('loading');
+    const second = await latestHowl(1);
+    second.setDuration(184);
+    act(() => {
+      second.fire('onload');
+    });
+
+    expect(store.getState()).toMatchObject({ duration: 184, isPlaying: true, status: 'playing' });
+    expect(streamUrl).toHaveBeenCalledWith(alternate);
+    view.unmount();
+  });
+
+  it('resolves recovery candidates lazily after a direct source decodes as a short clip', async () => {
+    const catalogSong = song('catalog', { provider: 'Kuwo', duration: 184 });
+    const alternate = song('alternate', { provider: 'Audius', duration: 184 });
+    getPlaybackSource.mockResolvedValue({
+      song: catalogSong,
+      streamUrl: 'https://cdn.example/short.mp3',
+    });
+    getPlaybackAlternates.mockResolvedValue([{ song: alternate }]);
+
+    const view = mount();
+    act(() => {
+      store.getState().playSong(catalogSong);
+    });
+
+    const first = await latestHowl();
+    first.setDuration(11);
+    act(() => {
+      first.fire('onload');
+    });
+
+    await waitFor(() => expect(getPlaybackAlternates).toHaveBeenCalledWith(catalogSong));
+    const second = await latestHowl(1);
+    second.setDuration(184);
+    act(() => {
+      second.fire('onload');
+    });
+
+    expect(store.getState()).toMatchObject({ duration: 184, isPlaying: true, status: 'playing' });
+    expect(streamUrl).toHaveBeenCalledWith(alternate);
+    view.unmount();
+  });
+
+  it('tries the first alternate when the resolver cannot produce a direct source', async () => {
+    const catalogSong = song('catalog', { provider: 'Kuwo', duration: 184 });
+    const alternate = song('alternate', { provider: 'Audius', duration: 184 });
+    getPlaybackSource.mockRejectedValue(new Error('short resolver response'));
+    getPlaybackAlternates.mockResolvedValue([{ song: alternate }]);
+
+    const view = mount();
+    act(() => {
+      store.getState().playSong(catalogSong);
+    });
+
+    await waitFor(() => expect(getPlaybackAlternates).toHaveBeenCalledWith(catalogSong));
+    const fallback = await latestHowl();
+    fallback.setDuration(184);
+    act(() => {
+      fallback.fire('onload');
+    });
+
+    expect(store.getState()).toMatchObject({ duration: 184, isPlaying: true, status: 'playing' });
+    expect(streamUrl).toHaveBeenCalledWith(alternate);
+    expect(store.getState().currentSong?.id).toBe(catalogSong.id);
+    view.unmount();
+  });
+
   it('refuses a track whose length neither the decoder nor the catalog knows', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = mount();
@@ -260,6 +374,10 @@ describe('load and play', () => {
     howl.setDuration(Number.POSITIVE_INFINITY);
     act(() => {
       howl.fire('onload');
+      howl.emitOnce('load');
+    });
+    await act(async () => {
+      await Promise.resolve();
     });
 
     expect(store.getState()).toMatchObject({ duration: 0, isPlaying: true, status: 'playing' });
@@ -391,8 +509,84 @@ describe('premature end recovery', () => {
   });
 });
 
+describe('autoplay', () => {
+  it('appends verified recommendations and advances when the explicit queue ends', async () => {
+    const recommendations = [song('b', { genre: 'Test' }), song('c', { genre: 'Test' })];
+    getGenreSongs.mockResolvedValue({ results: recommendations, failedProviders: [], providerCount: 1 });
+    const view = mount();
+    act(() => {
+      store.getState().playSong(song('a', { genre: 'Test' }));
+    });
+
+    const first = await latestHowl();
+    act(() => {
+      first.fire('onload');
+    });
+    first.seek(100);
+    act(() => {
+      first.fire('onend');
+    });
+
+    await waitFor(() => expect(store.getState().currentSong?.id).toBe('b'));
+    expect(getGenreSongs).toHaveBeenCalledWith('Test', 18, expect.any(AbortSignal));
+    expect(store.getState().queue.map((item) => item.song.id)).toEqual(['a', 'b', 'c']);
+    expect(
+      store
+        .getState()
+        .queue.slice(1)
+        .map((item) => item.addedBy),
+    ).toEqual(['autoplay', 'autoplay']);
+    view.unmount();
+  });
+
+  it('honors autoplay being disabled while recommendations are loading', async () => {
+    let release: (value: { results: Song[]; failedProviders: string[]; providerCount: number }) => void = () => {};
+    getGenreSongs.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const view = mount();
+    act(() => {
+      store.getState().playSong(song('a', { genre: 'Test' }));
+    });
+
+    const first = await latestHowl();
+    act(() => {
+      first.fire('onload');
+    });
+    first.seek(100);
+    act(() => {
+      first.fire('onend');
+    });
+    await waitFor(() => expect(getGenreSongs).toHaveBeenCalled());
+
+    act(() => {
+      store.getState().toggleAutoplay();
+    });
+    await act(async () => {
+      release({ results: [song('b', { genre: 'Test' })], failedProviders: [], providerCount: 1 });
+    });
+
+    await waitFor(() => expect(store.getState().status).toBe('paused'));
+    expect(store.getState().autoplay).toBe(false);
+    expect(store.getState().currentSong?.id).toBe('a');
+    expect(store.getState().queue).toHaveLength(1);
+    view.unmount();
+  });
+});
+
 describe('load timeout and auto-skip', () => {
-  it('fails a load that never completes', async () => {
+  async function exhaustLoadTimeoutRetries() {
+    await act(async () => {
+      // Three 15-second attempts, followed by the existing 300ms and 600ms
+      // retry backoffs. The timeout now uses the same retry ladder as loaderror.
+      await vi.advanceTimersByTimeAsync(45_900);
+    });
+  }
+
+  it('retries a load that never completes before reporting the timeout', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = mount();
     act(() => {
@@ -400,10 +594,9 @@ describe('load timeout and auto-skip', () => {
     });
     await latestHowl();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(15_000);
-    });
+    await exhaustLoadTimeoutRetries();
 
+    expect(FakeHowl.instances).toHaveLength(3);
     expect(store.getState()).toMatchObject({ status: 'error' });
     expect(store.getState().error).toContain('took too long to load');
     view.unmount();
@@ -417,9 +610,7 @@ describe('load timeout and auto-skip', () => {
     });
     await latestHowl();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(15_000);
-    });
+    await exhaustLoadTimeoutRetries();
     expect(store.getState().status).toBe('error');
 
     await act(async () => {
@@ -437,9 +628,7 @@ describe('load timeout and auto-skip', () => {
     });
     await latestHowl();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(15_000 + 2_000);
-    });
+    await exhaustLoadTimeoutRetries();
 
     expect(store.getState()).toMatchObject({ status: 'error' });
     expect(store.getState().currentSong?.id).toBe('only');
@@ -454,9 +643,7 @@ describe('load timeout and auto-skip', () => {
     });
     await latestHowl();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(15_000);
-    });
+    await exhaustLoadTimeoutRetries();
     expect(store.getState().status).toBe('error');
 
     // Pressing play moves status off 'error', which is the signal the timer
@@ -854,6 +1041,128 @@ describe('sleep timer', () => {
     });
 
     expect(store.getState().isPlaying).toBe(true);
+    view.unmount();
+  });
+});
+
+/**
+ * A catalog row the user picked often resolves playback to a different — full,
+ * verified — track: Apple/Deezer previews silently swap for a Kuwo/LX recording
+ * with another id and another duration. The provider keeps `currentSong` as the
+ * catalog identity (artwork, attribution, queue) but publishes the resolved
+ * recording as `effectiveSong`, which is what lyrics match against. Without this,
+ * LRCLIB is asked for a thirty-second song and the timed document cannot sync to
+ * the clip that is actually playing.
+ */
+describe('effective playback identity', () => {
+  it('publishes the resolved track when playback swaps in a different recording', async () => {
+    const catalog = song('apple-1', { provider: 'Apple Preview', duration: 30 });
+    const resolved = song('kuwo-1', { provider: 'Kuwo', duration: 240 });
+    getPlaybackSource.mockImplementation(async () => ({
+      song: resolved,
+      streamUrl: 'https://cdn.example/kuwo.mp3',
+    }));
+
+    const view = mount();
+    act(() => {
+      store.getState().playSong(catalog);
+    });
+
+    await latestHowl();
+    // currentSong keeps the catalog identity the user picked — artwork,
+    // attribution and the queue stay keyed to what was selected.
+    expect(store.getState().currentSong?.id).toBe('apple-1');
+    // effectiveSong is the recording actually playing, so lyrics query its
+    // title/artist/duration rather than the preview's.
+    await waitFor(() => expect(store.getState().effectiveSong?.id).toBe('kuwo-1'));
+    expect(store.getState().effectiveSong).toMatchObject({ provider: 'Kuwo', duration: 240 });
+    view.unmount();
+  });
+
+  it('clears the resolved track on every new selection so it never lingers onto the next pick', async () => {
+    const catalog = song('apple-1', { provider: 'Apple Preview', duration: 30 });
+    const resolved = song('kuwo-1', { provider: 'Kuwo', duration: 240 });
+    getPlaybackSource.mockImplementation(async () => ({
+      song: resolved,
+      streamUrl: 'https://cdn.example/kuwo.mp3',
+    }));
+
+    const view = mount();
+    act(() => {
+      store.getState().playSong(catalog);
+    });
+    await latestHowl();
+    await waitFor(() => expect(store.getState().effectiveSong?.id).toBe('kuwo-1'));
+
+    // A new selection must reset the resolved identity before it resolves again,
+    // or the lyrics panel would briefly query the previous track's record.
+    getPlaybackSource.mockImplementation(async (s) => ({
+      song: s,
+      streamUrl: 'https://cdn.example/next.mp3',
+    }));
+    act(() => {
+      store.getState().playSong(song('plain-1'));
+    });
+    // Clear happens synchronously at the start of the load effect, before the
+    // new resolution lands, so there is no window where a stale fallback survives.
+    await waitFor(() => expect(store.getState().effectiveSong).toBeNull());
+    expect(store.getState().currentSong?.id).toBe('plain-1');
+    view.unmount();
+  });
+
+  it('moves to the next verified candidate when the first stream cannot load', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const catalog = song('apple-1', { provider: 'Apple Preview', duration: 30 });
+    const first = song('kuwo-1', { provider: 'Kuwo', duration: 240 });
+    const second = song('lxmusic-1', { provider: 'LX Music', duration: 242 });
+    getPlaybackSource.mockResolvedValue({
+      song: first,
+      streamUrl: 'https://cdn.example/kuwo.mp3',
+      candidates: [{ song: first, streamUrl: 'https://cdn.example/kuwo.mp3' }, { song: second }],
+    });
+    streamUrl.mockImplementation(async (resolved) => {
+      if (resolved.id === 'lxmusic-1') return 'https://cdn.example/lx.mp3';
+      return 'https://cdn.example/kuwo.mp3';
+    });
+
+    const view = mount();
+    act(() => {
+      store.getState().playSong(catalog);
+    });
+
+    const firstHowl = await latestHowl();
+    act(() => {
+      firstHowl.fire('onloaderror');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    const secondHowl = await latestHowl(1);
+    expect(streamUrl).toHaveBeenCalledWith(second);
+
+    act(() => {
+      secondHowl.fire('onload');
+    });
+    expect(store.getState()).toMatchObject({
+      currentSong: expect.objectContaining({ id: 'apple-1' }),
+      effectiveSong: expect.objectContaining({ id: 'lxmusic-1', duration: 242 }),
+      status: 'playing',
+    });
+    expect(secondHowl.src).toEqual(['https://cdn.example/lx.mp3']);
+    view.unmount();
+  });
+  it('publishes nothing when the resolved track is the catalog row itself', async () => {
+    // A track that is already a full, verified recording resolves to itself.
+    // There is no swap, so no resolved identity is published — `effectiveSong`
+    // stays null and lyrics fall back to the catalog row, which is correct.
+    const view = mount();
+    act(() => {
+      store.getState().playSong(song('jamendo-1', { provider: 'Jamendo', duration: 200 }));
+    });
+    await latestHowl();
+    await waitFor(() => expect(store.getState().status).toBe('loading'));
+    expect(store.getState().currentSong?.id).toBe('jamendo-1');
+    expect(store.getState().effectiveSong).toBeNull();
     view.unmount();
   });
 });

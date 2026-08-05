@@ -1,18 +1,19 @@
 'use client';
 
+import { ArrowUpDown, Play } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { HiArrowsRightLeft, HiPlay } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { SongRail } from './SongCard';
 import { playableSongs } from './newViewModel';
 import { CoverArt } from '@/components/ui/CoverArt';
-import { AlbumTile, TILE_GRID } from '@/components/ui/CatalogTile';
+import { AlbumTile } from '@/components/ui/CatalogTile';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
-import { api } from '@/lib/api';
+import { VirtualGrid } from '@/components/ui/VirtualGrid';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Album, Artist, Song, ViewType } from '@/types/music';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 
 function isAlbum(item: Album | Artist): item is Album {
   return 'artist' in item && 'songCount' in item;
@@ -45,6 +46,7 @@ export function ProviderDetailView({
   onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
 }) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
+  const catalog = useMusicCatalog();
 
   const metaQueryKey: readonly [string, string, string] =
     kind === 'album' ? ['detail', 'album', id] : ['detail', 'artist', id];
@@ -58,7 +60,7 @@ export function ProviderDetailView({
   } = useQuery({
     queryKey: metaQueryKey,
     queryFn: ({ signal }): Promise<Album | Artist | null> =>
-      kind === 'album' ? api.resolveAlbum(id, signal) : api.resolveArtist(id, signal),
+      kind === 'album' ? catalog.resolveAlbum(id, signal) : catalog.resolveArtist(id, signal),
     staleTime: 60_000,
     retry: 1,
   });
@@ -73,7 +75,8 @@ export function ProviderDetailView({
     refetch: refetchTracks,
   } = useQuery({
     queryKey: trackQueryKey,
-    queryFn: ({ signal }) => (kind === 'album' ? api.getAlbumSongs(id, signal) : api.getArtistSongs(id, signal)),
+    queryFn: ({ signal }) =>
+      kind === 'album' ? catalog.getAlbumSongs(id, signal) : catalog.getArtistSongs(id, signal),
     staleTime: catalogStaleTime(countListResults),
     retry: 1,
   });
@@ -84,7 +87,7 @@ export function ProviderDetailView({
   // simply shows no section rather than blocking the page.
   const { data: artistAlbums } = useQuery({
     queryKey: ['artistAlbums', id],
-    queryFn: ({ signal }) => api.getArtistAlbums(id, signal),
+    queryFn: ({ signal }) => catalog.getArtistAlbums(id, signal),
     enabled: kind === 'artist',
     staleTime: 60_000,
     retry: 1,
@@ -241,9 +244,9 @@ export function ProviderDetailView({
               type="button"
               onClick={() => playAlbum(playableTracks, 0)}
               disabled={playableTracks.length === 0}
-              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#d84f5f] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[#bd3f4f] disabled:cursor-not-allowed disabled:bg-[#a7b3ba]"
+              className="marea-primary-action inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed"
             >
-              <HiPlay className="h-3.5 w-3.5" aria-hidden />
+              <Play className="h-3.5 w-3.5" aria-hidden />
               Play
             </button>
             <button
@@ -252,7 +255,7 @@ export function ProviderDetailView({
               disabled={playableTracks.length === 0}
               className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--glass-border)] bg-white px-4 text-[13px] font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <HiArrowsRightLeft className="h-3.5 w-3.5" aria-hidden />
+              <ArrowUpDown className="h-3.5 w-3.5" aria-hidden />
               Shuffle
             </button>
           </div>
@@ -300,11 +303,14 @@ export function ProviderDetailView({
           <h3 className="mb-3 text-[17px] font-bold tracking-[-0.01em] text-[var(--salt-white)]">
             Albums <span className="font-normal text-[var(--salt-mist)]">· {artistAlbums.length}</span>
           </h3>
-          <div className={TILE_GRID}>
-            {artistAlbums.map((album) => (
-              <AlbumTile key={album.id} album={album} onNavigateWithItem={onNavigateWithItem} />
-            ))}
-          </div>
+          <VirtualGrid
+            items={artistAlbums}
+            estimateRowSize={230}
+            minColumnWidth={150}
+            label="Artist albums"
+            getItemKey={(album) => album.id}
+            renderItem={(album) => <AlbumTile album={album} onNavigateWithItem={onNavigateWithItem} />}
+          />
         </div>
       )}
     </section>

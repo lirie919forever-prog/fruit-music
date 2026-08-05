@@ -2,7 +2,11 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AudioProvider } from '@/components/player/AudioProvider';
+import { ToastProvider } from '@/components/ui/Toast';
+import { api } from '@/lib/api';
+import { MusicCatalogProvider } from '@/lib/musicCatalog';
 import { useState, type ReactNode } from 'react';
+import { MotionConfig } from 'motion/react';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -32,7 +36,13 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AudioProvider>{children}</AudioProvider>
+      <MotionConfig reducedMotion="user">
+        <MusicCatalogProvider catalog={api}>
+          <ToastProvider>
+            <AudioProvider>{children}</AudioProvider>
+          </ToastProvider>
+        </MusicCatalogProvider>
+      </MotionConfig>
     </QueryClientProvider>
   );
 }

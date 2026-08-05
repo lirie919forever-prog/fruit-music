@@ -72,9 +72,11 @@ const viewTitles: Record<ViewType, string> = {
   billboard: 'US Charts',
   uk: 'UK Charts',
   trending: 'Trending',
+  radio: 'Radio',
   remixes: 'Remixes',
   jazz: 'Jazz',
   classical: 'Classical',
+  sources: 'Sources',
 };
 
 export function getViewTitle(view: ViewType): string {

@@ -5,18 +5,27 @@ import {
   audiusProvider,
   ccmixterProvider,
   deezerProvider,
+  fipProvider,
   getMusicProviderForAlbumId,
   getMusicProviderForArtistId,
+  getMusicProviderForName,
   getMusicProviderForSongId,
   itunesProvider,
   jamendoProvider,
+  kexpProvider,
   kuwoProvider,
+  lxmusicProvider,
+  localProvider,
+  ntsProvider,
   openverseProvider,
   radioBrowserProvider,
+  radioParadiseProvider,
   somaFmProvider,
+  theCurrentProvider,
   wikimediaProvider,
 } from '@/lib/providers';
 import { api, searchFederated } from './api';
+import { clearPlaybackResolutionCache } from './playbackResolutionCache';
 
 function song(id: string): Song {
   const provider = id.startsWith('itunes-')
@@ -73,6 +82,7 @@ function artist(id: string): Artist {
 }
 
 beforeEach(() => {
+  clearPlaybackResolutionCache();
   vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'false');
   // Apple joins every federated call, so each test stubs it to silence rather
   // than reach the network; the tests that care about it override these.
@@ -89,6 +99,9 @@ beforeEach(() => {
   vi.spyOn(kuwoProvider, 'search').mockResolvedValue([]);
   vi.spyOn(kuwoProvider, 'getTrending').mockResolvedValue([]);
   vi.spyOn(kuwoProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(kuwoProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
+  vi.spyOn(lxmusicProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(lxmusicProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
   vi.spyOn(audiusProvider, 'search').mockResolvedValue([]);
   vi.spyOn(audiusProvider, 'getAlbums').mockResolvedValue([]);
   vi.spyOn(audiusProvider, 'getArtists').mockResolvedValue([]);
@@ -107,12 +120,39 @@ beforeEach(() => {
   vi.spyOn(somaFmProvider, 'getTrending').mockResolvedValue([]);
   vi.spyOn(somaFmProvider, 'getAlbums').mockResolvedValue([]);
   vi.spyOn(somaFmProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(ntsProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(ntsProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(ntsProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(ntsProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(ntsProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(radioParadiseProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(radioParadiseProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(radioParadiseProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(radioParadiseProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(radioParadiseProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(kexpProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(kexpProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(kexpProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(kexpProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(kexpProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(fipProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(fipProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(fipProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(fipProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(fipProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(theCurrentProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(theCurrentProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(theCurrentProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(theCurrentProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(theCurrentProvider, 'getArtists').mockResolvedValue([]);
   vi.spyOn(radioBrowserProvider, 'search').mockResolvedValue([]);
   vi.spyOn(radioBrowserProvider, 'getSongsByTag').mockResolvedValue([]);
   vi.spyOn(radioBrowserProvider, 'getTrending').mockResolvedValue([]);
   vi.spyOn(radioBrowserProvider, 'getAlbums').mockResolvedValue([]);
   vi.spyOn(radioBrowserProvider, 'getArtists').mockResolvedValue([]);
-  vi.spyOn(jamendoProvider, 'search');
+  vi.spyOn(jamendoProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(ccmixterProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(archiveProvider, 'search').mockResolvedValue([]);
   vi.spyOn(jamendoProvider, 'getSongsByTag').mockResolvedValue([]);
   vi.spyOn(ccmixterProvider, 'searchWithStatus');
   vi.spyOn(ccmixterProvider, 'getSongsByTagWithStatus').mockResolvedValue({ results: [] });
@@ -128,6 +168,20 @@ afterEach(() => {
 });
 
 describe('provider federation', () => {
+  it('scopes track search to the requested provider', async () => {
+    vi.mocked(jamendoProvider.search).mockResolvedValue([song('jamendo-scoped')]);
+
+    await expect(searchFederated('ambient', undefined, 'Jamendo')).resolves.toEqual({
+      results: [song('jamendo-scoped')],
+      failedProviders: [],
+      providerCount: 1,
+    });
+
+    expect(jamendoProvider.search).toHaveBeenCalledTimes(1);
+    expect(audiusProvider.search).not.toHaveBeenCalled();
+    expect(itunesProvider.search).not.toHaveBeenCalled();
+  });
+
   it('keeps fallback results and reports a failed provider', async () => {
     vi.mocked(jamendoProvider.search).mockRejectedValue(new Error('unauthorized'));
     vi.mocked(ccmixterProvider.searchWithStatus).mockResolvedValue({ results: [song('ccmixter-1')] });
@@ -137,7 +191,7 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
     expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(11);
+    expect(state.providerCount).toBe(16);
   });
 
   it('distinguishes true empty results from total provider failure', async () => {
@@ -157,7 +211,7 @@ describe('provider federation', () => {
     await expect(searchFederated('missing')).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter', 'Archive'],
-      providerCount: 11,
+      providerCount: 16,
     });
   });
 
@@ -173,7 +227,7 @@ describe('provider federation', () => {
       results: [song('ccmixter-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 11,
+      providerCount: 16,
     });
   });
 
@@ -245,7 +299,14 @@ describe('provider federation', () => {
 
     const state = await api.getTrending(6);
 
-    expect(state.results.map((result) => result.id)).toEqual(['audius-1', 'jamendo-1', 'ccmixter-1', 'audius-2', 'jamendo-2', 'ccmixter-2']);
+    expect(state.results.map((result) => result.id)).toEqual([
+      'audius-1',
+      'jamendo-1',
+      'ccmixter-1',
+      'deezer-1',
+      'audius-2',
+      'jamendo-2',
+    ]);
     expect(state.providerCount).toBe(7);
   });
 
@@ -258,11 +319,39 @@ describe('provider federation', () => {
       { ...song('radio-1'), provider: 'Radio Browser', isLive: true },
       { ...song('radio-2'), provider: 'Radio Browser', isLive: true },
     ]);
+    vi.mocked(ntsProvider.getTrending).mockResolvedValue([
+      { ...song('nts-1'), provider: 'NTS Radio', isLive: true },
+      { ...song('nts-2'), provider: 'NTS Radio', isLive: true },
+    ]);
+    vi.mocked(radioParadiseProvider.getTrending).mockResolvedValue([
+      { ...song('radioparadise-1'), provider: 'Radio Paradise', isLive: true },
+      { ...song('radioparadise-2'), provider: 'Radio Paradise', isLive: true },
+    ]);
+    vi.mocked(kexpProvider.getTrending).mockResolvedValue([
+      { ...song('kexp-1'), provider: 'KEXP', isLive: true },
+      { ...song('kexp-2'), provider: 'KEXP', isLive: true },
+    ]);
+    vi.mocked(fipProvider.getTrending).mockResolvedValue([
+      { ...song('fip-1'), provider: 'FIP', isLive: true },
+      { ...song('fip-2'), provider: 'FIP', isLive: true },
+    ]);
+    vi.mocked(theCurrentProvider.getTrending).mockResolvedValue([
+      { ...song('thecurrent-1'), provider: 'The Current', isLive: true },
+      { ...song('thecurrent-2'), provider: 'The Current', isLive: true },
+    ]);
 
-    const state = await api.getLiveStations(4);
+    const state = await api.getLiveStations(7);
 
-    expect(state.results.map(({ id }) => id)).toEqual(['somafm-1', 'radio-1', 'somafm-2', 'radio-2']);
-    expect(state.providerCount).toBe(2);
+    expect(state.results.map(({ id }) => id)).toEqual([
+      'somafm-1',
+      'nts-1',
+      'radioparadise-1',
+      'kexp-1',
+      'fip-1',
+      'thecurrent-1',
+      'radio-1',
+    ]);
+    expect(state.providerCount).toBe(7);
   });
 
   it('preserves degradation for dedicated ccMixter categories', async () => {
@@ -300,6 +389,30 @@ describe('provider federation', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 
+  it('passes the composed signal so a provider timeout aborts the underlying request', async () => {
+    vi.useFakeTimers();
+    let receivedSignal: AbortSignal | undefined;
+    vi.mocked(jamendoProvider.search).mockImplementation(async (_query, signal) => {
+      receivedSignal = signal;
+      // Never resolves on its own; the per-provider deadline is what ends it.
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      return [];
+    });
+    vi.mocked(archiveProvider.search).mockResolvedValue([]);
+    vi.mocked(ccmixterProvider.searchWithStatus).mockResolvedValue({ results: [song('ccmixter-1')] });
+
+    const pending = searchFederated('slow');
+    // Advance past the 5s catalog provider deadline so the race settles.
+    await vi.advanceTimersByTimeAsync(5_100);
+
+    const state = await pending;
+    expect(receivedSignal?.aborted).toBe(true);
+    expect(state.failedProviders).toEqual(['Jamendo']);
+    expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
+
+    vi.useRealTimers();
+  });
+
   it('deduplicates federated results by stable ID', async () => {
     vi.mocked(jamendoProvider.search).mockResolvedValue([song('jamendo-1')]);
     vi.mocked(ccmixterProvider.searchWithStatus).mockResolvedValue({ results: [song('jamendo-1')] });
@@ -319,11 +432,48 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['jamendo-1', 'ccmixter-1']);
     expect(state.failedProviders).toEqual([]);
-    expect(state.providerCount).toBe(6);
+    expect(state.providerCount).toBe(5);
   });
 });
 
 describe('album federation', () => {
+  it('scopes album and artist search to the requested provider', async () => {
+    const scopedAlbum = {
+      id: 'itunes-album-scoped',
+      name: 'Scoped album',
+      artist: 'Artist',
+      artistId: 'itunes-artist-scoped',
+      coverArt: '/placeholder-album.svg',
+      songCount: 1,
+      duration: 60,
+      year: 2026,
+      genre: 'Pop',
+    };
+    const scopedArtist = artist('itunes-artist-scoped');
+    vi.spyOn(itunesProvider, 'searchAlbums').mockResolvedValue([]);
+    vi.spyOn(itunesProvider, 'searchArtists').mockResolvedValue([]);
+    vi.spyOn(audiusProvider, 'searchAlbums').mockResolvedValue([]);
+    vi.spyOn(audiusProvider, 'searchArtists').mockResolvedValue([]);
+    vi.mocked(itunesProvider.searchAlbums).mockResolvedValue([scopedAlbum]);
+    vi.mocked(itunesProvider.searchArtists).mockResolvedValue([scopedArtist]);
+
+    await expect(api.searchAlbums('artist', undefined, 'Apple Preview')).resolves.toEqual({
+      results: [scopedAlbum],
+      failedProviders: [],
+      providerCount: 1,
+    });
+    await expect(api.searchArtists('artist', undefined, 'Apple Preview')).resolves.toEqual({
+      results: [scopedArtist],
+      failedProviders: [],
+      providerCount: 1,
+    });
+
+    expect(itunesProvider.searchAlbums).toHaveBeenCalledTimes(1);
+    expect(itunesProvider.searchArtists).toHaveBeenCalledTimes(1);
+    expect(audiusProvider.searchAlbums).not.toHaveBeenCalled();
+    expect(audiusProvider.searchArtists).not.toHaveBeenCalled();
+  });
+
   it('reports degraded albums while retaining available results', async () => {
     const availableAlbum = {
       id: 'jamendo-album-1',
@@ -430,6 +580,230 @@ describe('album federation', () => {
     });
   });
 
+  it('probes fallback candidates concurrently while preserving source priority', async () => {
+    const preview = {
+      ...song('itunes-concurrent-preview'),
+      title: 'Concurrent match',
+      artist: 'Artist',
+      duration: 30,
+      provider: 'Apple Preview' as const,
+    };
+    const candidates = ['first', 'second', 'third'].map((label) => ({
+      ...song(`kuwo-${label}`),
+      title: 'Concurrent match',
+      artist: 'Artist',
+      duration: 241,
+      provider: 'Kuwo' as const,
+    }));
+    vi.mocked(kuwoProvider.search).mockResolvedValue(candidates);
+
+    let activeProbes = 0;
+    let maxActiveProbes = 0;
+    vi.mocked(kuwoProvider.getStreamUrl).mockImplementation(async (candidate) => {
+      activeProbes += 1;
+      maxActiveProbes = Math.max(maxActiveProbes, activeProbes);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, candidate.id.endsWith('-first') ? 20 : 2));
+        if (candidate.id.endsWith('-first')) throw new Error('first candidate unavailable');
+        return candidate.path;
+      } finally {
+        activeProbes -= 1;
+      }
+    });
+
+    const result = await api.getPlaybackSource(preview);
+
+    expect(result.song.id).toBe('kuwo-second');
+    expect(result.streamUrl).toBe(candidates[1].path);
+    expect(result.candidates?.map((candidate) => candidate.song.id)).toEqual(['kuwo-second', 'kuwo-third']);
+    expect(maxActiveProbes).toBe(3);
+  });
+
+  it('tries a title fallback query when a provider ranks the combined query poorly', async () => {
+    const preview = {
+      ...song('itunes-query-ladder-preview'),
+      title: 'Query ladder title',
+      artist: 'Query ladder artist',
+      duration: 30,
+      provider: 'Apple Preview' as const,
+    };
+    const fullTrack = {
+      ...song('kuwo-query-ladder'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 212,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(kuwoProvider.search).mockImplementation(async (query) => (query === preview.title ? [fullTrack] : []));
+
+    await expect(api.getPlaybackSource(preview)).resolves.toMatchObject({
+      song: fullTrack,
+      streamUrl: fullTrack.path,
+    });
+    expect(vi.mocked(kuwoProvider.search).mock.calls.map(([query]) => query)).toContain(preview.title);
+  });
+
+  it('accepts a complete normalized title-token match', async () => {
+    const preview = {
+      ...song('itunes-token-match-preview'),
+      title: 'Blue Horizon',
+      artist: 'Artist',
+      duration: 30,
+      provider: 'Apple Preview' as const,
+    };
+    const fullTrack = {
+      ...song('kuwo-token-match'),
+      title: 'Horizon Blue',
+      artist: 'Artist',
+      duration: 212,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
+
+    await expect(api.getPlaybackSource(preview)).resolves.toMatchObject({
+      song: fullTrack,
+      streamUrl: fullTrack.path,
+    });
+  });
+
+  it('does not promote a different-length resolver record over a known recording', async () => {
+    const preview = {
+      ...song('itunes-duration-guard-preview'),
+      title: 'Duration guarded title',
+      artist: 'Artist',
+      duration: 30,
+      recordingDuration: 190,
+      provider: 'Apple Preview' as const,
+    };
+    const wrongRecording = {
+      ...song('kuwo-wrong-duration'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 2660,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(kuwoProvider.search).mockResolvedValue([wrongRecording]);
+
+    await expect(api.getPlaybackSource(preview)).resolves.toMatchObject({
+      song: preview,
+      streamUrl: preview.path,
+    });
+    expect(kuwoProvider.getStreamUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not promote an unknown-duration resolver record over the official preview', async () => {
+    const preview = {
+      ...song('itunes-unknown-resolver-duration'),
+      title: 'Unknown resolver duration',
+      artist: 'Artist',
+      duration: 30,
+      provider: 'Apple Preview' as const,
+    };
+    const unknownDuration = {
+      ...song('lxmusic-unknown-duration'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 0,
+      provider: 'LX Music' as const,
+    };
+    vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'true');
+    vi.mocked(lxmusicProvider.search).mockResolvedValue([unknownDuration]);
+
+    await expect(api.getPlaybackSource(preview)).resolves.toMatchObject({
+      song: preview,
+      streamUrl: preview.path,
+    });
+    expect(lxmusicProvider.getStreamUrl).not.toHaveBeenCalled();
+  });
+
+  it('reuses a verified proxy decision instead of repeating resolver search and probe', async () => {
+    const preview = {
+      ...song('itunes-cached-resolution'),
+      title: 'Cached resolution',
+      artist: 'Artist',
+      duration: 30,
+      provider: 'Apple Preview' as const,
+    };
+    const fullTrack = {
+      ...song('kuwo-cached-resolution'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 212,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
+
+    await api.getPlaybackSource(preview);
+    await api.getPlaybackSource(preview);
+
+    expect(kuwoProvider.search).toHaveBeenCalledTimes(1);
+    expect(kuwoProvider.getStreamUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a verified direct Kuwo source without waiting for alternate searches', async () => {
+    const direct = {
+      ...song('kuwo-987654'),
+      title: 'Healthy direct source',
+      artist: 'Artist',
+      duration: 241,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(kuwoProvider.getStreamUrl).mockResolvedValue(direct.path);
+    vi.mocked(kuwoProvider.search).mockRejectedValue(new Error('optional search unavailable'));
+
+    await expect(api.getPlaybackSource(direct)).resolves.toEqual({ song: direct, streamUrl: direct.path });
+    expect(kuwoProvider.search).not.toHaveBeenCalled();
+  });
+
+  it('recovers a direct Kuwo mobile-only result through an exact Audius match', async () => {
+    const direct = {
+      ...song('kuwo-987654'),
+      title: 'Mobile-only track',
+      artist: 'Artist',
+      duration: 241,
+      provider: 'Kuwo' as const,
+    };
+    const audius = {
+      ...song('audius-555'),
+      title: 'Mobile-only track',
+      artist: 'Artist',
+      duration: 241,
+      provider: 'Audius' as const,
+    };
+    vi.mocked(kuwoProvider.search).mockResolvedValue([direct]);
+    vi.mocked(kuwoProvider.getStreamUrl).mockRejectedValue(new Error('mobile only'));
+    vi.mocked(audiusProvider.search).mockResolvedValue([audius]);
+    vi.spyOn(audiusProvider, 'getStreamUrl').mockResolvedValue(audius.path);
+
+    await expect(api.getPlaybackSource(direct)).resolves.toEqual({
+      song: audius,
+      streamUrl: audius.path,
+    });
+  });
+
+  it('skips unavailable full-track candidates before falling back to the official preview', async () => {
+    const preview = {
+      ...song('itunes-1440872304'),
+      title: 'Unavailable match',
+      artist: 'Artist',
+      provider: 'Apple Preview' as const,
+    };
+    const fullTrack = {
+      ...song('kuwo-123456'),
+      title: 'Unavailable match',
+      artist: 'Artist',
+      duration: 261,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
+    vi.mocked(kuwoProvider.getStreamUrl).mockRejectedValue(new Error('mobile only'));
+
+    await expect(api.getPlaybackSource(preview)).resolves.toEqual({
+      song: preview,
+      streamUrl: preview.path,
+    });
+  });
+
   it('keeps the official preview when no full-track match exists', async () => {
     const preview = {
       ...song('itunes-1440872304'),
@@ -479,10 +853,49 @@ describe('album federation', () => {
         }),
       ),
     );
-    const fullTrack = { ...song('kuwo-101'), title: 'Chart song', artist: 'Chart artist', duration: 244, provider: 'Kuwo' as const };
+    const fullTrack = {
+      ...song('kuwo-101'),
+      title: 'Chart song',
+      artist: 'Chart artist',
+      duration: 244,
+      provider: 'Kuwo' as const,
+    };
     vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
 
     await expect(api.getChartSongs('billboard')).resolves.toEqual([fullTrack]);
+  });
+
+  it('preserves unresolved Apple chart entries while replacing only verified matches', async () => {
+    const verifiedPreview = {
+      ...song('itunes-chart-1'),
+      title: 'Verified chart song',
+      artist: 'Chart artist',
+      duration: 30,
+      recordingDuration: 244,
+      provider: 'Apple Preview' as const,
+    };
+    const unresolvedPreview = {
+      ...song('itunes-chart-2'),
+      title: 'Still charting',
+      artist: 'Another artist',
+      duration: 30,
+      recordingDuration: 201,
+      provider: 'Apple Preview' as const,
+    };
+    const fullTrack = {
+      ...song('kuwo-chart-1'),
+      title: verifiedPreview.title,
+      artist: verifiedPreview.artist,
+      duration: 244,
+      provider: 'Kuwo' as const,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ results: [verifiedPreview, unresolvedPreview] })),
+    );
+    vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
+
+    await expect(api.getChartSongs('billboard')).resolves.toEqual([fullTrack, unresolvedPreview]);
   });
 
   it('routes song, album, and artist IDs to their owner', async () => {
@@ -495,7 +908,13 @@ describe('album federation', () => {
     expect(getMusicProviderForSongId('openverse-9e755b4d-4f1f-42db-a841-b8b2ebb583be')).toBe(openverseProvider);
     expect(getMusicProviderForSongId('wikimedia-175624708')).toBe(wikimediaProvider);
     expect(getMusicProviderForSongId('somafm-7soul')).toBe(somaFmProvider);
+    expect(getMusicProviderForSongId('kexp-903')).toBe(kexpProvider);
+    expect(getMusicProviderForSongId('fip-main')).toBe(fipProvider);
+    expect(getMusicProviderForSongId('thecurrent-main')).toBe(theCurrentProvider);
     expect(getMusicProviderForSongId('radio-4f9898ba-e8f0-46c8-a5f5-a4b21fa3a832')).toBe(radioBrowserProvider);
+    expect(getMusicProviderForSongId('local-local-song')).toBe(localProvider);
+    expect(getMusicProviderForName('Apple Preview')).toBe(itunesProvider);
+    expect(getMusicProviderForName('Local file')).toBe(localProvider);
     expect(getMusicProviderForAlbumId('ccmixter-album-user')).toBe(ccmixterProvider);
     expect(getMusicProviderForAlbumId('archive-album-item')).toBe(archiveProvider);
     expect(getMusicProviderForAlbumId('itunes-album-1440871397')).toBe(itunesProvider);
@@ -504,6 +923,9 @@ describe('album federation', () => {
     expect(getMusicProviderForAlbumId('openverse-album-9e755b4d-4f1f-42db-a841-b8b2ebb583be')).toBe(openverseProvider);
     expect(getMusicProviderForAlbumId('wikimedia-album-175624708')).toBe(wikimediaProvider);
     expect(getMusicProviderForAlbumId('somafm-album-7soul')).toBe(somaFmProvider);
+    expect(getMusicProviderForAlbumId('kexp-album-903')).toBe(kexpProvider);
+    expect(getMusicProviderForAlbumId('fip-album-main')).toBe(fipProvider);
+    expect(getMusicProviderForAlbumId('thecurrent-album-main')).toBe(theCurrentProvider);
     expect(getMusicProviderForAlbumId('radio-album-4f9898ba-e8f0-46c8-a5f5-a4b21fa3a832')).toBe(radioBrowserProvider);
     expect(getMusicProviderForArtistId('ccmixter-artist-user')).toBe(ccmixterProvider);
     expect(getMusicProviderForArtistId('archive-artist-user')).toBe(archiveProvider);
@@ -513,11 +935,17 @@ describe('album federation', () => {
     expect(getMusicProviderForArtistId('openverse-artist-Mazelo%20Nostra')).toBe(openverseProvider);
     expect(getMusicProviderForArtistId('wikimedia-artist-Izi%20Music%20Production')).toBe(wikimediaProvider);
     expect(getMusicProviderForArtistId('somafm-artist-7soul')).toBe(somaFmProvider);
+    expect(getMusicProviderForArtistId('kexp-artist-903')).toBe(kexpProvider);
+    expect(getMusicProviderForArtistId('fip-artist-main')).toBe(fipProvider);
+    expect(getMusicProviderForArtistId('thecurrent-artist-main')).toBe(theCurrentProvider);
     expect(getMusicProviderForArtistId('radio-artist-US')).toBe(radioBrowserProvider);
 
     await expect(api.getStreamUrl(song('jamendo-7'))).resolves.toBe('/api/music/jamendo/stream/7');
     await expect(api.getStreamUrl(song('ccmixter-8'))).resolves.toBe('/api/music/ccmixter/stream/8');
     await expect(api.getStreamUrl(song('archive-item_9'))).resolves.toBe('/api/music/archive/stream/item_9');
     await expect(api.getStreamUrl(song('wikimedia-7'))).resolves.toBe('/api/music/wikimedia/stream/7');
+    await expect(
+      api.getStreamUrl({ ...song('local-local-song'), provider: 'Local file', path: 'blob:marea-local-song' }),
+    ).resolves.toBe('blob:marea-local-song');
   });
 });

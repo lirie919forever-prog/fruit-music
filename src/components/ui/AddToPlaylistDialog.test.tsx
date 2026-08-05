@@ -1,7 +1,7 @@
 /** @vitest-environment happy-dom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEffect, useState } from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { PlayerStoreProvider, usePlayerStoreApi, type PlayerStore } from '@/store/playerStore';
 import { lockBodyScroll, resetBodyScrollLock } from '@/lib/scrollLock';
@@ -199,5 +199,20 @@ describe('playlist membership', () => {
 
     await user.click(screen.getByRole('button', { name: /Focus/ }));
     expect(store.getState().playlists[0].songs).toEqual([]);
+  });
+
+  it('keeps a large playlist picker bounded to its initial render window', async () => {
+    mount();
+    act(() => {
+      for (let index = 0; index < 500; index += 1) {
+        store.getState().createPlaylist(`Playlist ${index}`);
+      }
+    });
+    await open();
+
+    const list = screen.getByRole('list', { name: 'Playlists' });
+    expect(list.querySelectorAll('[role="listitem"]').length).toBeLessThanOrEqual(12);
+    expect(screen.getByRole('button', { name: /Playlist 499/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Playlist 0/ })).not.toBeInTheDocument();
   });
 });

@@ -1,8 +1,7 @@
 'use client';
 
+import { Volume2, VolumeX } from 'lucide-react';
 import { usePlayerStore } from '@/store/playerStore';
-import { HiSpeakerWave, HiSpeakerXMark } from 'react-icons/hi2';
-
 export function VolumeSlider() {
   const volume = usePlayerStore((s) => s.volume);
   const setVolume = usePlayerStore((s) => s.setVolume);
@@ -17,7 +16,7 @@ export function VolumeSlider() {
         aria-pressed={volume === 0}
         className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors duration-150 hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)]"
       >
-        {volume === 0 ? <HiSpeakerXMark size={16} /> : <HiSpeakerWave size={16} />}
+        {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
       </button>
 
       <div className="relative h-[2px] w-20 rounded-full bg-[var(--salt-ghost)] transition-all duration-200 group-hover:h-[6px] group-focus-within:h-[6px]">

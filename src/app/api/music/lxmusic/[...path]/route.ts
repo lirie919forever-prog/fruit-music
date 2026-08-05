@@ -98,6 +98,27 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const CATALOG_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=600';
 const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 200, maxEntries: 4_000 });
 
+function unavailableProbe(provider: string, code = 'unavailable'): NextResponse {
+  return NextResponse.json(
+    { available: false, provider, code },
+    { status: 200, headers: { 'Cache-Control': 'private, no-store' } },
+  );
+}
+
+function expectedMinimumBytes(expectedDuration: number): number {
+  // Keep this deliberately conservative: it rejects tiny preview payloads but
+  // does not pretend a bitrate is proof that the recording is complete.
+  return Math.ceil(expectedDuration * 4_000);
+}
+
+function totalResponseBytes(response: Response): number {
+  const contentRange = response.headers.get('content-range');
+  const total = contentRange?.match(/^bytes \d+-\d+\/(\d+)$/)?.[1];
+  if (total) return Number(total);
+  const length = response.headers.get('content-length');
+  return length ? Number(length) : 0;
+}
+
 function catalogResponse(data: unknown): NextResponse {
   const response = NextResponse.json(data);
   setCdnCacheHeaders(response.headers, CATALOG_CACHE_CONTROL);
@@ -146,6 +167,10 @@ async function proxyStream(request: Request, streamUrl: string, expireTime?: num
       headers: requestHeaders,
       timeoutMs: REQUEST_TIMEOUT_MS,
     });
+    // A normal media request must remain an HTTP failure when the approved
+    // upstream cannot be fetched. Returning the probe-shaped 200 JSON here
+    // makes the browser treat an unavailable track as a successful audio
+    // response and prevents playback recovery from trying another source.
     if (!fetched.ok) return fetched.response;
     const { response: upstream, controller, cleanup } = fetched;
 
@@ -200,6 +225,43 @@ async function proxyStream(request: Request, streamUrl: string, expireTime?: num
     });
   } catch (error) {
     return providerFailure(error, 'Stream fetch failed');
+  }
+}
+
+async function probeStream(request: Request, streamUrl: string, expectedDuration = 0): Promise<NextResponse> {
+  const headers = new Headers(lxHeaders());
+  headers.set('Range', 'bytes=0-1');
+
+  try {
+    const fetched = await fetchApprovedMedia(request, streamUrl, {
+      isApproved: (url) => isApprovedLxMedia(url),
+      headers,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    });
+    if (!fetched.ok) return fetched.response;
+
+    const { response, cleanup } = fetched;
+    const contentType = mediaContentType(response.headers.get('content-type'));
+    const validStatus = response.status >= 200 && response.status < 300;
+    const validType = contentType === 'application/octet-stream' || Boolean(contentType?.startsWith('audio/'));
+    const validRange = response.status !== 206 || validContentRange(response.headers.get('content-range'));
+    const totalBytes = totalResponseBytes(response);
+    closeUpstream(response, cleanup);
+
+    if (!validStatus || !validType || !validRange) {
+      return unavailableProbe('LX Music');
+    }
+
+    if (expectedDuration > 0 && totalBytes > 0 && totalBytes < expectedMinimumBytes(expectedDuration)) {
+      return unavailableProbe('LX Music', 'short');
+    }
+
+    return NextResponse.json(
+      { available: true, provider: 'LX Music' },
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    );
+  } catch (error) {
+    return providerFailure(error, 'LX Music stream probe failed');
   }
 }
 
@@ -306,6 +368,7 @@ async function handleUrl(req: Request): Promise<NextResponse> {
   const platform = searchParams.get('platform');
   const rawId = searchParams.get('rawId');
   const type = searchParams.get('type');
+  const expectedDuration = Number(searchParams.get('expected'));
 
   if (!lxSongId) {
     return NextResponse.json({ error: 'Missing LX song id' }, { status: 400 });
@@ -354,6 +417,13 @@ async function handleUrl(req: Request): Promise<NextResponse> {
     streamUrl = `${proxyBase}/url/${platform}/${encodeURIComponent(pathId)}/${resolvedLevel}`;
   }
 
+  if (searchParams.get('probe') === '1') {
+    return probeStream(
+      req,
+      streamUrl,
+      Number.isFinite(expectedDuration) && expectedDuration > 45 ? expectedDuration : 0,
+    );
+  }
   return proxyStream(req, streamUrl, expireTime);
 }
 

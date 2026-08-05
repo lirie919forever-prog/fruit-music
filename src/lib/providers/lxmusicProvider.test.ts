@@ -151,7 +151,7 @@ describe('LX Music provider', () => {
       album: 'Alb',
       albumId: 'alid',
       coverArt: '/p',
-      duration: 10,
+      duration: 180,
       track: 0,
       year: 0,
       genre: '',
@@ -168,7 +168,11 @@ describe('LX Music provider', () => {
       attributionUrl: '',
       metadataVerified: true,
     };
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ available: true, provider: 'LX Music' }));
     expect(await lxmusicProvider.getStreamUrl(song)).toBe(song.path);
+    const [url] = vi.mocked(fetch).mock.calls[0];
+    expect(new URL(String(url)).searchParams.get('probe')).toBe('1');
+    expect(new URL(String(url)).searchParams.get('expected')).toBe('180');
   });
 
   it('handles empty ar array', async () => {

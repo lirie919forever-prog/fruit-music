@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { getResumePosition, hasNextInQueue, isNaturalTrackEnd } from './playbackRecovery';
+import {
+  getResumePosition,
+  hasNextInQueue,
+  isMateriallyLongStream,
+  isMateriallyShortStream,
+  isNaturalTrackEnd,
+} from './playbackRecovery';
 import type { QueueItem, Song } from '@/types/music';
 
 function queueOf(length: number): QueueItem[] {
@@ -10,6 +16,23 @@ function queueOf(length: number): QueueItem[] {
 }
 
 describe('playback recovery', () => {
+  it('identifies a short clip returned for a longer recording', () => {
+    expect(isMateriallyShortStream(11, 184)).toBe(true);
+    expect(isMateriallyShortStream(176, 180)).toBe(false);
+    expect(isMateriallyShortStream(30, 30)).toBe(false);
+  });
+
+  it('treats a short response as suspicious when a resolver omits duration', () => {
+    expect(isMateriallyShortStream(30, 0)).toBe(true);
+    expect(isMateriallyShortStream(45, 0)).toBe(false);
+  });
+
+  it('identifies a different long recording returned for a matching title', () => {
+    expect(isMateriallyLongStream(2660, 190)).toBe(true);
+    expect(isMateriallyLongStream(212, 241)).toBe(false);
+    expect(isMateriallyLongStream(190, 190)).toBe(false);
+  });
+
   it('recognizes a track that reaches its decoded duration', () => {
     expect(isNaturalTrackEnd(180, 180, 180)).toBe(true);
     expect(isNaturalTrackEnd(178.5, 180, 180)).toBe(true);

@@ -1,10 +1,11 @@
 'use client';
 
+import { Play } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
-import { HiPlay } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
-import { api } from '@/lib/api';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Album, Artist, ViewType } from '@/types/music';
 
@@ -75,8 +76,9 @@ function TileShell({
 }) {
   return (
     <article className={`min-w-0 ${centered ? 'text-center' : ''}`}>
-      <button
+      <motion.button
         type="button"
+        whileTap={{ scale: 0.96 }}
         onClick={onClick}
         aria-label={label}
         className="group block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
@@ -96,22 +98,23 @@ function TileShell({
                 className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent"
               />
             ) : (
-              <HiPlay className="h-7 w-7" aria-hidden />
+              <Play className="h-7 w-7" aria-hidden />
             )}
           </span>
         </span>
         {children}
-      </button>
+      </motion.button>
       {errorText && (
         <p className="mt-1 text-xs text-[var(--danger)]">
           {errorText}{' '}
-          <button
+          <motion.button
             type="button"
+            whileTap={{ scale: 0.96 }}
             onClick={retry}
             className="rounded underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
           >
             Try again
-          </button>
+          </motion.button>
         </p>
       )}
     </article>
@@ -119,7 +122,8 @@ function TileShell({
 }
 
 export function AlbumTile({ album, onNavigateWithItem }: { album: Album } & TileNavProps) {
-  const { state, run } = useLoadAndPlay((signal) => api.getAlbumSongs(album.id, signal));
+  const catalog = useMusicCatalog();
+  const { state, run } = useLoadAndPlay((signal) => catalog.getAlbumSongs(album.id, signal));
 
   // A modifier-click plays the record without leaving the grid; a plain click
   // opens it, which is what a tile in a browse grid is expected to do.
@@ -148,7 +152,8 @@ export function AlbumTile({ album, onNavigateWithItem }: { album: Album } & Tile
 }
 
 export function ArtistTile({ artist, onNavigateWithItem }: { artist: Artist } & TileNavProps) {
-  const { state, run } = useLoadAndPlay((signal) => api.getArtistSongs(artist.id, signal));
+  const catalog = useMusicCatalog();
+  const { state, run } = useLoadAndPlay((signal) => catalog.getArtistSongs(artist.id, signal));
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {

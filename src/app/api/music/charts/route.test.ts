@@ -40,7 +40,13 @@ function routeFetch(feed: unknown, lookup: unknown) {
 
 describe('chart pages', () => {
   it('resolves a chart entry to a playable Apple preview', async () => {
-    vi.stubGlobal('fetch', routeFetch({ feed: { results: [feedEntry('101')] } }, { results: [lookupTrack(101)] }));
+    vi.stubGlobal(
+      'fetch',
+      routeFetch(
+        { feed: { results: [feedEntry('101')] } },
+        { results: [lookupTrack(101, { trackTimeMillis: 211_000 })] },
+      ),
+    );
 
     const { GET } = await import('./route');
     const response = await GET(new Request('https://marea.test/api/music/charts?chart=billboard'));
@@ -55,6 +61,8 @@ describe('chart pages', () => {
           artist: 'Artist',
           provider: 'Apple Preview',
           path: '/api/music/itunes/stream/101',
+          duration: 30,
+          recordingDuration: 211,
           licenseName: '30-second preview',
         },
       ],

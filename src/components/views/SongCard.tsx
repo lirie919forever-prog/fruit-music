@@ -1,11 +1,13 @@
 'use client';
 
+import { Heart, Lock, Play } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { HiLockClosed, HiPlay } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { TrackMenu } from '@/components/ui/TrackMenu';
-import { playableSongs } from './newViewModel';
+import { VirtualList } from '@/components/ui/VirtualList';
+import { isResolverSource } from '@/lib/sourceRegistry';
+import { isFullTrack, playableSongs } from './newViewModel';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Song, ViewType } from '@/types/music';
 
@@ -35,8 +37,41 @@ export function FavoriteButton({ song, className = '' }: { song: Song; className
       aria-pressed={favorite}
       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base leading-none transition hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${favorite ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'} ${className}`}
     >
-      {favorite ? '♥' : '♡'}
+      {favorite ? <Heart className="h-4 w-4 fill-current" aria-hidden /> : <Heart className="h-4 w-4" aria-hidden />}
     </button>
+  );
+}
+
+export function AudioAccessBadge({ song }: { song: Song }) {
+  const live = song.isLive === true;
+  const unavailable = song.playbackUnavailable === true;
+  const resolverMatch = isResolverSource(song.provider);
+  const full = isFullTrack(song);
+  const label = unavailable ? 'OFFLINE' : live ? 'LIVE' : !full ? 'PREVIEW' : resolverMatch ? 'MATCH' : 'FULL';
+  const title = unavailable
+    ? 'Playback is unavailable for this source'
+    : live
+      ? 'Continuous live stream'
+      : !full
+        ? 'Official preview clip'
+        : resolverMatch
+          ? 'Mainstream catalog match; playback is verified when you press play'
+          : 'Direct full-length source';
+  return (
+    <span
+      title={title}
+      className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-[0.04em] ${
+        unavailable
+          ? 'bg-[#f3f5f6] text-[var(--salt-mist)]'
+          : live
+            ? 'bg-[#d84f5f] text-white'
+            : !full || resolverMatch
+              ? 'bg-[#fff1e4] text-[#9b5d20]'
+              : 'bg-[#e8f5ee] text-[#28764a]'
+      }`}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -91,7 +126,7 @@ function ArtworkPlayButton({
         aria-hidden
         className={`absolute inset-0 flex items-center justify-center bg-black/45 text-white transition-opacity ${unavailable ? 'opacity-0' : 'opacity-0 group-hover/art:opacity-100 group-focus-visible/art:opacity-100'}`}
       >
-        <HiPlay className="h-4 w-4" />
+        <Play className="h-4 w-4" />
       </span>
     </button>
   );
@@ -144,6 +179,7 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
             ·
           </span>
           <span className="shrink-0 truncate">{song.provider}</span>
+          <AudioAccessBadge song={song} />
         </span>
       </div>
       {playbackUnavailable && (
@@ -152,7 +188,7 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
           aria-label="Playback unavailable"
           className="shrink-0 text-[var(--salt-mist)]"
         >
-          <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
+          <Lock className="h-3.5 w-3.5" aria-hidden />
         </span>
       )}
       <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-[var(--salt-mist)] sm:block">
@@ -186,18 +222,22 @@ export function SongRail({
   onNavigateWithItem,
 }: { songs: Song[]; label: string; showIndex?: boolean } & TrackNavProps) {
   return (
-    <div aria-label={label} className="grid">
-      {songs.map((song, index) => (
+    <VirtualList
+      items={songs}
+      estimateSize={56}
+      label={label}
+      getItemKey={(song) => song.id}
+      className="border-y border-[var(--glass-border)]"
+      renderItem={(song, index) => (
         <SongCard
-          key={song.id}
           song={song}
           index={index}
           tracks={songs}
           showIndex={showIndex}
           onNavigateWithItem={onNavigateWithItem}
         />
-      ))}
-    </div>
+      )}
+    />
   );
 }
 
@@ -249,7 +289,7 @@ function ChartRow({
           aria-label="Streaming unavailable"
           className="shrink-0 text-[var(--salt-mist)]"
         >
-          <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
+          <Lock className="h-3.5 w-3.5" aria-hidden />
         </span>
       )}
       <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />

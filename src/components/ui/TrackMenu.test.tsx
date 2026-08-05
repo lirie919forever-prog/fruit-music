@@ -1,6 +1,6 @@
 /** @vitest-environment happy-dom */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { PlayerStoreProvider, usePlayerStoreApi, type PlayerStore } from '@/store/playerStore';
@@ -8,6 +8,21 @@ import { resetBodyScrollLock } from '@/lib/scrollLock';
 import { TrackMenu } from './TrackMenu';
 import type { Song } from '@/types/music';
 import { useEffect } from 'react';
+import type { MusicCatalog } from '@/lib/catalogTypes';
+import { MusicCatalogProvider } from '@/lib/musicCatalog';
+
+const getGenreSongs =
+  vi.fn<
+    (
+      tag: string,
+      limit?: number,
+      signal?: AbortSignal,
+    ) => Promise<{ results: Song[]; failedProviders: string[]; providerCount: number }>
+  >();
+const catalog = {
+  getGenreSongs: (tag: string, limit?: number, signal?: AbortSignal) =>
+    signal === undefined ? getGenreSongs(tag, limit) : getGenreSongs(tag, limit, signal),
+} as MusicCatalog;
 
 function song(id: string, overrides: Partial<Song> = {}): Song {
   return {
@@ -50,11 +65,13 @@ function Probe() {
 
 function mount(ui: ReactElement) {
   return render(
-    <PlayerStoreProvider initialView="albums" initialQuery="">
-      <Probe />
-      {ui}
-      <button type="button">outside</button>
-    </PlayerStoreProvider>,
+    <MusicCatalogProvider catalog={catalog}>
+      <PlayerStoreProvider initialView="albums" initialQuery="">
+        <Probe />
+        {ui}
+        <button type="button">outside</button>
+      </PlayerStoreProvider>
+    </MusicCatalogProvider>,
   );
 }
 
@@ -64,6 +81,7 @@ beforeEach(() => {
   window.localStorage.clear();
   resetBodyScrollLock();
   user = userEvent.setup();
+  getGenreSongs.mockReset();
 });
 
 afterEach(() => {
@@ -98,6 +116,32 @@ describe('opening and dismissing', () => {
     expect(trigger).toHaveAttribute('aria-controls', menu.id);
   });
 
+  it('portals the viewport menu outside a virtualized row', async () => {
+    mount(
+      <div style={{ transform: 'translateY(24px)' }}>
+        <TrackMenu song={song('a')} />
+      </div>,
+    );
+
+    const menu = await openMenu();
+
+    expect(menu.parentElement).toBe(document.body);
+  });
+
+  it('opens the playlist dialog from the portaled menu', async () => {
+    mount(
+      <div style={{ transform: 'translateY(24px)' }}>
+        <TrackMenu song={song('a')} />
+      </div>,
+    );
+
+    await openMenu();
+    await user.click(screen.getByRole('menuitem', { name: 'Add to playlist' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.parentElement).toBe(document.body);
+  });
+
   it('closes on Escape and hands focus back to the trigger', async () => {
     mount(<TrackMenu song={song('a')} />);
     const trigger = screen.getByRole('button', { name: /More options/ });
@@ -118,6 +162,15 @@ describe('opening and dismissing', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     // Focus belongs to whatever the user clicked, not to the menu they left.
     expect(screen.getByRole('button', { name: /More options/ })).not.toHaveFocus();
+  });
+
+  it('stays open through synthetic virtual-list resync scroll events', async () => {
+    mount(<TrackMenu song={song('a')} />);
+    await openMenu();
+
+    window.dispatchEvent(new Event('scroll'));
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 });
 
@@ -218,11 +271,27 @@ describe('queue actions', () => {
     expect(store.getState().queue.map((item) => item.song.id)).toEqual(['a', 'c', 'b', 'c']);
   });
 
+  it('starts a full-track station from the selected song genre', async () => {
+    getGenreSongs.mockResolvedValue({
+      results: [song('next'), song('next-two')],
+      failedProviders: [],
+      providerCount: 1,
+    });
+    mount(<TrackMenu song={song('seed')} />);
+    await openMenu();
+
+    await user.click(screen.getByRole('menuitem', { name: 'Start station' }));
+
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+    expect(getGenreSongs).toHaveBeenCalledWith('Test', 30);
+    expect(store.getState().queue.map((item) => item.song.id)).toEqual(['seed', 'next', 'next-two']);
+  });
+
   it('names the licence on the provenance link rather than hiding it', async () => {
     mount(<TrackMenu song={song('a')} />);
     await openMenu();
 
-    const link = screen.getByRole('menuitem', { name: 'Jamendo · CC BY' });
+    const link = screen.getByRole('menuitem', { name: 'Jamendo - CC BY' });
     expect(link).toHaveAttribute('href', 'https://example.com/track');
     expect(link).toHaveAttribute('rel', 'noreferrer');
   });

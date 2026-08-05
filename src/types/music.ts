@@ -29,7 +29,13 @@ export type MusicProviderName =
   | 'Openverse'
   | 'Wikimedia Commons'
   | 'SomaFM'
-  | 'Radio Browser';
+  | 'NTS Radio'
+  | 'Radio Paradise'
+  | 'KEXP'
+  | 'FIP'
+  | 'The Current'
+  | 'Radio Browser'
+  | 'Local file';
 
 export interface Song {
   id: string;
@@ -40,6 +46,12 @@ export interface Song {
   albumId: string;
   coverArt: string;
   duration: number;
+  /**
+   * The full recording length when a catalog only exposes a preview clip.
+   * This is verification metadata, not the duration currently exposed by the
+   * playable stream.
+   */
+  recordingDuration?: number;
   track: number;
   year: number;
   genre: string;
@@ -77,6 +89,9 @@ export interface QueueItem {
   addedBy: 'user' | 'autoplay';
 }
 
+/** Which side panel the Now Playing view opens on. */
+export type NowPlayingPanel = 'queue' | 'lyrics';
+
 export type ViewType =
   | 'new'
   | 'albums'
@@ -91,6 +106,8 @@ export type ViewType =
   | 'billboard'
   | 'uk'
   | 'trending'
+  | 'radio'
   | 'remixes'
   | 'jazz'
-  | 'classical';
+  | 'classical'
+  | 'sources';

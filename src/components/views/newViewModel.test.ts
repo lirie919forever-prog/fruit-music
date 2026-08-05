@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Song } from '@/types/music';
 import {
+  buildDiscoveryMixForAccess,
   buildListeningMix,
   buildListeningMixForAccess,
+  buildStationQueue,
   filterEntitiesByAccess,
   filterSongsByAccess,
+  isDirectFullTrack,
+  isFullTrack,
   interleaveSongGroups,
   interleaveSongsByProvider,
   playableSongs,
@@ -105,16 +109,19 @@ describe('New view model', () => {
     const deezerPreview = song('deezer-preview');
     deezerPreview.provider = 'Deezer Preview';
     const fullTrack = song('full');
+    const liveStation = { ...song('live'), provider: 'SomaFM' as const, isLive: true };
 
-    expect(filterSongsByAccess([applePreview, deezerPreview, fullTrack], 'preview')).toEqual([
+    expect(filterSongsByAccess([applePreview, deezerPreview, fullTrack, liveStation], 'preview')).toEqual([
       applePreview,
       deezerPreview,
     ]);
-    expect(filterSongsByAccess([applePreview, deezerPreview, fullTrack], 'full')).toEqual([fullTrack]);
-    expect(filterSongsByAccess([applePreview, deezerPreview, fullTrack], 'all')).toEqual([
+    expect(filterSongsByAccess([applePreview, deezerPreview, fullTrack, liveStation], 'full')).toEqual([fullTrack]);
+    expect(isDirectFullTrack(liveStation)).toBe(false);
+    expect(filterSongsByAccess([applePreview, deezerPreview, fullTrack, liveStation], 'all')).toEqual([
       applePreview,
       deezerPreview,
       fullTrack,
+      liveStation,
     ]);
     expect(
       filterEntitiesByAccess(
@@ -122,6 +129,61 @@ describe('New view model', () => {
         'full',
       ),
     ).toEqual([{ id: 'wikimedia-album-3' }]);
+  });
+
+  it('does not count a suspiciously short Kuwo clip as a full track', () => {
+    const shortKuwo = { ...song('kuwo-short'), provider: 'Kuwo' as const, duration: 30 };
+
+    expect(isFullTrack(shortKuwo)).toBe(false);
+    expect(filterSongsByAccess([shortKuwo], 'full')).toEqual([]);
+    expect(filterSongsByAccess([shortKuwo], 'preview')).toEqual([]);
+  });
+
+  it('keeps unresolved full-length resolver matches out of explicit access filters', () => {
+    const resolverMatch = { ...song('kuwo-match'), provider: 'Kuwo' as const, duration: 241 };
+
+    expect(isFullTrack(resolverMatch)).toBe(true);
+    expect(isDirectFullTrack(resolverMatch)).toBe(false);
+    expect(filterSongsByAccess([resolverMatch], 'full')).toEqual([]);
+    expect(filterSongsByAccess([resolverMatch], 'preview')).toEqual([]);
+    expect(filterSongsByAccess([resolverMatch], 'all')).toEqual([resolverMatch]);
+  });
+
+  it('does not count an unknown-duration resolver record as a full track', () => {
+    const unknownKuwo = { ...song('kuwo-unknown'), provider: 'Kuwo' as const, duration: 0 };
+    const unknownLx = { ...song('lxmusic-unknown'), provider: 'LX Music' as const, duration: 0 };
+
+    expect(isFullTrack(unknownKuwo)).toBe(false);
+    expect(isFullTrack(unknownLx)).toBe(false);
+    expect(filterSongsByAccess([unknownKuwo, unknownLx], 'full')).toEqual([]);
+  });
+
+  it('builds a station with the selected track first and full-track provider diversity', () => {
+    const seed = {
+      ...song('seed'),
+      title: 'Seed Song',
+      provider: 'Apple Preview' as const,
+    };
+    const duplicate = {
+      ...song('duplicate'),
+      title: 'Next One',
+      artist: 'Audius Artist',
+      provider: 'Jamendo' as const,
+    };
+    const candidates = [
+      { ...song('audius-next'), title: 'Next One', artist: 'Audius Artist', provider: 'Audius' as const },
+      duplicate,
+      { ...song('wikimedia-next'), title: 'Another One', provider: 'Wikimedia Commons' as const },
+      { ...song('short-kuwo'), title: 'Short Clip', provider: 'Kuwo' as const, duration: 30 },
+      { ...song('live'), title: 'Live Station', provider: 'SomaFM' as const, isLive: true },
+      { ...song('unavailable'), title: 'Unavailable', playbackUnavailable: true },
+    ];
+
+    expect(buildStationQueue(seed, candidates, 5).map(({ id }) => id)).toEqual([
+      'seed',
+      'audius-next',
+      'wikimedia-next',
+    ]);
   });
 
   it('applies a shelf limit after access filtering', () => {
@@ -154,5 +216,16 @@ describe('New view model', () => {
     const fullTracks = [song('full-1'), song('full-2')];
 
     expect(buildListeningMixForAccess([], [seed], [...previews, ...fullTracks], 'full', 12)).toEqual(fullTracks);
+  });
+
+  it('gives a new listener a full-track-first mix without including live stations', () => {
+    const preview = providerSong('itunes-1', 'Apple Preview');
+    const fullOne = providerSong('full-1', 'Jamendo');
+    const fullTwo = providerSong('full-2', 'Audius');
+    const live = { ...providerSong('live-1', 'SomaFM'), isLive: true };
+
+    expect(buildDiscoveryMixForAccess([], [], [preview, fullOne, live, fullTwo], 'all', 4).map(({ id }) => id)).toEqual(
+      ['full-1', 'full-2', 'itunes-1'],
+    );
   });
 });

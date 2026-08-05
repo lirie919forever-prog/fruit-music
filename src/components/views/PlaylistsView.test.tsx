@@ -6,6 +6,12 @@ import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { PlayerStoreProvider, usePlayerStoreApi, type PlayerStore } from '@/store/playerStore';
 import { PlaylistsView } from './PlaylistsView';
 import type { Song } from '@/types/music';
+import type { MusicCatalog } from '@/lib/catalogTypes';
+import { MusicCatalogProvider } from '@/lib/musicCatalog';
+
+const catalog = {
+  getGenreSongs: () => Promise.resolve({ results: [], failedProviders: [], providerCount: 0 }),
+} as unknown as MusicCatalog;
 
 function song(id: string): Song {
   return {
@@ -47,10 +53,12 @@ function Probe() {
 
 function mount() {
   return render(
-    <PlayerStoreProvider initialView="playlist" initialQuery="">
-      <Probe />
-      <PlaylistsView />
-    </PlayerStoreProvider>,
+    <MusicCatalogProvider catalog={catalog}>
+      <PlayerStoreProvider initialView="playlist" initialQuery="">
+        <Probe />
+        <PlaylistsView />
+      </PlayerStoreProvider>
+    </MusicCatalogProvider>,
   );
 }
 
@@ -272,12 +280,28 @@ describe('the list itself', () => {
   it('points at somewhere to go when there are no playlists yet', () => {
     const onNavigate = vi.fn();
     render(
-      <PlayerStoreProvider initialView="playlist" initialQuery="">
-        <Probe />
-        <PlaylistsView onNavigate={onNavigate} />
-      </PlayerStoreProvider>,
+      <MusicCatalogProvider catalog={catalog}>
+        <PlayerStoreProvider initialView="playlist" initialQuery="">
+          <Probe />
+          <PlaylistsView onNavigate={onNavigate} />
+        </PlayerStoreProvider>
+      </MusicCatalogProvider>,
     );
 
     expect(screen.getByRole('button', { name: /Browse trending/ })).toBeInTheDocument();
+  });
+
+  it('keeps a large playlist collection bounded to the visible grid window', () => {
+    mount();
+    act(() => {
+      for (let index = 0; index < 500; index += 1) {
+        store.getState().createPlaylist(`Playlist ${index}`);
+      }
+    });
+
+    const grid = screen.getByRole('list', { name: 'Playlists' });
+    expect(grid.querySelectorAll('[role="listitem"]').length).toBeLessThanOrEqual(12);
+    expect(screen.getByRole('button', { name: 'Open playlist Playlist 499' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open playlist Playlist 0' })).not.toBeInTheDocument();
   });
 });

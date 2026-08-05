@@ -1,19 +1,21 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countFederatedResults } from '@/lib/catalogFreshness';
-import { AlbumTile, TILE_GRID, TileSkeleton } from '@/components/ui/CatalogTile';
+import { AlbumTile, TileSkeleton } from '@/components/ui/CatalogTile';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
+import { VirtualGrid } from '@/components/ui/VirtualGrid';
 import type { ViewType } from '@/types/music';
 import type { NavigationItem } from '@/lib/navigation';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 
 export function AlbumGrid({
   onNavigateWithItem,
 }: {
   onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
 }) {
+  const catalog = useMusicCatalog();
   const {
     data: albumState,
     isLoading,
@@ -22,7 +24,7 @@ export function AlbumGrid({
     refetch,
   } = useQuery({
     queryKey: ['albums'],
-    queryFn: ({ signal }) => api.getAlbums(signal),
+    queryFn: ({ signal }) => catalog.getAlbums(signal),
     staleTime: catalogStaleTime(countFederatedResults),
   });
   const albums = albumState?.results;
@@ -52,11 +54,14 @@ export function AlbumGrid({
           </p>
         )}
       </div>
-      <div className={TILE_GRID}>
-        {albums.map((album) => (
-          <AlbumTile key={album.id} album={album} onNavigateWithItem={onNavigateWithItem} />
-        ))}
-      </div>
+      <VirtualGrid
+        items={albums}
+        estimateRowSize={230}
+        minColumnWidth={150}
+        label="Albums"
+        getItemKey={(album) => album.id}
+        renderItem={(album) => <AlbumTile album={album} onNavigateWithItem={onNavigateWithItem} />}
+      />
     </section>
   );
 }

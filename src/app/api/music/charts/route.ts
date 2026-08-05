@@ -52,13 +52,10 @@ interface FeedEntry {
 }
 
 function chartTrackToSong(item: ItunesTrack): Song {
-  const durationSeconds =
-    typeof item.trackTimeMillis === 'number' && Number.isFinite(item.trackTimeMillis)
-      ? Math.max(1, Math.round(item.trackTimeMillis / 1000))
-      : 0;
-  return trackToSong(item, 0, durationSeconds);
+  // The chart endpoint serves Apple's fixed 30-second preview. `trackToSong`
+  // keeps the full recording length separately as `recordingDuration`.
+  return trackToSong(item, 0, 30);
 }
-
 
 function upstreamSignal(signal?: AbortSignal): AbortSignal {
   const timeout = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);

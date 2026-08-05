@@ -84,6 +84,97 @@ describe('LX Music API route', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it('probes resolver media without opening a playback response', async () => {
+    delete process.env.LX_API_BASE;
+    process.env.LX_RESOLVER_BASE = 'https://resolver.example.test';
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ url: 'https://resolver.example.test/media/song.mp3' }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-1/100' },
+        }),
+      );
+
+    const response = await GET(
+      new Request('http://localhost/api/music/lxmusic/url?id=lxmusic-wy_1_123&platform=wy&rawId=123&type=1&probe=1'),
+      { params: Promise.resolve({ path: ['url'] }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ available: true, provider: 'LX Music' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const [, options] = vi.mocked(fetch).mock.calls[1];
+    expect(new Headers(options?.headers).get('Range')).toBe('bytes=0-1');
+  });
+
+  it('rejects a resolver payload that is too small for the expected recording', async () => {
+    delete process.env.LX_API_BASE;
+    process.env.LX_RESOLVER_BASE = 'https://resolver.example.test';
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ url: 'https://resolver.example.test/media/song.mp3' }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-1/181521',
+          },
+        }),
+      );
+
+    const response = await GET(
+      new Request(
+        'http://localhost/api/music/lxmusic/url?id=lxmusic-wy_1_123&platform=wy&rawId=123&type=1&probe=1&expected=180',
+      ),
+      { params: Promise.resolve({ path: ['url'] }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ available: false, provider: 'LX Music', code: 'short' });
+  });
+
+  it('reports an unavailable media probe as a normal provider result', async () => {
+    delete process.env.LX_API_BASE;
+    process.env.LX_RESOLVER_BASE = 'https://resolver.example.test';
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ url: 'https://resolver.example.test/media/song.mp3' }))
+      .mockResolvedValueOnce(new Response('blocked', { status: 502 }));
+
+    const response = await GET(
+      new Request('http://localhost/api/music/lxmusic/url?id=lxmusic-wy_1_123&platform=wy&rawId=123&type=1&probe=1'),
+      { params: Promise.resolve({ path: ['url'] }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ available: false, provider: 'LX Music', code: 'unavailable' });
+  });
+
+  it('keeps normal media failures as HTTP errors instead of probe JSON', async () => {
+    delete process.env.LX_API_BASE;
+    process.env.LX_RESOLVER_BASE = 'https://resolver.example.test';
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ url: 'https://resolver.example.test/media/song.mp3' }))
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://blocked.example.test/media/song.mp3' },
+        }),
+      );
+
+    const response = await GET(
+      new Request('http://localhost/api/music/lxmusic/url?id=lxmusic-wy_1_123&platform=wy&rawId=123&type=1'),
+      { params: Promise.resolve({ path: ['url'] }) },
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.text()).toBe('Stream unavailable');
+  });
+
   it('returns 400 for missing search key', async () => {
     const GET = await loadRoute();
     const response = await GET(new Request('http://localhost/api/music/lxmusic/search'), {

@@ -1027,12 +1027,12 @@ describe('music media proxy', () => {
       ],
     });
     const upstream = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
-    expect(upstream.origin).toBe('https://de1.api.radio-browser.info');
+    expect(upstream.origin).toBe('https://de2.api.radio-browser.info');
     expect(upstream.pathname).toBe('/json/stations/topclick/3');
     expect(upstream.searchParams.get('hidebroken')).toBe('true');
   });
 
-  it('falls back to the global Radio Browser endpoint when the preferred mirror is unavailable', async () => {
+  it('falls back to the next Radio Browser mirror when the preferred mirror is unavailable', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
       .mockResolvedValueOnce(
@@ -1060,7 +1060,7 @@ describe('music media proxy', () => {
       ],
     });
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
-    expect(new URL(String(vi.mocked(fetch).mock.calls[1][0])).origin).toBe('https://all.api.radio-browser.info');
+    expect(new URL(String(vi.mocked(fetch).mock.calls[1][0])).origin).toBe('https://de1.api.radio-browser.info');
   });
 
   it('reports a Radio Browser outage after every mirror fails', async () => {
@@ -1070,7 +1070,7 @@ describe('music media proxy', () => {
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({ error: 'Radio Browser upstream error' });
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
   it('uses the fixed Commons API and streams only approved Wikimedia media', async () => {
@@ -1164,5 +1164,62 @@ describe('music media proxy', () => {
 
     expect(stream.status).toBe(404);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes the public NTS live schedule and rejects unsupported channel IDs', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            channel_name: '2',
+            now: {
+              broadcast_title: 'Night drive',
+              embeds: {
+                details: {
+                  description: 'Live from London',
+                  genres: [{ value: 'Electronic' }, { value: 'Ambient' }],
+                },
+              },
+            },
+          },
+          {
+            channel_name: '1',
+            now: {
+              broadcast_title: 'Morning music',
+              embeds: { details: { description: 'Worldwide radio', genres: [{ value: 'Soul' }] } },
+            },
+          },
+          { channel_name: '3', now: { broadcast_title: 'Unsupported' } },
+        ],
+      }),
+    );
+
+    const response = await GET(request('nts/stations?limit=2'), context(['nts', 'stations']));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      results: [
+        {
+          id: '1',
+          title: 'NTS 1',
+          description: 'Worldwide radio',
+          genre: 'Soul',
+          nowPlaying: 'Morning music',
+        },
+        {
+          id: '2',
+          title: 'NTS 2',
+          description: 'Live from London',
+          genre: 'Electronic, Ambient',
+          nowPlaying: 'Night drive',
+        },
+      ],
+    });
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe('https://www.nts.live/api/v2/live');
+
+    vi.mocked(fetch).mockReset();
+    const invalid = await GET(request('nts/stations?id=3'), context(['nts', 'stations']));
+    expect(invalid.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
 import type { MusicProvider } from './types';
+import type { MusicProviderName } from '@/types/music';
 import { jamendoProvider } from './jamendoProvider';
 import { ccmixterProvider } from './ccmixterProvider';
 import { archiveProvider } from './archiveProvider';
@@ -10,60 +11,174 @@ import { audiusProvider } from './audiusProvider';
 import { openverseProvider } from './openverseProvider';
 import { wikimediaProvider } from './wikimediaProvider';
 import { somaFmProvider } from './somaFmProvider';
+import { ntsProvider } from './ntsProvider';
+import { radioParadiseProvider } from './radioParadiseProvider';
+import { kexpProvider } from './kexpProvider';
+import { fipProvider } from './fipProvider';
+import { theCurrentProvider } from './theCurrentProvider';
 import { radioBrowserProvider } from './radioBrowserProvider';
+import { localProvider } from './localProvider';
 
-let cachedProvider: MusicProvider | null = null;
+export interface ProviderRegistration {
+  readonly name: MusicProviderName;
+  readonly adapter: MusicProvider;
+  readonly songPrefixes: readonly string[];
+  readonly albumPrefixes: readonly string[];
+  readonly artistPrefixes: readonly string[];
+}
 
-export function getMusicProvider(): MusicProvider {
-  if (!cachedProvider) {
-    cachedProvider = jamendoProvider;
-  }
-  return cachedProvider;
+/**
+ * The adapter registry is the only place that knows how normalized entity IDs
+ * map back to a provider. Playback receives a Song and therefore routes by its
+ * typed provider name; prefix matching remains only for old deep links that
+ * contain an ID but no normalized entity metadata.
+ */
+export const MUSIC_PROVIDER_ADAPTERS: readonly ProviderRegistration[] = [
+  {
+    name: 'Jamendo',
+    adapter: jamendoProvider,
+    songPrefixes: ['jamendo-'],
+    albumPrefixes: ['jamendo-'],
+    artistPrefixes: ['jamendo-artist-'],
+  },
+  {
+    name: 'ccMixter',
+    adapter: ccmixterProvider,
+    songPrefixes: ['ccmixter-'],
+    albumPrefixes: ['ccmixter-album-'],
+    artistPrefixes: ['ccmixter-artist-'],
+  },
+  {
+    name: 'Archive',
+    adapter: archiveProvider,
+    songPrefixes: ['archive-'],
+    albumPrefixes: ['archive-album-'],
+    artistPrefixes: ['archive-artist-'],
+  },
+  {
+    name: 'LX Music',
+    adapter: lxmusicProvider,
+    songPrefixes: ['lxmusic-'],
+    albumPrefixes: ['lxmusic-album-'],
+    artistPrefixes: ['lxmusic-artist-'],
+  },
+  {
+    name: 'Kuwo',
+    adapter: kuwoProvider,
+    songPrefixes: ['kuwo-'],
+    albumPrefixes: ['kuwo-album-'],
+    artistPrefixes: ['kuwo-artist-'],
+  },
+  {
+    name: 'Apple Preview',
+    adapter: itunesProvider,
+    songPrefixes: ['itunes-'],
+    albumPrefixes: ['itunes-album-'],
+    artistPrefixes: ['itunes-artist-'],
+  },
+  {
+    name: 'Deezer Preview',
+    adapter: deezerProvider,
+    songPrefixes: ['deezer-'],
+    albumPrefixes: ['deezer-album-'],
+    artistPrefixes: ['deezer-artist-'],
+  },
+  {
+    name: 'Audius',
+    adapter: audiusProvider,
+    songPrefixes: ['audius-'],
+    albumPrefixes: ['audius-album-'],
+    artistPrefixes: ['audius-artist-'],
+  },
+  {
+    name: 'Openverse',
+    adapter: openverseProvider,
+    songPrefixes: ['openverse-'],
+    albumPrefixes: ['openverse-album-'],
+    artistPrefixes: ['openverse-artist-'],
+  },
+  {
+    name: 'Wikimedia Commons',
+    adapter: wikimediaProvider,
+    songPrefixes: ['wikimedia-'],
+    albumPrefixes: ['wikimedia-album-'],
+    artistPrefixes: ['wikimedia-artist-'],
+  },
+  {
+    name: 'SomaFM',
+    adapter: somaFmProvider,
+    songPrefixes: ['somafm-'],
+    albumPrefixes: ['somafm-album-'],
+    artistPrefixes: ['somafm-artist-'],
+  },
+  {
+    name: 'NTS Radio',
+    adapter: ntsProvider,
+    songPrefixes: ['nts-'],
+    albumPrefixes: ['nts-album-'],
+    artistPrefixes: ['nts-artist-'],
+  },
+  {
+    name: 'Radio Paradise',
+    adapter: radioParadiseProvider,
+    songPrefixes: ['radioparadise-'],
+    albumPrefixes: ['radioparadise-album-'],
+    artistPrefixes: ['radioparadise-artist-'],
+  },
+  {
+    name: 'KEXP',
+    adapter: kexpProvider,
+    songPrefixes: ['kexp-'],
+    albumPrefixes: ['kexp-album-'],
+    artistPrefixes: ['kexp-artist-'],
+  },
+  {
+    name: 'FIP',
+    adapter: fipProvider,
+    songPrefixes: ['fip-'],
+    albumPrefixes: ['fip-album-'],
+    artistPrefixes: ['fip-artist-'],
+  },
+  {
+    name: 'The Current',
+    adapter: theCurrentProvider,
+    songPrefixes: ['thecurrent-'],
+    albumPrefixes: ['thecurrent-album-'],
+    artistPrefixes: ['thecurrent-artist-'],
+  },
+  {
+    name: 'Radio Browser',
+    adapter: radioBrowserProvider,
+    songPrefixes: ['radio-'],
+    albumPrefixes: ['radio-album-'],
+    artistPrefixes: ['radio-artist-'],
+  },
+  { name: 'Local file', adapter: localProvider, songPrefixes: ['local-'], albumPrefixes: [], artistPrefixes: [] },
+] as const;
+
+const adapterByName = new Map(MUSIC_PROVIDER_ADAPTERS.map((registration) => [registration.name, registration.adapter]));
+
+function adapterForId(id: string, key: 'songPrefixes' | 'albumPrefixes' | 'artistPrefixes'): MusicProvider {
+  return (
+    MUSIC_PROVIDER_ADAPTERS.find((registration) => registration[key].some((prefix) => id.startsWith(prefix)))
+      ?.adapter ?? jamendoProvider
+  );
+}
+
+export function getMusicProviderForName(name: MusicProviderName): MusicProvider {
+  return adapterByName.get(name) ?? jamendoProvider;
 }
 
 export function getMusicProviderForSongId(songId: string): MusicProvider {
-  if (songId.startsWith('ccmixter-')) return ccmixterProvider;
-  if (songId.startsWith('archive-')) return archiveProvider;
-  if (songId.startsWith('lxmusic-')) return lxmusicProvider;
-  if (songId.startsWith('kuwo-')) return kuwoProvider;
-  if (songId.startsWith('itunes-')) return itunesProvider;
-  if (songId.startsWith('deezer-')) return deezerProvider;
-  if (songId.startsWith('audius-')) return audiusProvider;
-  if (songId.startsWith('openverse-')) return openverseProvider;
-  if (songId.startsWith('wikimedia-')) return wikimediaProvider;
-  if (songId.startsWith('somafm-')) return somaFmProvider;
-  if (songId.startsWith('radio-')) return radioBrowserProvider;
-  return jamendoProvider;
+  return adapterForId(songId, 'songPrefixes');
 }
 
 export function getMusicProviderForAlbumId(albumId: string): MusicProvider {
-  if (albumId.startsWith('ccmixter-album-')) return ccmixterProvider;
-  if (albumId.startsWith('archive-album-')) return archiveProvider;
-  if (albumId.startsWith('lxmusic-album-')) return lxmusicProvider;
-  if (albumId.startsWith('kuwo-album-')) return kuwoProvider;
-  if (albumId.startsWith('itunes-album-')) return itunesProvider;
-  if (albumId.startsWith('deezer-album-')) return deezerProvider;
-  if (albumId.startsWith('audius-album-')) return audiusProvider;
-  if (albumId.startsWith('openverse-album-')) return openverseProvider;
-  if (albumId.startsWith('wikimedia-album-')) return wikimediaProvider;
-  if (albumId.startsWith('somafm-album-')) return somaFmProvider;
-  if (albumId.startsWith('radio-album-')) return radioBrowserProvider;
-  return jamendoProvider;
+  return adapterForId(albumId, 'albumPrefixes');
 }
 
 export function getMusicProviderForArtistId(artistId: string): MusicProvider {
-  if (artistId.startsWith('ccmixter-artist-')) return ccmixterProvider;
-  if (artistId.startsWith('archive-artist-')) return archiveProvider;
-  if (artistId.startsWith('lxmusic-artist-')) return lxmusicProvider;
-  if (artistId.startsWith('kuwo-artist-')) return kuwoProvider;
-  if (artistId.startsWith('itunes-artist-')) return itunesProvider;
-  if (artistId.startsWith('deezer-artist-')) return deezerProvider;
-  if (artistId.startsWith('audius-artist-')) return audiusProvider;
-  if (artistId.startsWith('openverse-artist-')) return openverseProvider;
-  if (artistId.startsWith('wikimedia-artist-')) return wikimediaProvider;
-  if (artistId.startsWith('somafm-artist-')) return somaFmProvider;
-  if (artistId.startsWith('radio-artist-')) return radioBrowserProvider;
-  return jamendoProvider;
+  return adapterForId(artistId, 'artistPrefixes');
 }
 
 export {
@@ -78,6 +193,12 @@ export {
   openverseProvider,
   wikimediaProvider,
   somaFmProvider,
+  ntsProvider,
+  radioParadiseProvider,
+  kexpProvider,
+  fipProvider,
+  theCurrentProvider,
   radioBrowserProvider,
+  localProvider,
 };
 export type { MusicProvider };

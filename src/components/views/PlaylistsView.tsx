@@ -1,10 +1,12 @@
 'use client';
 
+import { ArrowLeft, ArrowUpDown, Play, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import { HiArrowLeft, HiArrowsRightLeft, HiPlay, HiPlus, HiTrash } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
+import { VirtualGrid } from '@/components/ui/VirtualGrid';
+import { VirtualList } from '@/components/ui/VirtualList';
 import { SongCard } from './SongCard';
 import { playableSongs } from './newViewModel';
 import type { NavigationItem } from '@/lib/navigation';
@@ -66,7 +68,7 @@ export function PlaylistsView({ onNavigateWithItem, onNavigate }: PlaylistsViewP
           disabled={!newName.trim()}
           className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-[var(--salt-primary)] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--salt-bright)] disabled:cursor-not-allowed disabled:bg-[#a7b3ba]"
         >
-          <HiPlus className="h-4 w-4" aria-hidden />
+          <Plus className="h-4 w-4" aria-hidden />
           Create
         </button>
       </div>
@@ -81,11 +83,14 @@ export function PlaylistsView({ onNavigateWithItem, onNavigate }: PlaylistsViewP
           }
         />
       ) : (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
-          {playlists.map((playlist) => (
-            <PlaylistCard key={playlist.id} playlist={playlist} onOpen={() => setOpenId(playlist.id)} />
-          ))}
-        </div>
+        <VirtualGrid
+          items={playlists}
+          estimateRowSize={198}
+          minColumnWidth={150}
+          label="Playlists"
+          getItemKey={(playlist) => playlist.id}
+          renderItem={(playlist) => <PlaylistCard playlist={playlist} onOpen={() => setOpenId(playlist.id)} />}
+        />
       )}
     </section>
   );
@@ -143,7 +148,7 @@ function PlaylistCard({ playlist, onOpen }: { playlist: Playlist; onOpen: () => 
               }}
               className="absolute inset-0 flex items-center justify-center bg-black/35 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
             >
-              <HiPlay className="h-7 w-7" />
+              <Play className="h-7 w-7" />
             </span>
           )}
         </span>
@@ -193,7 +198,7 @@ function PlaylistDetail({
         onClick={onBack}
         className="inline-flex h-8 items-center gap-1.5 rounded-full px-2 text-[13px] font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)]"
       >
-        <HiArrowLeft className="h-4 w-4" aria-hidden />
+        <ArrowLeft className="h-4 w-4" aria-hidden />
         All playlists
       </button>
 
@@ -248,9 +253,9 @@ function PlaylistDetail({
               type="button"
               onClick={() => playAlbum(ready, 0)}
               disabled={ready.length === 0}
-              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#d84f5f] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[#bd3f4f] disabled:cursor-not-allowed disabled:bg-[#a7b3ba]"
+              className="marea-primary-action inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed"
             >
-              <HiPlay className="h-4 w-4" aria-hidden />
+              <Play className="h-4 w-4" aria-hidden />
               Play
             </button>
             <button
@@ -264,7 +269,7 @@ function PlaylistDetail({
               disabled={ready.length === 0}
               className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--glass-border)] px-4 text-[13px] font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] disabled:cursor-not-allowed disabled:text-[var(--salt-mist)]"
             >
-              <HiArrowsRightLeft className="h-4 w-4" aria-hidden />
+              <ArrowUpDown className="h-4 w-4" aria-hidden />
               Shuffle
             </button>
             {!renaming && (
@@ -302,7 +307,7 @@ function PlaylistDetail({
                 onClick={() => setConfirmingDelete(true)}
                 className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--danger)]"
               >
-                <HiTrash className="h-4 w-4" aria-hidden />
+                <Trash2 className="h-4 w-4" aria-hidden />
                 Delete
               </button>
             )}
@@ -317,10 +322,14 @@ function PlaylistDetail({
           body="Use the ··· menu on any track and choose “Add to playlist”."
         />
       ) : (
-        <div className="grid">
-          {playlist.songs.map((song, index) => (
+        <VirtualList
+          items={playlist.songs}
+          estimateSize={56}
+          label={`${playlist.name} tracks`}
+          getItemKey={(song) => song.id}
+          className="border-y border-[var(--glass-border)]"
+          renderItem={(song, index) => (
             <SongCard
-              key={song.id}
               song={song}
               index={index}
               tracks={playlist.songs}
@@ -356,8 +365,8 @@ function PlaylistDetail({
                 </span>
               }
             />
-          ))}
-        </div>
+          )}
+        />
       )}
     </section>
   );

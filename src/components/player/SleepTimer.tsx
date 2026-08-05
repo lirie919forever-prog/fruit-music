@@ -1,8 +1,9 @@
 'use client';
 
+import { Moon } from 'lucide-react';
 import { useCallback, useSyncExternalStore } from 'react';
-import { HiMoon } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
+import { motion } from 'motion/react';
 
 const PRESET_MINUTES = [15, 30, 60] as const;
 /** Half a minute, so a displayed figure is never more than that out of date. */
@@ -56,27 +57,29 @@ export function SleepTimer() {
   return (
     <div className="flex flex-wrap items-center justify-center gap-1.5">
       <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--salt-mist)]">
-        <HiMoon aria-hidden className="h-3.5 w-3.5" />
+        <Moon aria-hidden className="h-3.5 w-3.5" />
         Sleep
       </span>
       {PRESET_MINUTES.map((minutes) => (
-        <button
+        <motion.button
+          whileTap={{ scale: 0.96 }}
           key={minutes}
           type="button"
           onClick={() => setSleepTimer(minutes)}
           className="rounded-full border border-[var(--glass-border)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
         >
           {minutes} min
-        </button>
+        </motion.button>
       ))}
       {active && (
-        <button
+        <motion.button
+          whileTap={{ scale: 0.96 }}
           type="button"
           onClick={() => setSleepTimer(null)}
           className="rounded-full bg-[var(--salt-ghost)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
         >
           Cancel
-        </button>
+        </motion.button>
       )}
       {/* Announced politely rather than as an alert: it changes once a minute
           and is a status, not something the reader has to act on. */}

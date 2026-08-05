@@ -1,12 +1,26 @@
 'use client';
 
+import {
+  Heart,
+  ListMusic,
+  Music,
+  Pause,
+  Play,
+  Repeat,
+  Repeat1,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  Sparkles,
+} from 'lucide-react';
+import { motion } from 'motion/react';
 import { usePlayerStore } from '@/store/playerStore';
 import { VolumeSlider } from '@/components/ui/VolumeSlider';
 import { useAudio } from '@/components/player/AudioProvider';
 import { hasNextInQueue } from '@/components/player/playbackRecovery';
-import { BsShuffle, BsRepeat, BsRepeat1 } from 'react-icons/bs';
-import { HiQueueList } from 'react-icons/hi2';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { PlaybackSourceNotice } from './PlaybackSourceNotice';
+import { usePlaybackClock } from './playbackClock';
 import type { NavigationItem } from '@/lib/navigation';
 import type { ViewType } from '@/types/music';
 
@@ -33,32 +47,32 @@ function ControlButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
+    <motion.button
+      whileTap={{ scale: 0.96 }}
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
       aria-pressed={pressed}
-      className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+      className="marea-glass-control flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-mist)] hover:text-[var(--salt-white)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
       style={{ color: active ? 'var(--salt-primary)' : undefined }}
     >
       {children}
-    </button>
+    </motion.button>
   );
 }
 
 function SeekSlider({
-  progressPct,
-  progress,
   duration,
   isLive,
   onSeek,
 }: {
-  progressPct: number;
-  progress: number;
   duration: number;
   isLive: boolean;
   onSeek: (time: number) => void;
 }) {
+  const { progress } = usePlaybackClock();
+  const safeProgress = duration > 0 ? Math.max(0, Math.min(Number.isFinite(progress) ? progress : 0, duration)) : 0;
+  const progressPct = duration > 0 ? Math.max(0, Math.min(100, (safeProgress / duration) * 100)) : 0;
   const seekable = duration > 0 && !isLive;
   return (
     <div className="group flex w-full max-w-[280px] flex-col gap-1">
@@ -93,21 +107,25 @@ function SeekSlider({
 
 export function NowPlayingBar({
   onNavigateWithItem,
+  onOpenQueue,
 }: {
   onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
+  onOpenQueue?: () => void;
 }) {
   const currentSong = usePlayerStore((s) => s.currentSong);
+  const effectiveSong = usePlayerStore((s) => s.effectiveSong);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const playbackIntent = usePlayerStore((s) => s.playbackIntent);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const next = usePlayerStore((s) => s.next);
   const previous = usePlayerStore((s) => s.previous);
-  const progress = usePlayerStore((s) => s.progress);
   const duration = usePlayerStore((s) => s.duration);
   const shuffle = usePlayerStore((s) => s.shuffle);
   const repeat = usePlayerStore((s) => s.repeat);
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
   const toggleRepeat = usePlayerStore((s) => s.toggleRepeat);
+  const autoplay = usePlayerStore((s) => s.autoplay);
+  const toggleAutoplay = usePlayerStore((s) => s.toggleAutoplay);
   const status = usePlayerStore((s) => s.status);
   const error = usePlayerStore((s) => s.error);
   const favorites = usePlayerStore((s) => s.favorites);
@@ -115,33 +133,36 @@ export function NowPlayingBar({
   const queue = usePlayerStore((s) => s.queue);
   const queueIndex = usePlayerStore((s) => s.queueIndex);
   const setCurrentView = usePlayerStore((s) => s.setCurrentView);
+  const setNowPlayingPanel = usePlayerStore((s) => s.setNowPlayingPanel);
   const { seek } = useAudio();
   const isFavorite = currentSong ? favorites.some((song) => song.id === currentSong.id) : false;
   const isLive = currentSong?.isLive === true;
 
-  const safeProgress = duration > 0 ? Math.max(0, Math.min(Number.isFinite(progress) ? progress : 0, duration)) : 0;
-  const progressPct = duration > 0 ? Math.max(0, Math.min(100, (safeProgress / duration) * 100)) : 0;
   const hasTrack = Boolean(currentSong);
   const canSeek = hasTrack && duration > 0 && !isLive;
   const isLoading = status === 'loading' && playbackIntent;
   const canGoNext = hasTrack && hasNextInQueue({ queue, queueIndex, shuffle, repeat });
   const playLabel = status === 'error' ? 'Retry playback' : isLoading ? 'Cancel loading' : isPlaying ? 'Pause' : 'Play';
+  const openQueue = () => {
+    if (onOpenQueue) {
+      onOpenQueue();
+      return;
+    }
+    setNowPlayingPanel('queue');
+    setCurrentView('now-playing');
+  };
   const playIcon = isLoading ? (
     <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
   ) : isPlaying ? (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
-    </svg>
+    <Pause className="h-4 w-4 fill-current" aria-hidden />
   ) : (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5" aria-hidden>
-      <path d="M8 5v14l11-7z" />
-    </svg>
+    <Play className="ml-0.5 h-4 w-4 fill-current" aria-hidden />
   );
 
   return (
     <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50">
       <div
-        className="pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-[var(--glass-border)] bg-[rgba(255,255,255,0.94)] px-3 backdrop-blur-xl md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
+        className="marea-player-surface pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t px-3 md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
         style={{
           minHeight: 'calc(var(--player-bar-height) + env(safe-area-inset-bottom))',
           paddingBottom: 'env(safe-area-inset-bottom)',
@@ -162,15 +183,17 @@ export function NowPlayingBar({
                 src={currentSong.coverArt}
                 alt=""
                 sizes="48px"
-                className="h-12 w-12 shrink-0 rounded object-cover"
+                loading="eager"
+                className="h-12 w-12 shrink-0 rounded-lg object-cover shadow-[0_5px_16px_rgba(25,93,129,0.22)] ring-1 ring-white/60"
               />
               <div className="min-w-0">
-                <button
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
                   onClick={() => setCurrentView('now-playing')}
                   className="block max-w-[180px] truncate text-left text-[13px] font-medium leading-tight text-[var(--salt-white)] hover:text-[var(--salt-primary)]"
                 >
                   {currentSong.title}
-                </button>
+                </motion.button>
                 {status === 'loading' ? (
                   <p className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--salt-mist)]">
                     Loading…
@@ -183,37 +206,43 @@ export function NowPlayingBar({
                     {error || 'Playback failed'}
                   </p>
                 ) : onNavigateWithItem ? (
-                  <button
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
                     type="button"
                     onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: currentSong.artistId })}
                     className="mt-0.5 block max-w-[180px] truncate text-left text-xs leading-tight text-[var(--salt-mist)] hover:text-[var(--salt-primary)] focus-visible:outline-none"
                   >
                     {currentSong.artist}
-                  </button>
+                  </motion.button>
                 ) : (
                   <p className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--salt-mist)]">
                     {currentSong.artist}
                   </p>
                 )}
+                <PlaybackSourceNotice
+                  catalogSong={currentSong}
+                  effectiveSong={effectiveSong}
+                  compact
+                  verified={
+                    (status === 'ready' || status === 'playing' || status === 'paused') && (duration > 0 || isLive)
+                  }
+                />
               </div>
-              <button
+              <motion.button
+                whileTap={{ scale: 0.96 }}
                 type="button"
                 onClick={() => toggleFavorite(currentSong)}
                 aria-label={`${isFavorite ? 'Remove' : 'Add'} ${currentSong.title} ${isFavorite ? 'from' : 'to'} favorites`}
                 aria-pressed={isFavorite}
-                className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-base leading-none transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] sm:flex ${isFavorite ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'}`}
+                className={`marea-glass-control hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-base leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] sm:flex ${isFavorite ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'}`}
               >
-                {isFavorite ? '♥' : '♡'}
-              </button>
+                <Heart className={`h-4 w-4 ${isFavorite ? 'fill-current' : ''}`} aria-hidden />
+              </motion.button>
             </>
           ) : (
             <div className="flex items-center gap-3 text-[var(--salt-mist)]">
-              <div className="flex h-12 w-12 items-center justify-center rounded bg-[var(--salt-ghost)]">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M9 18V5l12-2v13" />
-                  <circle cx="6" cy="18" r="3" />
-                  <circle cx="18" cy="16" r="3" />
-                </svg>
+              <div className="marea-glass-control flex h-12 w-12 items-center justify-center rounded-lg text-[var(--salt-mist)]">
+                <Music className="h-5 w-5" aria-hidden />
               </div>
               <span className="text-[13px]">{status === 'error' ? 'Playback unavailable' : 'Not playing'}</span>
             </div>
@@ -229,26 +258,23 @@ export function NowPlayingBar({
               onClick={toggleShuffle}
               disabled={!hasTrack}
             >
-              <BsShuffle size={14} />
+              <Shuffle size={14} />
             </ControlButton>
             <ControlButton label="Previous" onClick={previous} disabled={!hasTrack}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
-              </svg>
+              <SkipBack className="h-[18px] w-[18px] fill-current" aria-hidden />
             </ControlButton>
-            <button
+            <motion.button
+              whileTap={{ scale: 0.92 }}
               onClick={togglePlay}
               disabled={!hasTrack}
               aria-label={playLabel}
               aria-busy={isLoading}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[#d84f5f] text-white transition-colors hover:bg-[#bd3f4f] disabled:cursor-not-allowed disabled:bg-[#c3ccd2]"
+              className="marea-primary-action flex h-10 w-10 items-center justify-center rounded-full text-white disabled:cursor-not-allowed disabled:bg-[#c3ccd2] disabled:shadow-none"
             >
               {playIcon}
-            </button>
+            </motion.button>
             <ControlButton label="Next" onClick={next} disabled={!canGoNext}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-              </svg>
+              <SkipForward className="h-[18px] w-[18px] fill-current" aria-hidden />
             </ControlButton>
             <ControlButton
               active={repeat !== 'off'}
@@ -257,58 +283,58 @@ export function NowPlayingBar({
               onClick={toggleRepeat}
               disabled={!hasTrack}
             >
-              {repeat === 'one' ? <BsRepeat1 size={14} /> : <BsRepeat size={14} />}
+              {repeat === 'one' ? <Repeat1 size={14} /> : <Repeat size={14} />}
+            </ControlButton>
+            <ControlButton
+              active={autoplay}
+              label={autoplay ? 'Turn autoplay off' : 'Turn autoplay on'}
+              pressed={autoplay}
+              onClick={toggleAutoplay}
+              disabled={!hasTrack}
+            >
+              <Sparkles className="h-4 w-4" />
             </ControlButton>
           </div>
 
-          <SeekSlider
-            progressPct={progressPct}
-            progress={progress}
-            duration={canSeek ? duration : 0}
-            isLive={isLive}
-            onSeek={seek}
-          />
+          <SeekSlider duration={canSeek ? duration : 0} isLive={isLive} onSeek={seek} />
         </div>
 
         <div className="flex items-center justify-end gap-1 md:gap-3">
           <div className="flex items-center md:hidden">
             <ControlButton label="Previous" onClick={previous} disabled={!hasTrack}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
-              </svg>
+              <SkipBack className="h-[18px] w-[18px] fill-current" aria-hidden />
             </ControlButton>
-            <button
+            <motion.button
+              whileTap={{ scale: 0.92 }}
               onClick={togglePlay}
               disabled={!hasTrack}
               aria-label={playLabel}
               aria-busy={isLoading}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[#d84f5f] text-white transition-colors hover:bg-[#bd3f4f] disabled:cursor-not-allowed disabled:bg-[#c3ccd2]"
+              className="marea-primary-action flex h-10 w-10 items-center justify-center rounded-full text-white disabled:cursor-not-allowed disabled:bg-[#c3ccd2] disabled:shadow-none"
             >
-              {isLoading ? (
-                <span
-                  aria-hidden
-                  className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
-                />
-              ) : isPlaying ? (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
-                </svg>
-              ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              )}
-            </button>
+              {playIcon}
+            </motion.button>
             <ControlButton label="Next" onClick={next} disabled={!canGoNext}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-              </svg>
+              <SkipForward className="h-[18px] w-[18px] fill-current" aria-hidden />
+            </ControlButton>
+            <ControlButton label="Queue" onClick={openQueue} disabled={!hasTrack}>
+              <ListMusic size={17} />
             </ControlButton>
           </div>
           <div className="hidden items-center gap-3 md:flex">
             <VolumeSlider />
-            <ControlButton label="Queue" onClick={() => setCurrentView('now-playing')} disabled={!hasTrack}>
-              <HiQueueList size={17} />
+            <ControlButton
+              label="Lyrics"
+              onClick={() => {
+                setNowPlayingPanel('lyrics');
+                setCurrentView('now-playing');
+              }}
+              disabled={!hasTrack}
+            >
+              <Music size={17} />
+            </ControlButton>
+            <ControlButton label="Queue" onClick={openQueue} disabled={!hasTrack}>
+              <ListMusic size={17} />
             </ControlButton>
           </div>
         </div>

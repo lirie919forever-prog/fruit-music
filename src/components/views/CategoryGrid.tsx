@@ -1,20 +1,23 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SongCard } from './SongCard';
-import { isFullTrack } from './newViewModel';
+import { isDirectFullTrack } from './newViewModel';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
 import type { NavigationItem } from '@/lib/navigation';
-import type { FederatedResult } from '@/lib/api';
+import type { FederatedResult, MusicCatalog } from '@/lib/catalogTypes';
 import type { Song, ViewType } from '@/types/music';
+import { VirtualList } from '@/components/ui/VirtualList';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 
 export interface CategoryConfig {
   view: ViewType;
   title: string;
   description: string;
-  fetchFn: (signal?: AbortSignal) => Promise<Song[] | FederatedResult<Song>>;
+  fetchFn: (catalog: MusicCatalog, signal?: AbortSignal) => Promise<Song[] | FederatedResult<Song>>;
   queryKey: string[];
   includePreviews?: boolean;
 }
@@ -40,6 +43,7 @@ export function CategoryGrid({
   config: CategoryConfig;
   onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
 }) {
+  const catalog = useMusicCatalog();
   const {
     data: categoryState,
     isLoading,
@@ -48,16 +52,24 @@ export function CategoryGrid({
     refetch,
   } = useQuery({
     queryKey: config.queryKey,
-    queryFn: ({ signal }) => config.fetchFn(signal),
+    queryFn: ({ signal }) => config.fetchFn(catalog, signal),
     staleTime: catalogStaleTime(countListResults),
   });
-  const allSongs = getCategoryState(categoryState).songs;
-  const songs = config.includePreviews === true ? allSongs : allSongs.filter(isFullTrack);
-  const failedProviders = getCategoryState(categoryState).failedProviders;
-  const degradedProviders = getCategoryState(categoryState).degradedProviders;
-  const allProvidersFailed = getCategoryState(categoryState).totalFailure;
-  const unavailableProviders = [...new Set([...failedProviders, ...degradedProviders])];
-  const hasUnavailableTracks = songs.some((song) => song.playbackUnavailable);
+  const {
+    songs: allSongs,
+    failedProviders,
+    degradedProviders,
+    totalFailure: allProvidersFailed,
+  } = getCategoryState(categoryState);
+  const songs = useMemo(
+    () => (config.includePreviews === true ? allSongs : allSongs.filter(isDirectFullTrack)),
+    [config.includePreviews, allSongs],
+  );
+  const unavailableProviders = useMemo(
+    () => [...new Set([...failedProviders, ...degradedProviders])],
+    [failedProviders, degradedProviders],
+  );
+  const hasUnavailableTracks = useMemo(() => songs.some((song) => song.playbackUnavailable), [songs]);
 
   if (isLoading) return <TrackSkeleton />;
   if (isError || allProvidersFailed) {
@@ -103,17 +115,16 @@ export function CategoryGrid({
           </p>
         )}
       </div>
-      <div className="grid">
-        {songs.map((song, index) => (
-          <SongCard
-            key={`${song.id}-${index}`}
-            song={song}
-            index={index}
-            tracks={songs}
-            onNavigateWithItem={onNavigateWithItem}
-          />
-        ))}
-      </div>
+      <VirtualList
+        items={songs}
+        estimateSize={56}
+        label={`${config.title} tracks`}
+        getItemKey={(song, index) => `${song.id}-${index}`}
+        className="border-y border-[var(--glass-border)]"
+        renderItem={(song, index) => (
+          <SongCard song={song} index={index} tracks={songs} onNavigateWithItem={onNavigateWithItem} />
+        )}
+      />
     </section>
   );
 }

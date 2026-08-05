@@ -23,10 +23,14 @@ const OPENVERSE_API = 'https://api.openverse.org/v1/audio';
 const WIKIMEDIA_COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
 const SOMAFM_API = 'https://somafm.com';
 const SOMAFM_STREAM_API = 'https://api.somafm.com';
+const NTS_API = 'https://www.nts.live/api/v2/live';
 // The DNS-balanced endpoint intermittently returns 503 from Vercel's network.
-// Start with a direct, healthy mirror and retain the global endpoint as a
-// fallback so one Radio Browser node cannot empty the live-radio shelf.
+// Keep multiple direct mirrors so one saturated Radio Browser node cannot empty
+// the live-radio shelf. `de2` is the primary because it currently serves the
+// catalog while the older `de1` and global aliases periodically report that no
+// node is available.
 const RADIO_BROWSER_APIS = [
+  'https://de2.api.radio-browser.info/json',
   'https://de1.api.radio-browser.info/json',
   'https://all.api.radio-browser.info/json',
 ] as const;
@@ -43,6 +47,7 @@ const AUDIUS_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const OPENVERSE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ARCHIVE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const SOMAFM_ID = /^[a-z0-9-]{1,64}$/;
+const NTS_CHANNEL_ID = /^(?:1|2)$/;
 const RADIO_STATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CCMIXTER_MEDIA_HOSTS = new Set(['ccmixter.org', 'www.ccmixter.org']);
 const ARCHIVE_ENRICHMENT_CONCURRENCY = 4;
@@ -1197,6 +1202,85 @@ async function handleSomaFm(req: NextRequest, resource: string | undefined, rest
   }
 }
 
+interface NtsLiveChannel {
+  channel_name?: unknown;
+  now?: {
+    broadcast_title?: unknown;
+    embeds?: {
+      details?: {
+        description?: unknown;
+        genres?: Array<{ value?: unknown }>;
+      };
+    };
+  };
+}
+
+interface NtsCatalogRecord {
+  id: string;
+  title: string;
+  description: string;
+  genre: string;
+  nowPlaying: string;
+}
+
+function ntsChannelId(value: unknown): string {
+  const id = catalogText(value, 1);
+  return NTS_CHANNEL_ID.test(id) ? id : '';
+}
+
+function ntsGenres(value: unknown): string {
+  if (!Array.isArray(value)) return '';
+  return value
+    .slice(0, 3)
+    .map((genre) => catalogText(genre?.value, 60))
+    .filter(Boolean)
+    .join(', ');
+}
+
+function ntsRecord(value: NtsLiveChannel): NtsCatalogRecord | null {
+  const id = ntsChannelId(value.channel_name);
+  if (!id) return null;
+  const details = value.now?.embeds?.details;
+  return {
+    id,
+    title: `NTS ${id}`,
+    description: catalogText(details?.description),
+    genre: ntsGenres(details?.genres),
+    nowPlaying: catalogText(value.now?.broadcast_title),
+  };
+}
+
+async function handleNts(req: NextRequest, resource: string | undefined, rest: string[]): Promise<NextResponse> {
+  if (resource !== 'stations' || rest.length > 0) {
+    return NextResponse.json({ error: `Unknown NTS endpoint: ${resource ?? ''}` }, { status: 400 });
+  }
+
+  const searchParams = req.nextUrl.searchParams;
+  const requestedId = searchParams.get('id');
+  if (requestedId !== null && !NTS_CHANNEL_ID.test(requestedId)) {
+    return NextResponse.json({ error: 'Invalid NTS station ID' }, { status: 400 });
+  }
+  const limit = boundedLimit(searchParams, 2, 2, true);
+  if (limit instanceof NextResponse) return limit;
+
+  try {
+    const upstream = await upstreamFetch(req, NTS_API, {
+      headers: { accept: 'application/vnd.live-list+json', 'user-agent': 'Marea music catalog/1.0' },
+    });
+    if (!upstream.ok) return NextResponse.json({ error: 'NTS upstream error' }, { status: 502 });
+    const payload = (await upstream.json()) as { results?: unknown; error?: unknown };
+    if (hasUpstreamError(payload)) return NextResponse.json({ error: 'NTS upstream error' }, { status: 502 });
+    const records = (Array.isArray(payload.results) ? payload.results : [])
+      .map((channel) => ntsRecord(channel as NtsLiveChannel))
+      .filter((record): record is NtsCatalogRecord => record !== null)
+      .filter((record) => requestedId === null || record.id === requestedId)
+      .sort((left, right) => Number(left.id) - Number(right.id));
+    return catalogResponse({ results: records.slice(0, Number(limit)) });
+  } catch (error) {
+    return providerFailure(error, 'NTS fetch failed');
+  }
+}
+
 interface RadioBrowserStation {
   stationuuid?: unknown;
   name?: unknown;
@@ -1603,6 +1687,8 @@ export async function GET(
       return handleOpenverse(req, resource, rest);
     case 'somafm':
       return handleSomaFm(req, resource, rest);
+    case 'nts':
+      return handleNts(req, resource, rest);
     case 'radio':
       return handleRadioBrowser(req, resource, rest);
     case 'wikimedia':

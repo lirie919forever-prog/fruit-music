@@ -6,12 +6,13 @@ describe('navigation parsing', () => {
     expect(parseView('artists')).toBe('artists');
     expect(parseView('now-playing')).toBe('now-playing');
     expect(parseView('classical')).toBe('classical');
+    expect(parseView('radio')).toBe('radio');
   });
 
-  it('defaults missing, invalid, and unsupported views to albums', () => {
-    expect(parseView(undefined)).toBe('albums');
-    expect(parseView('unknown')).toBe('albums');
-    expect(parseView('now_playing')).toBe('albums');
+  it('defaults missing, invalid, and unsupported views to discovery', () => {
+    expect(parseView(undefined)).toBe('new');
+    expect(parseView('unknown')).toBe('new');
+    expect(parseView('now_playing')).toBe('new');
   });
 
   it('renders the playlist view now that playlists exist', () => {
@@ -52,6 +53,27 @@ describe('navigation parsing', () => {
     });
     // An album id is not an artist id, and the artist route must not accept one.
     expect(parseNavigation('?view=artists&item=artist%3Aitunes-album-1161503945').item).toBeNull();
+    expect(parseNavigation('?view=albums&item=album%3Aaudius-artist-123').item).toBeNull();
+    expect(parseNavigation('?view=now-playing&item=track%3Akuwo-album-123').item).toBeNull();
+  });
+
+  it('accepts identities from every integrated provider', () => {
+    const providers = ['audius', 'deezer', 'openverse', 'wikimedia', 'kuwo', 'somafm', 'nts', 'radioparadise', 'radio'];
+
+    for (const provider of providers) {
+      expect(parseNavigation(`?view=now-playing&item=track%3A${provider}-123`).item).toEqual({
+        kind: 'track',
+        id: `${provider}-123`,
+      });
+      expect(parseNavigation(`?view=albums&item=album%3A${provider}-album-123`).item).toEqual({
+        kind: 'album',
+        id: `${provider}-album-123`,
+      });
+      expect(parseNavigation(`?view=artists&item=artist%3A${provider}-artist-123`).item).toEqual({
+        kind: 'artist',
+        id: `${provider}-artist-123`,
+      });
+    }
   });
 });
 
@@ -70,5 +92,16 @@ describe('navigation URL updates', () => {
 
   it('writes the current search text', () => {
     expect(buildNavigationUrl(location, 'search', 'blue sea')).toBe('/?campaign=summer&q=blue+sea&view=search#tracks');
+  });
+
+  it('writes and parses a source-scoped search', () => {
+    expect(buildNavigationUrl(location, 'search', 'blue sea', null, 'Kuwo')).toBe(
+      '/?campaign=summer&q=blue+sea&view=search&source=Kuwo#tracks',
+    );
+    expect(parseNavigation('?view=search&q=blue+sea&source=Kuwo')).toMatchObject({
+      view: 'search',
+      query: 'blue sea',
+      source: 'Kuwo',
+    });
   });
 });

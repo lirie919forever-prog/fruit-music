@@ -52,6 +52,7 @@ describe('lyrics route', () => {
           { time: 19.16, text: 'When you were here before' },
           { time: 24.09, text: 'Could not look you in the eye' },
         ],
+        syncedSource: '[00:19.16] When you were here before\n[00:24.09] Could not look you in the eye',
         plain: 'When you were here before',
       },
     });

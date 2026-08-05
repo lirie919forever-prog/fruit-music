@@ -1,10 +1,11 @@
 'use client';
 
+import { ExternalLink, Lock, Play, Plus } from 'lucide-react';
 import { useId } from 'react';
 import { motion, type Variants } from 'motion/react';
-import { HiArrowTopRightOnSquare, HiLockClosed, HiPlay, HiPlus } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { safeCoverArt } from '@/lib/coverArt';
 import { FavoriteButton } from './SongCard';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Song, ViewType } from '@/types/music';
@@ -31,6 +32,7 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
   const headingId = useId();
   const playSong = usePlayerStore((state) => state.playSong);
   const unavailable = song.playbackUnavailable === true;
+  const safeArtwork = safeCoverArt(song.coverArt);
   const openAlbum =
     onNavigateWithItem && song.albumId
       ? () => onNavigateWithItem('albums', { kind: 'album', id: song.albumId })
@@ -41,6 +43,7 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
       src={song.coverArt}
       alt=""
       loading="eager"
+      fetchPriority="high"
       sizes="(max-width: 640px) 112px, 160px"
       className="h-24 w-24 shrink-0 rounded-xl object-cover shadow-[0_8px_28px_rgba(16,47,69,0.22)] sm:h-32 sm:w-32 lg:h-36 lg:w-36"
     />
@@ -50,11 +53,11 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
     <motion.article
       variants={HERO_VARIANTS}
       aria-labelledby={headingId}
-      className="group relative isolate flex min-h-[220px] flex-col justify-between overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-[var(--sea-abyss)] p-5 shadow-[0_12px_40px_rgba(16,47,69,0.12)] sm:min-h-[280px] sm:p-7 lg:min-h-[320px] lg:p-8"
+      className="marea-cinematic-hero group relative isolate flex min-h-[220px] flex-col justify-between overflow-hidden rounded-2xl border bg-[var(--sea-abyss)] p-5 sm:min-h-[280px] sm:p-7 lg:min-h-[320px] lg:p-8"
     >
       {/* Dynamic cover-colour field: the blurred, saturated cover art bleed. */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-        <CoverArt src={song.coverArt} alt="" aria-hidden className="ambient-artwork" />
+        <div aria-hidden className="ambient-artwork" style={{ backgroundImage: `url("${safeArtwork}")` }} />
         {/* A darker scrim than the near-white browse base so the white and ink
             text both stay legible over any cover, without burying the colour. */}
         <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(16,47,69,0.62),rgba(16,47,69,0.32)_52%,rgba(16,47,69,0.12))]" />
@@ -94,16 +97,14 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
           ) : (
             <p className="mt-1 truncate text-[13px] text-white/85 sm:text-[15px]">{song.artist}</p>
           )}
-          {song.album && (
-            <p className="mt-0.5 truncate text-xs text-white/65">{song.album}</p>
-          )}
+          {song.album && <p className="mt-0.5 truncate text-xs text-white/65">{song.album}</p>}
         </div>
       </div>
 
       <div className="mt-5 flex items-center gap-1.5 sm:mt-7 sm:gap-2">
         {unavailable ? (
           <span className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white/15 px-3.5 text-xs font-semibold text-white backdrop-blur-sm sm:h-10 sm:px-4">
-            <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
+            <Lock className="h-3.5 w-3.5" aria-hidden />
             Playback unavailable
           </span>
         ) : (
@@ -111,9 +112,9 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
             <button
               type="button"
               onClick={() => playSong(song)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#d84f5f] px-4 text-[13px] font-semibold text-white shadow-[0_4px_14px_rgba(216,79,95,0.4)] transition-colors hover:bg-[#bd3f4f] sm:h-10 sm:px-5 sm:text-sm"
+              className="marea-primary-action inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-semibold text-white sm:h-10 sm:px-5 sm:text-sm"
             >
-              <HiPlay className="h-4 w-4" aria-hidden />
+              <Play className="h-4 w-4" aria-hidden />
               Play
             </button>
             {onQueue && (
@@ -124,7 +125,7 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
                 title="Add to queue"
                 className="flex h-9 w-9 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white sm:h-10 sm:w-10"
               >
-                <HiPlus className="h-4 w-4" aria-hidden />
+                <Plus className="h-4 w-4" aria-hidden />
               </button>
             )}
           </>
@@ -139,7 +140,7 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
             aria-label={`Open on ${song.provider}`}
             className="flex h-9 w-9 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white sm:h-10 sm:w-10"
           >
-            <HiArrowTopRightOnSquare className="h-4 w-4" aria-hidden />
+            <ExternalLink className="h-4 w-4" aria-hidden />
           </a>
         )}
       </div>

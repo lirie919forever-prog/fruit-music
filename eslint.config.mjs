@@ -10,6 +10,14 @@ const eslintConfig = defineConfig([
       '@next/next/no-img-element': 'off',
     },
   },
+  {
+    files: ['**/*.cjs'],
+    rules: {
+      // Electron intentionally uses CommonJS because its package entrypoint is
+      // loaded by Node directly. Requiring modules here is not renderer code.
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
@@ -17,6 +25,10 @@ const eslintConfig = defineConfig([
     'out/**',
     'build/**',
     'next-env.d.ts',
+    '.chrome-profile/**',
+    '.edge-profile/**',
+    '.edge-profile-2/**',
+    '.edge-profile-3/**',
   ]),
 ]);
 

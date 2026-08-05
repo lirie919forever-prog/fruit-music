@@ -1,16 +1,30 @@
 'use client';
 
+import { AlertTriangle, BarChart3, ChevronRight, Clock, Globe, Play, Search, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { SongCard } from './SongCard';
+import { AudioAccessControl } from './AudioAccessControl';
 import { AlbumTile, ArtistTile, TILE_GRID } from '@/components/ui/CatalogTile';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import type { AudioAccessMode } from './newViewModel';
-import { areAllSearchProvidersUnavailable, rankSearchSongsForAccess, splitTopSearchMatches } from './searchViewModel';
+import {
+  areAllSearchProvidersUnavailable,
+  rankSearchAlbums,
+  rankSearchArtists,
+  rankSearchSongsForAccess,
+  splitTopSearchMatches,
+  summarizeSearchProviders,
+  type SearchProviderSummary,
+} from './searchViewModel';
 import type { NavigationItem } from '@/lib/navigation';
 import type { ViewType } from '@/types/music';
+import { usePlayerStore } from '@/store/playerStore';
+import { getSearchSourceNames } from '@/lib/sourceRegistry';
+import { playableSongs } from './newViewModel';
+import { VirtualList } from '@/components/ui/VirtualList';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 
 // Two rows of tiles at the widest breakpoint. Search is a way through to the
 // tracks, so the artist and album sections stay a glance rather than a page the
@@ -18,25 +32,13 @@ import type { ViewType } from '@/types/music';
 const ARTIST_LIMIT = 12;
 const ALBUM_LIMIT = 12;
 
-/** Named so the empty state promises exactly what the federation actually queries. */
-const SEARCH_SOURCES = [
-  'Apple Music',
-  'Deezer',
-  'Audius',
-  'Wikimedia Commons',
-  'Jamendo',
-  'ccMixter',
-  'Archive',
-  'Openverse',
-  'SomaFM',
-  'Radio Browser',
-  'Kuwo',
+const SEARCH_LANES: Array<{ label: string; detail: string; query: string; icon: ReactNode }> = [
+  { label: 'Chart watch', detail: 'Fresh chart signals', query: 'top songs', icon: <BarChart3 /> },
+  { label: 'New releases', detail: 'Recently added music', query: 'new music', icon: <Sparkles /> },
+  { label: 'Open catalog', detail: 'Full-length listening', query: 'creative commons', icon: <Globe /> },
 ];
-const AUDIO_ACCESS_OPTIONS: Array<{ mode: AudioAccessMode; label: string }> = [
-  { mode: 'full', label: 'Full tracks' },
-  { mode: 'all', label: 'All audio' },
-  { mode: 'preview', label: 'Previews' },
-];
+
+const SEARCH_SUGGESTIONS = ['Taylor Swift', 'J-pop', 'Lo-fi', 'Jazz', 'Classical', 'Ambient'];
 
 function ResultSection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
@@ -58,23 +60,187 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
+function SearchLanding({
+  recentSearches,
+  searchSources,
+  onSearch,
+  onClearRecent,
+}: {
+  recentSearches: string[];
+  searchSources: string[];
+  onSearch: (query: string) => void;
+  onClearRecent: () => void;
+}) {
+  return (
+    <div className="space-y-8 py-4 sm:py-6">
+      {recentSearches.length > 0 && (
+        <div>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-[17px] font-bold text-[var(--salt-white)]">
+              <Clock className="h-4 w-4 text-[var(--salt-primary)]" aria-hidden />
+              Recent searches
+            </h2>
+            <button
+              type="button"
+              onClick={onClearRecent}
+              className="text-xs font-semibold text-[var(--salt-mist)] underline-offset-2 hover:text-[var(--salt-primary)] hover:underline"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {recentSearches.map((recent) => (
+              <button
+                key={recent}
+                type="button"
+                onClick={() => onSearch(recent)}
+                className="marea-glass-control inline-flex min-h-9 items-center gap-2 rounded-full border px-3 text-xs font-semibold text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+              >
+                <Clock className="h-3.5 w-3.5" aria-hidden />
+                {recent}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <h2 className="text-[17px] font-bold text-[var(--salt-white)]">Explore the catalog</h2>
+          <span className="text-xs text-[var(--salt-mist)]">{searchSources.length} sources</span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {SEARCH_LANES.map((lane) => (
+            <button
+              key={lane.label}
+              type="button"
+              onClick={() => onSearch(lane.query)}
+              className="marea-glass-card group flex min-h-[86px] items-center gap-3 rounded-xl border px-3.5 text-left transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--salt-ghost)] text-[var(--salt-primary)]">
+                {lane.icon}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-bold text-[var(--salt-white)]">{lane.label}</span>
+                <span className="mt-0.5 block truncate text-xs text-[var(--salt-mist)]">{lane.detail}</span>
+              </span>
+              <ChevronRight
+                className="h-4 w-4 shrink-0 text-[var(--salt-mist)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--salt-primary)]"
+                aria-hidden
+              />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--glass-border)] pt-5">
+        <h2 className="mb-3 text-[13px] font-semibold text-[var(--salt-white)]">Start with a popular search</h2>
+        <div className="flex flex-wrap gap-2">
+          {SEARCH_SUGGESTIONS.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => onSearch(suggestion)}
+              className="min-h-8 rounded-full border border-[var(--glass-border)] px-3 text-xs font-semibold text-[var(--salt-foam)] transition-colors hover:border-[var(--glass-border-active)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--glass-border)] pt-5">
+        <h2 className="mb-3 text-[13px] font-semibold text-[var(--salt-white)]">Search across sources</h2>
+        <div className="flex flex-wrap gap-1.5">
+          {searchSources.map((source) => (
+            <span
+              key={source}
+              className="inline-flex min-h-7 items-center rounded-full bg-[var(--salt-ghost)] px-2.5 text-[11px] font-medium text-[var(--salt-mist)]"
+            >
+              {source}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SearchSourceCoverage({ summaries }: { summaries: SearchProviderSummary[] }) {
+  if (summaries.length === 0) return null;
+  const responding = summaries.filter((summary) => summary.status !== 'unavailable').length;
+  const statusLabel = (summary: SearchProviderSummary): string => {
+    if (summary.status === 'unavailable') return 'Unavailable';
+    if (summary.status === 'partial') return 'Partial';
+    if (summary.status === 'no-match') return 'No match';
+    return `${summary.resultCount} result${summary.resultCount === 1 ? '' : 's'}`;
+  };
+  const statusClass = (summary: SearchProviderSummary): string => {
+    if (summary.status === 'unavailable') return 'border-[#f1d4d5] bg-[#fff6f6] text-[#a0464d]';
+    if (summary.status === 'partial') return 'border-[#f0dfc1] bg-[#fffaf0] text-[#95631f]';
+    if (summary.status === 'no-match')
+      return 'border-[var(--glass-border)] bg-[var(--salt-ghost)] text-[var(--salt-mist)]';
+    return 'border-[#cfe9d9] bg-[#f4fbf6] text-[#28764a]';
+  };
+
+  return (
+    <div className="border-t border-[var(--glass-border)] pt-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+        <span className="font-semibold text-[var(--salt-white)]">Source coverage</span>
+        <span className="text-[var(--salt-mist)]">
+          {responding}/{summaries.length} responding
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1.5" role="list" aria-label="Search source coverage">
+        {summaries.map((summary) => (
+          <span
+            key={summary.name}
+            role="listitem"
+            title={`${summary.name}: ${statusLabel(summary)}`}
+            className={`inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-semibold ${statusClass(summary)}`}
+          >
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
+            <span>{summary.name}</span>
+            <span className="font-normal opacity-80">{statusLabel(summary)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SearchView({
   query,
+  sourceFilter = 'all',
   onQueryChange,
   onNavigateWithItem,
+  onSourceFilterChange,
 }: {
   query: string;
+  sourceFilter?: string;
   onQueryChange: (query: string) => void;
+  onSourceFilterChange?: (source: string) => void;
   onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
 }) {
+  const catalog = useMusicCatalog();
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
+  const recentSearches = usePlayerStore((state) => state.recentSearches);
+  const recordSearch = usePlayerStore((state) => state.recordSearch);
+  const clearRecentSearches = usePlayerStore((state) => state.clearRecentSearches);
+  const playAlbum = usePlayerStore((state) => state.playAlbum);
   const canSearch = debouncedQuery.trim().length >= 2;
   const [accessMode, setAccessMode] = useState<AudioAccessMode>('full');
+  const searchSources = useMemo(() => getSearchSourceNames(process.env.NEXT_PUBLIC_LX_ENABLED === 'true'), []);
+  const requestedSource = sourceFilter !== 'all' && searchSources.includes(sourceFilter) ? sourceFilter : 'all';
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (canSearch) recordSearch(debouncedQuery);
+  }, [canSearch, debouncedQuery, recordSearch]);
 
   const {
     data: searchState,
@@ -83,8 +249,8 @@ export function SearchView({
     error,
     refetch,
   } = useQuery({
-    queryKey: ['search-federated', debouncedQuery],
-    queryFn: ({ signal }) => api.search(debouncedQuery, signal),
+    queryKey: ['search-federated', debouncedQuery, requestedSource],
+    queryFn: ({ signal }) => catalog.search(debouncedQuery, signal, requestedSource),
     enabled: canSearch,
     staleTime: 30_000,
   });
@@ -94,53 +260,71 @@ export function SearchView({
   // recognise them from a track list. Each is its own query: a slow album index
   // must not hold back the track results, which are what most searches want.
   const { data: artistState } = useQuery({
-    queryKey: ['search-artists', debouncedQuery],
-    queryFn: ({ signal }) => api.searchArtists(debouncedQuery, signal),
+    queryKey: ['search-artists', debouncedQuery, requestedSource],
+    queryFn: ({ signal }) => catalog.searchArtists(debouncedQuery, signal, requestedSource),
     enabled: canSearch,
     staleTime: 30_000,
   });
   const { data: albumState } = useQuery({
-    queryKey: ['search-albums', debouncedQuery],
-    queryFn: ({ signal }) => api.searchAlbums(debouncedQuery, signal),
+    queryKey: ['search-albums', debouncedQuery, requestedSource],
+    queryFn: ({ signal }) => catalog.searchAlbums(debouncedQuery, signal, requestedSource),
     enabled: canSearch,
     staleTime: 30_000,
   });
 
   const artists = useMemo(
-    () => (canSearch ? (artistState?.results ?? []).slice(0, ARTIST_LIMIT) : []),
-    [artistState?.results, canSearch],
+    () => (canSearch ? rankSearchArtists(artistState?.results ?? [], debouncedQuery).slice(0, ARTIST_LIMIT) : []),
+    [artistState?.results, canSearch, debouncedQuery],
   );
   const albums = useMemo(
-    () => (canSearch ? (albumState?.results ?? []).slice(0, ALBUM_LIMIT) : []),
-    [albumState?.results, canSearch],
+    () => (canSearch ? rankSearchAlbums(albumState?.results ?? [], debouncedQuery).slice(0, ALBUM_LIMIT) : []),
+    [albumState?.results, canSearch, debouncedQuery],
   );
   const rawResults = canSearch ? searchState?.results : undefined;
+  const sourceOptions = useMemo(() => {
+    return [...new Set([...searchSources, ...(rawResults ?? []).map((song) => song.provider)])].sort((left, right) =>
+      left.localeCompare(right),
+    );
+  }, [rawResults, searchSources]);
+  const activeSourceFilter = requestedSource;
+  const sourceFilteredResults = useMemo(
+    () => rawResults?.filter((song) => activeSourceFilter === 'all' || song.provider === activeSourceFilter) ?? [],
+    [activeSourceFilter, rawResults],
+  );
   const results = useMemo(
-    () => (rawResults ? rankSearchSongsForAccess(rawResults, debouncedQuery, accessMode) : undefined),
-    [accessMode, debouncedQuery, rawResults],
+    () => (rawResults ? rankSearchSongsForAccess(sourceFilteredResults, debouncedQuery, accessMode) : undefined),
+    [accessMode, debouncedQuery, rawResults, sourceFilteredResults],
   );
   const { topMatches, remainingTracks } = useMemo(() => splitTopSearchMatches(results ?? []), [results]);
   const allProvidersFailed = searchState ? areAllSearchProvidersUnavailable(searchState) : false;
-
+  const playableResults = useMemo(() => playableSongs(results ?? []), [results]);
+  const sourceCount = useMemo(() => new Set((results ?? []).map((song) => song.provider)).size, [results]);
+  const sourceCoverage = useMemo(
+    () =>
+      searchState
+        ? summarizeSearchProviders(
+            requestedSource === 'all' ? searchSources : [requestedSource],
+            results ?? [],
+            searchState.failedProviders,
+            searchState.degradedProviders,
+          )
+        : [],
+    [requestedSource, results, searchSources, searchState],
+  );
+  const unavailableProviders = useMemo(
+    () => [...new Set([...(searchState?.failedProviders ?? []), ...(searchState?.degradedProviders ?? [])])],
+    [searchState?.degradedProviders, searchState?.failedProviders],
+  );
   return (
     <section className="space-y-6 pb-6">
       <div className="relative max-w-xl">
         <label htmlFor="music-search" className="sr-only">
           Search music
         </label>
-        <svg
+        <Search
           aria-hidden
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--pearl-dim)]"
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.35-4.35" />
-        </svg>
+          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--pearl-dim)]"
+        />
         <input
           id="music-search"
           ref={inputRef}
@@ -148,38 +332,41 @@ export function SearchView({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder="Search music…"
-          className="h-10 w-full rounded-lg border border-[var(--glass-border)] bg-white pl-10 pr-4 text-[13px] text-[var(--pearl-bright)] outline-none transition-[border-color,box-shadow] focus:border-[var(--biolum-primary)] focus:ring-2 focus:ring-[var(--biolum-glow)]"
+          className="marea-glass-control h-10 w-full rounded-lg border pl-10 pr-4 text-[13px] text-[var(--pearl-bright)] outline-none focus:border-[var(--biolum-primary)] focus:ring-2 focus:ring-[var(--biolum-glow)]"
         />
       </div>
 
-      <div
-        className="grid w-full max-w-xl grid-cols-3 gap-1 rounded-lg bg-[var(--salt-ghost)] p-1 sm:w-auto sm:min-w-[300px]"
-        role="radiogroup"
-        aria-label="Filter search results by playback access"
-      >
-        {AUDIO_ACCESS_OPTIONS.map((option) => {
-          const selected = option.mode === accessMode;
-          return (
-            <button
-              key={option.mode}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              onClick={() => setAccessMode(option.mode)}
-              className={`h-8 min-w-0 rounded-md px-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${selected ? 'bg-white text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
-            >
-              <span className="block truncate">{option.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      <AudioAccessControl mode={accessMode} onChange={setAccessMode} label="Filter search results by playback access" />
 
-      {!canSearch && (
-        <p className="py-12 text-center text-[13px] text-[var(--pearl-dim)]">
-          {debouncedQuery
-            ? 'Type at least 2 characters to search'
-            : `Search artists, albums and tracks across ${SEARCH_SOURCES.join(', ')}`}
-        </p>
+      {searchSources.length > 0 && (
+        <label className="flex w-full max-w-xl items-center gap-2 text-xs font-semibold text-[var(--salt-mist)] sm:w-auto">
+          <span className="shrink-0">Source</span>
+          <select
+            aria-label="Filter search results by source"
+            value={activeSourceFilter}
+            onChange={(event) => onSourceFilterChange?.(event.target.value)}
+            className="marea-glass-control h-9 min-w-0 flex-1 rounded-lg border px-2.5 text-xs font-semibold text-[var(--salt-white)] outline-none focus:border-[var(--glass-border-active)] focus:ring-2 focus:ring-[var(--salt-primary)]/15 sm:w-[220px] sm:flex-none"
+          >
+            <option value="all">All sources ({sourceOptions.length})</option>
+            {sourceOptions.map((source) => (
+              <option key={source} value={source}>
+                {source}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {!canSearch && debouncedQuery && (
+        <p className="py-8 text-center text-[13px] text-[var(--pearl-dim)]">Type at least 2 characters to search</p>
+      )}
+      {!canSearch && !debouncedQuery && (
+        <SearchLanding
+          recentSearches={recentSearches}
+          searchSources={searchSources}
+          onSearch={onQueryChange}
+          onClearRecent={clearRecentSearches}
+        />
       )}
       {isLoading && <SearchSkeleton />}
       {(isError || (results && allProvidersFailed && !isLoading)) && (
@@ -199,20 +386,74 @@ export function SearchView({
         </p>
       )}
 
+      {results && searchState && results.length > 0 && (
+        <div className="marea-glass-surface space-y-2 rounded-xl border px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--salt-mist)]">
+              <span className="font-semibold text-[var(--salt-white)]">
+                {results.length}{' '}
+                {accessMode === 'full'
+                  ? 'full-track candidates'
+                  : accessMode === 'preview'
+                    ? 'preview clips'
+                    : 'audio results'}
+              </span>
+              <span className="px-1 text-[var(--pearl-whisper)]" aria-hidden>
+                |
+              </span>
+              <span>{sourceCount} sources returned matches</span>
+              <span className="px-1 text-[var(--pearl-whisper)]" aria-hidden>
+                |
+              </span>
+              <span>
+                {Math.max(0, searchState.providerCount - searchState.failedProviders.length)}/
+                {searchState.providerCount} sources responding
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => playAlbum(playableResults, 0)}
+              disabled={playableResults.length === 0}
+              className="marea-primary-action inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold text-white disabled:cursor-not-allowed"
+            >
+              <Play className="h-3.5 w-3.5" aria-hidden />
+              Play all ({playableResults.length})
+            </button>
+          </div>
+          {unavailableProviders.length > 0 && (
+            <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-[#8a5b19]" role="status">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span>
+                Unavailable or partial right now: {unavailableProviders.join(', ')}. Healthy results remain visible.
+              </span>
+            </p>
+          )}
+          <SearchSourceCoverage summaries={sourceCoverage} />
+        </div>
+      )}
+
+      {results && searchState && results.length === 0 && sourceCoverage.length > 0 && (
+        <SearchSourceCoverage summaries={sourceCoverage} />
+      )}
+
       {topMatches.length > 0 && results && (
         <ResultSection title="Top results" count={topMatches.length}>
-          <div className="grid">
-            {topMatches.map((song, index) => (
+          <VirtualList
+            items={topMatches}
+            estimateSize={56}
+            label="Top search results"
+            getItemKey={(song) => song.id}
+            className="border-y border-[var(--glass-border)]"
+            renderItem={(song, index) => (
               <SongCard
-                key={song.id}
                 song={song}
                 index={index}
                 tracks={results}
                 showIndex={false}
                 onNavigateWithItem={onNavigateWithItem}
               />
-            ))}
-          </div>
+            )}
+          />
         </ResultSection>
       )}
 
@@ -238,18 +479,22 @@ export function SearchView({
 
       {remainingTracks.length > 0 && results && (
         <ResultSection title="More tracks" count={remainingTracks.length}>
-          <div className="grid">
-            {remainingTracks.map((song, index) => (
+          <VirtualList
+            items={remainingTracks}
+            estimateSize={56}
+            label="More search results"
+            getItemKey={(song) => song.id}
+            className="border-y border-[var(--glass-border)]"
+            renderItem={(song, index) => (
               <SongCard
-                key={song.id}
                 song={song}
                 index={topMatches.length + index}
                 tracks={results}
                 showIndex={false}
                 onNavigateWithItem={onNavigateWithItem}
               />
-            ))}
-          </div>
+            )}
+          />
         </ResultSection>
       )}
     </section>

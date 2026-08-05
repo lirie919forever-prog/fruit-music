@@ -20,6 +20,7 @@ export type RouteBucket =
   | 'openverse:tracks'
   | 'somafm:stations'
   | 'somafm:stream'
+  | 'nts:stations'
   | 'radio:stations'
   | 'wikimedia:tracks'
   | 'wikimedia:stream'
@@ -47,6 +48,7 @@ const validBuckets = new Set<RouteBucket>([
   'openverse:tracks',
   'somafm:stations',
   'somafm:stream',
+  'nts:stations',
   'radio:stations',
   'wikimedia:tracks',
   'wikimedia:stream',

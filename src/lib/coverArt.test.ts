@@ -22,6 +22,18 @@ describe('createDeterministicCover', () => {
     expect(safeCoverArt('data:image/svg+xml;base64,abc')).toBe('data:image/svg+xml;base64,abc');
   });
 
+  it('keeps artwork from Audius validator and indexer hosts', () => {
+    expect(safeCoverArt('https://val011.open-audio-validator.com/content/cid/1000x1000.jpg')).toBe(
+      'https://val011.open-audio-validator.com/content/cid/1000x1000.jpg',
+    );
+    expect(safeCoverArt('https://cn4.mainnet.audiusindex.org/content/cid/1000x1000.jpg')).toBe(
+      'https://cn4.mainnet.audiusindex.org/content/cid/1000x1000.jpg',
+    );
+    expect(safeCoverArt('https://audius-figment-1-validator-19.figment.io/content/cid/1000x1000.jpg')).toBe(
+      'https://audius-figment-1-validator-19.figment.io/content/cid/1000x1000.jpg',
+    );
+  });
+
   it('falls back for an https host the image optimizer is not configured for', () => {
     // remotePatterns makes the optimizer answer an unlisted host with a 400,
     // which renders as a broken tile. Screening here turns that into the
@@ -29,6 +41,7 @@ describe('createDeterministicCover', () => {
     // so the two cannot disagree about which hosts those are.
     expect(safeCoverArt('https://images.example.test/cover.jpg')).toBe('/placeholder-album.svg');
     expect(safeCoverArt('https://usercontent.jamendo.com.attacker.example/x.jpg')).toBe('/placeholder-album.svg');
+    expect(safeCoverArt('https://audius.zeogrid.com/content/cid/1000x1000.jpg')).toBe('/placeholder-album.svg');
   });
 
   it('escapes XML-sensitive labels', () => {

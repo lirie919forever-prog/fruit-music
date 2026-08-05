@@ -38,6 +38,7 @@ describe('Apple preview provider', () => {
     // trackTimeMillis is 4:20; the preview is 30 seconds. Showing 4:20 beside a
     // row that stops at 0:30 would be the one number the listener trusts.
     expect(song.duration).toBe(30);
+    expect(song.recordingDuration).toBe(260);
     expect(song.licenseName).toBe('30-second preview');
   });
 

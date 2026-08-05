@@ -1,18 +1,24 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
-import { Howl, Howler } from 'howler';
+import { Howl } from 'howler';
 import { usePlayerStore, usePlayerStoreApi } from '@/store/playerStore';
-import { api } from '@/lib/api';
-import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import type { PlaybackCandidate } from '@/lib/catalogTypes';
 import {
   effectiveDuration,
   getResumePosition,
   hasNextInQueue,
+  isMateriallyLongStream,
+  isMateriallyShortStream,
   isNaturalTrackEnd,
 } from '@/components/player/playbackRecovery';
 import { DEFAULT_SEEK_OFFSET_SECONDS, mediaMetadataInit, positionState } from '@/components/player/mediaSession';
 import type { Song } from '@/types/music';
+import { setPlaybackClock } from './playbackClock';
+import { htmlAudioEngine } from '@/lib/audio/HtmlAudioEngine';
+import { useToast } from '@/components/ui/Toast';
+import { isResolverSource } from '@/lib/sourceRegistry';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 
 /** Every action this app registers, so the cleanup cannot fall out of step. */
 const MEDIA_SESSION_ACTIONS = [
@@ -41,30 +47,6 @@ const LOAD_TIMEOUT_MS = 15_000;
 // moves on, so a skip doesn't read as the track silently vanishing.
 const AUTO_SKIP_DELAY_MS = 1_500;
 
-interface InternalHowler {
-  _canPlayEvent?: string;
-}
-
-/**
- * Howler normally waits for `canplaythrough`, which a continuous station may
- * never emit because there is no finish line to buffer toward. Its internal
- * listener is attached synchronously while a Howl is constructed, so scope a
- * `canplay` override to that construction only and immediately restore the
- * global default for regular tracks.
- */
-function createAudioHowl(options: ConstructorParameters<typeof Howl>[0], isLive: boolean): Howl {
-  if (!isLive) return new Howl(options);
-
-  const internalHowler = Howler as unknown as InternalHowler;
-  const previousCanPlayEvent = internalHowler._canPlayEvent;
-  internalHowler._canPlayEvent = 'canplay';
-  try {
-    return new Howl({ ...options, preload: 'metadata' });
-  } finally {
-    internalHowler._canPlayEvent = previousCanPlayEvent;
-  }
-}
-
 export function getHowlerFormat(song: Pick<Song, 'contentType' | 'suffix'>): string {
   const suffix = song.suffix.trim().toLowerCase().replace(/^\./, '');
   if (suffix === 'mp3' || song.contentType === 'audio/mpeg') return 'mp3';
@@ -78,6 +60,7 @@ export function getHowlerFormat(song: Pick<Song, 'contentType' | 'suffix'>): str
 
 export function AudioProvider({ children }: { children: ReactNode }) {
   const playerStore = usePlayerStoreApi();
+  const catalog = useMusicCatalog();
   const howlRef = useRef<Howl | null>(null);
   const pendingHowlRef = useRef<Howl | null>(null);
   const rafRef = useRef(0);
@@ -99,12 +82,27 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const next = usePlayerStore((state) => state.next);
   const previous = usePlayerStore((state) => state.previous);
   const setEnginePlaying = usePlayerStore((state) => state.setEnginePlaying);
+  const setEffectiveSong = usePlayerStore((state) => state.setEffectiveSong);
   const setPlaybackIntent = usePlayerStore((state) => state.setPlaybackIntent);
   const setProgress = usePlayerStore((state) => state.setProgress);
   const setDuration = usePlayerStore((state) => state.setDuration);
   const setStatus = usePlayerStore((state) => state.setStatus);
   const transportCommand = usePlayerStore((state) => state.transportCommand);
   const sleepTimerEndsAt = usePlayerStore((state) => state.sleepTimerEndsAt);
+  const playerStatus = usePlayerStore((state) => state.status);
+  const playerError = usePlayerStore((state) => state.error);
+  const { push } = useToast();
+  const lastToastedErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (playerStatus !== 'error' || !playerError) {
+      lastToastedErrorRef.current = null;
+      return;
+    }
+    if (lastToastedErrorRef.current === playerError) return;
+    lastToastedErrorRef.current = playerError;
+    push(playerError, 'error');
+  }, [playerError, playerStatus, push]);
 
   const clearRetry = useCallback(() => {
     if (!retryTimerRef.current) return;
@@ -120,7 +118,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const unloadHowl = useCallback((howl?: Howl | null) => {
     if (!howl) return;
-    howl.unload();
+    htmlAudioEngine.release(howl);
     if (howlRef.current === howl) howlRef.current = null;
     if (pendingHowlRef.current === howl) pendingHowlRef.current = null;
   }, []);
@@ -134,10 +132,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       }
 
       const position = active.seek();
-      if (typeof position === 'number' && Number.isFinite(position)) setProgress(position);
+      if (typeof position === 'number' && Number.isFinite(position)) {
+        // The external clock is the only frame-rate publication. The durable
+        // player store is intentionally not updated here: a progress tick must
+        // never make browse lists, menus, or queue rows participate in playback.
+        setPlaybackClock(position, playerStore.getState().currentSong?.id ?? null);
+      }
       rafRef.current = requestAnimationFrame(updateProgress);
     },
-    [setProgress],
+    [playerStore],
   );
 
   const startProgress = useCallback(() => {
@@ -185,9 +188,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     const song = currentSong;
     let sourceSong = song;
     const loadToken = loadIdRef.current;
+    const loadController = new AbortController();
+    let autoplayStarted = false;
     clearUnlockWait();
     retryCountRef.current = 0;
     let prematureEndRecoveries = 0;
+    let playbackCandidates: PlaybackCandidate[] = [];
+    let candidateIndex = 0;
+    let alternateResolutionStarted = false;
+    let recoveryFailureMessage: string | null = null;
+    // A new track has not resolved yet, so any fallback identity held over from
+    // the previous one must not survive — lyrics would query the wrong record.
+    setEffectiveSong(null);
     const shouldPlay = playerStore.getState().playbackIntent;
     setStatus(shouldPlay ? 'loading' : 'paused');
 
@@ -211,12 +223,115 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       }, AUTO_SKIP_DELAY_MS);
     };
 
+    const continueWithAutoplay = async () => {
+      if (autoplayStarted || !isCurrent()) return;
+      const state = playerStore.getState();
+      if (!state.autoplay || !state.currentSong || state.currentSong.isLive) return;
+
+      autoplayStarted = true;
+      setStatus('loading');
+      try {
+        const seed = state.currentSong;
+        const stationCatalog = await catalog.getGenreSongs(seed.genre.trim() || 'pop', 18, loadController.signal);
+        const latest = playerStore.getState();
+        if (loadController.signal.aborted || !isCurrent() || !latest.playbackIntent) {
+          return;
+        }
+        // Autoplay is a user preference, but this request is asynchronous. A
+        // toggle made while the catalog is in flight must win over the stale
+        // state captured before the request started.
+        if (!latest.autoplay) {
+          latest.setPlaybackIntent(false);
+          return;
+        }
+
+        const existing = new Set(latest.queue.map((item) => item.song.id));
+        const recommendations = stationCatalog.results
+          .filter(
+            (candidate) =>
+              !existing.has(candidate.id) && candidate.playbackUnavailable !== true && candidate.isLive !== true,
+          )
+          .slice(0, 8);
+
+        if (recommendations.length === 0) {
+          latest.setPlaybackIntent(false);
+          return;
+        }
+
+        latest.appendToQueue(recommendations, 'autoplay');
+        latest.next();
+      } catch {
+        const latest = playerStore.getState();
+        if (loadController.signal.aborted || !isCurrent() || !latest.autoplay || !latest.playbackIntent) return;
+        playerStore.getState().setStatus('error', 'Autoplay could not find another verified track.');
+      }
+    };
+
+    const resolveAlternates = (message: string): boolean => {
+      if (alternateResolutionStarted || !isResolverSource(sourceSong.provider)) {
+        return false;
+      }
+
+      alternateResolutionStarted = true;
+      clearRetry();
+      setStatus('loading');
+      void catalog
+        .getPlaybackAlternates(sourceSong, loadController.signal)
+        .then((alternates) => {
+          if (loadController.signal.aborted || !isCurrent() || !playerStore.getState().playbackIntent) return;
+
+          const hadCandidates = playbackCandidates.length > 0;
+          const seen = new Set(playbackCandidates.map((candidate) => candidate.song.id));
+          const freshAlternates = alternates.filter((candidate) => {
+            if (seen.has(candidate.song.id)) return false;
+            seen.add(candidate.song.id);
+            return true;
+          });
+          playbackCandidates = [...playbackCandidates, ...freshAlternates];
+
+          // A direct resolution failure leaves the candidate list empty. In
+          // that case the first alternate is the current candidate, not the
+          // candidate after index zero. Once a direct candidate exists, move
+          // to the next one as usual.
+          const nextCandidateIndex = hadCandidates ? candidateIndex + 1 : 0;
+          if (nextCandidateIndex >= playbackCandidates.length) {
+            setStatus('error', message);
+            scheduleAutoSkip();
+            return;
+          }
+
+          candidateIndex = nextCandidateIndex;
+          prematureEndRecoveries = 0;
+          retryCountRef.current = 0;
+          setProgress(0);
+          setStatus('loading');
+          attemptLoadRef.current?.();
+        })
+        .catch(() => {
+          if (loadController.signal.aborted || !isCurrent() || !playerStore.getState().playbackIntent) return;
+          setStatus('error', message);
+          scheduleAutoSkip();
+        });
+
+      return true;
+    };
+
     const fail = (message: string, failedHowl?: Howl) => {
       if (failedHowl && failedHowl !== pendingHowlRef.current && failedHowl !== howlRef.current) return;
       clearLoadWait();
       const shouldRetry = isCurrent() && playerStore.getState().playbackIntent;
       if (failedHowl) unloadHowl(failedHowl);
       if (!shouldRetry) return;
+
+      if (candidateIndex + 1 < playbackCandidates.length) {
+        candidateIndex += 1;
+        retryCountRef.current = 0;
+        clearRetry();
+        retryTimerRef.current = setTimeout(() => attemptLoad(), 150);
+        return;
+      }
+
+      if (resolveAlternates(message)) return;
 
       retryCountRef.current += 1;
       if (retryCountRef.current <= MAX_RETRIES) {
@@ -225,7 +340,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setStatus('error', message);
+      setStatus('error', recoveryFailureMessage ?? message);
       scheduleAutoSkip();
     };
 
@@ -235,8 +350,21 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const requestId = ++streamRequestIdRef.current;
       setStatus('loading');
 
-      api
-        .getPlaybackSource(song)
+      const candidate = playbackCandidates[candidateIndex];
+      const candidateUrl = candidate?.streamUrl;
+      const sourcePromise: Promise<{ song: Song; streamUrl: string }> = candidate
+        ? candidateUrl
+          ? Promise.resolve({ song: candidate.song, streamUrl: candidateUrl })
+          : catalog
+              .getStreamUrl(candidate.song, loadController.signal)
+              .then((streamUrl) => ({ song: candidate.song, streamUrl }))
+        : catalog.getPlaybackSource(song, loadController.signal).then((source) => {
+            playbackCandidates = source.candidates ?? [{ song: source.song, streamUrl: source.streamUrl }];
+            candidateIndex = 0;
+            return { song: source.song, streamUrl: source.streamUrl };
+          });
+
+      sourcePromise
         .then(({ song: resolvedSong, streamUrl }) => {
           sourceSong = resolvedSong;
           if (
@@ -248,12 +376,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           ) {
             return;
           }
+          // A fallback substitution (an Apple preview swapped for a full Kuwo/LX
+          // track) is the case `effectiveSong` exists for: lyrics are matched
+          // against the recording that is playing, not the catalog row the user
+          // picked. The store clears it to null on every new track, so it is
+          // only non-null while this resolved track is the one playing.
+          setEffectiveSong(resolvedSong.id === song.id ? null : resolvedSong);
           if (!streamUrl) {
             fail('No verified audio stream is available for this track.');
             return;
           }
 
-          const howl = createAudioHowl(
+          const howl = htmlAudioEngine.create(
             {
               src: [streamUrl],
               format: [getHowlerFormat(sourceSong)],
@@ -289,9 +423,41 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                   return;
                 }
 
+                if (!htmlAudioEngine.adopt(howl)) {
+                  unloadHowl(howl);
+                  return;
+                }
                 pendingHowlRef.current = null;
                 howlRef.current = howl;
                 const loadedDuration = howl.duration();
+                const resolverCanReturnShortClips = isResolverSource(sourceSong.provider);
+                const materiallyShort = isMateriallyShortStream(loadedDuration, sourceSong.duration);
+                const materiallyLong = isMateriallyLongStream(loadedDuration, sourceSong.duration);
+                if (resolverCanReturnShortClips && !sourceSong.isLive && (materiallyShort || materiallyLong)) {
+                  // A successful response is not enough: Kuwo and similar
+                  // resolvers can return either a short preview or a completely
+                  // different long recording for a catalog item. Discard it
+                  // before the mini-player exposes the wrong duration, then
+                  // try the next exact-match candidate already attached to this
+                  // load.
+                  unloadHowl(howl);
+                  setEffectiveSong(null);
+                  recoveryFailureMessage = materiallyShort
+                    ? 'The provider returned a short preview instead of the full track.'
+                    : 'The provider returned a different recording instead of the full track.';
+                  prematureEndRecoveries = 0;
+                  retryCountRef.current = 0;
+                  if (candidateIndex + 1 < playbackCandidates.length) {
+                    candidateIndex += 1;
+                    setProgress(0);
+                    setStatus('loading');
+                    attemptLoadRef.current?.();
+                  } else if (!resolveAlternates(recoveryFailureMessage)) {
+                    setStatus('error', recoveryFailureMessage);
+                    scheduleAutoSkip();
+                  }
+                  return;
+                }
                 // Some browsers cannot expose duration while the first response is
                 // a valid 206 range. Catalog metadata is verified and is a safe
                 // fallback until the media element learns the total duration.
@@ -355,7 +521,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                     setStatus('loading');
                     retryCountRef.current = 0;
                     attemptLoadRef.current?.();
-                  } else {
+                  } else if (candidateIndex + 1 < playbackCandidates.length) {
+                    candidateIndex += 1;
+                    prematureEndRecoveries = 0;
+                    retryCountRef.current = 0;
+                    setProgress(resumePosition);
+                    setStatus('loading');
+                    attemptLoadRef.current?.();
+                  } else if (!resolveAlternates('The audio stream ended before the track finished. Try again.')) {
                     setStatus('error', 'The audio stream ended before the track finished. Try again.');
                     scheduleAutoSkip();
                   }
@@ -365,6 +538,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                   howl.seek(0);
                   setProgress(0);
                   howl.play();
+                } else if (hasNextInQueue(state)) {
+                  state.next();
+                } else if (state.autoplay && !state.currentSong?.isLive) {
+                  void continueWithAutoplay();
                 } else {
                   state.next();
                 }
@@ -380,10 +557,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
             if (!isCurrent() || pendingHowlRef.current !== howl || !playerStore.getState().playbackIntent) {
               return;
             }
-            setStatus('error', 'The audio stream took too long to load. Press Play to try again.');
-            scheduleAutoSkip();
-            unloadHowl(howl);
-            clearLoadWait();
+            fail('The audio stream took too long to load. Press Play to try again.', howl);
           }, LOAD_TIMEOUT_MS);
         })
         .catch(() => {
@@ -398,6 +572,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
     return () => {
       loadIdRef.current += 1;
+      loadController.abort();
       attemptLoadRef.current = null;
       clearRetry();
       clearUnlockWait();
@@ -412,10 +587,12 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     clearLoadWait,
     clearRetry,
     clearUnlockWait,
+    catalog,
     currentSong,
     playerStore,
     setDuration,
     setEnginePlaying,
+    setEffectiveSong,
     setPlaybackIntent,
     setProgress,
     setStatus,
@@ -498,8 +675,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (transportCommand?.type === 'seek') seek(transportCommand.position);
   }, [seek, transportCommand]);
-
-  useKeyboardShortcuts(seek);
 
   const stop = useCallback(() => {
     stopEngine();

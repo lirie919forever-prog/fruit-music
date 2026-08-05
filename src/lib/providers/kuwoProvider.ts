@@ -4,6 +4,7 @@ import type { MusicProvider } from './types';
 import type { Song } from '@/types/music';
 import { providerFetch } from './errors';
 import { safeCoverArt } from '@/lib/coverArt';
+import { repairUtf8Mojibake } from '@/lib/repairUtf8Mojibake';
 
 const PROXY_BASE = '/api/music/kuwo';
 
@@ -28,15 +29,38 @@ interface KuwoSearchResponse {
   TOTAL?: string;
 }
 
+function decodeKuwoText(value: string | undefined): string {
+  if (!value) return '';
+  return repairUtf8Mojibake(
+    value
+      .replace(/\\u([0-9a-f]{4})/gi, (_match, code: string) => String.fromCharCode(Number.parseInt(code, 16)))
+      .replace(/\\([&'"\\])/g, '$1')
+      .replace(/&nbsp;|&amp;|&quot;|&apos;|&#39;|&#x27;/gi, (entity) => {
+        const normalized = entity.toLowerCase();
+        if (normalized === '&nbsp;') return ' ';
+        if (normalized === '&amp;') return '&';
+        if (normalized === '&quot;') return '"';
+        return "'";
+      })
+      .replace(/&#(x[0-9a-f]+|\d+);/gi, (_entity, code: string) => {
+        const value = code.toLowerCase().startsWith('x') ? Number.parseInt(code.slice(1), 16) : Number(code);
+        return Number.isSafeInteger(value) && value >= 0 && value <= 0x10ffff ? String.fromCodePoint(value) : '';
+      })
+      .trim(),
+  );
+}
+
 function mapKuwoSong(item: KuwoSearchItem): Song {
   const rawId = item.DC_TARGETID;
   const songId = `kuwo-${rawId}`;
-  const artist = item.ARTIST || 'Unknown';
-  const album = item.ALBUM || '';
-  const duration = item.DURATION ? Math.round(Number(item.DURATION)) : 0;
+  const title = decodeKuwoText(item.NAME);
+  const artist = decodeKuwoText(item.ARTIST) || 'Unknown';
+  const album = decodeKuwoText(item.ALBUM);
+  const rawDuration = Number(item.DURATION);
+  const duration = Number.isFinite(rawDuration) ? Math.max(0, Math.round(rawDuration)) : 0;
   return {
     id: songId,
-    title: item.NAME.replace(/&nbsp;/g, ' ').trim() || 'Unknown',
+    title: title || 'Unknown',
     artist,
     artistId: item.ARTISTID ? `kuwo-artist-${item.ARTISTID}` : songId,
     album,
@@ -101,7 +125,19 @@ export const kuwoProvider: MusicProvider = {
     }
   },
 
-  async getStreamUrl(song: Song): Promise<string> {
+  async getStreamUrl(song: Song, signal?: AbortSignal): Promise<string> {
+    const probe = await providerFetch<{ available?: boolean }>(
+      'Kuwo',
+      'streamProbe',
+      song.path,
+      {
+        probe: '1',
+        ...(song.duration > 45 ? { expected: String(song.duration) } : {}),
+      },
+      signal,
+      { timeoutMs: 12_000 },
+    );
+    if (probe.available !== true) throw new Error('Kuwo stream is unavailable');
     return song.path;
   },
 

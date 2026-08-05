@@ -29,10 +29,7 @@ export function StatusPanel({
 }) {
   const centered = align === 'center';
   return (
-    <div
-      role="status"
-      className={`rounded-xl border border-[var(--glass-border)] bg-white px-6 py-10 ${centered ? 'text-center' : ''}`}
-    >
+    <div role="status" className={`marea-glass-surface rounded-xl border px-6 py-10 ${centered ? 'text-center' : ''}`}>
       <div className={centered ? 'mx-auto max-w-lg' : 'max-w-xl'}>
         {eyebrow && (
           <p

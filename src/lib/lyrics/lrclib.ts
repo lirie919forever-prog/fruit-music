@@ -45,6 +45,8 @@ export interface LyricsResult {
   instrumental: boolean;
   /** Empty when the record has no usable synced document. */
   synced: LyricLine[];
+  /** Raw synced LRC is kept so the browser can parse large documents off-thread. */
+  syncedSource?: string;
   /** Empty when the record has no plain text. */
   plain: string;
 }
@@ -198,6 +200,7 @@ export function isLyricsResult(value: unknown): value is LyricsResult {
     typeof result.artistName === 'string' &&
     typeof result.instrumental === 'boolean' &&
     typeof result.plain === 'string' &&
+    (result.syncedSource === undefined || typeof result.syncedSource === 'string') &&
     Array.isArray(result.synced) &&
     result.synced.every(
       (line) =>
@@ -219,6 +222,7 @@ export function toLyricsResult(record: LrclibRecord): LyricsResult {
     artistName: record.artistName,
     instrumental: record.instrumental === true,
     synced: isUsableSync(synced) ? synced : [],
+    ...(isUsableSync(synced) && record.syncedLyrics ? { syncedSource: record.syncedLyrics } : {}),
     plain: typeof record.plainLyrics === 'string' ? record.plainLyrics.trim() : '',
   };
 }

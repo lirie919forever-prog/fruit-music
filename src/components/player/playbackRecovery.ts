@@ -1,6 +1,55 @@
 import type { PlayerState } from '@/store/playerStore';
 
 export const END_TOLERANCE_SECONDS = 2;
+const MIN_FULL_TRACK_DECODE_SECONDS = 45;
+const MAX_DURATION_DRIFT_SECONDS = 15;
+const MAX_DURATION_DRIFT_RATIO = 0.2;
+
+/**
+ * A provider can return a successful media response that is only a short clip.
+ * Keep a little room for metadata drift, but reject a clearly truncated decode
+ * before the player presents it as a full recording.
+ */
+export function isMateriallyShortStream(decodedDuration: number, expectedDuration: number): boolean {
+  if (!Number.isFinite(decodedDuration) || decodedDuration <= 0) {
+    return false;
+  }
+
+  // Resolver catalogs are not trustworthy when they omit duration. A short
+  // successful response is still a preview, even though there is no catalog
+  // value to compare it with.
+  if (!Number.isFinite(expectedDuration) || expectedDuration <= 0) {
+    return decodedDuration < MIN_FULL_TRACK_DECODE_SECONDS;
+  }
+
+  return (
+    expectedDuration > MIN_FULL_TRACK_DECODE_SECONDS &&
+    decodedDuration < MIN_FULL_TRACK_DECODE_SECONDS &&
+    expectedDuration - decodedDuration > Math.max(5, expectedDuration * 0.08)
+  );
+}
+
+/**
+ * A resolver can also return a completely different long recording for a
+ * matching title. That is not a usable fallback either, even though it is not
+ * a short preview. Keep enough tolerance for provider metadata drift while
+ * rejecting obvious radio shows, compilations, and podcasts.
+ */
+export function isMateriallyLongStream(decodedDuration: number, expectedDuration: number): boolean {
+  if (
+    !Number.isFinite(decodedDuration) ||
+    decodedDuration <= 0 ||
+    !Number.isFinite(expectedDuration) ||
+    expectedDuration <= 0
+  ) {
+    return false;
+  }
+
+  return (
+    decodedDuration - expectedDuration >
+    Math.max(MAX_DURATION_DRIFT_SECONDS, expectedDuration * MAX_DURATION_DRIFT_RATIO)
+  );
+}
 
 export function hasNextInQueue(state: Pick<PlayerState, 'queue' | 'queueIndex' | 'shuffle' | 'repeat'>): boolean {
   const { queue, queueIndex, shuffle, repeat } = state;

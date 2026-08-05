@@ -8,7 +8,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'electron/**/*.test.mjs'],
     setupFiles: ['./vitest.setup.ts'],
     // Node stays the default; browser tests opt in per file with an
     // `@vitest-environment happy-dom` docblock.

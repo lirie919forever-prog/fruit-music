@@ -1,9 +1,10 @@
 'use client';
 
+import { Check, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { HiCheck, HiPlus, HiXMark } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { lockBodyScroll } from '@/lib/scrollLock';
+import { VirtualList } from '@/components/ui/VirtualList';
 import type { Song } from '@/types/music';
 
 /**
@@ -80,7 +81,7 @@ export function AddToPlaylistDialog({ song, onClose }: { song: Song; onClose: ()
       }}
       className="max-h-none max-w-none bg-transparent p-0 backdrop:bg-[rgba(13,43,62,0.34)]"
     >
-      <div className="flex max-h-[min(560px,86dvh)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-[var(--glass-border)] bg-white shadow-[0_24px_60px_rgba(16,47,69,0.24)]">
+      <div className="marea-glass-panel flex max-h-[min(560px,86dvh)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--glass-border)] px-4 py-3">
           <div className="min-w-0">
             <h2 id={titleId} className="text-[15px] font-bold text-[var(--salt-white)]">
@@ -94,7 +95,7 @@ export function AddToPlaylistDialog({ song, onClose }: { song: Song; onClose: ()
             aria-label="Close"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)]"
           >
-            <HiXMark className="h-5 w-5" aria-hidden />
+            <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
 
@@ -122,22 +123,30 @@ export function AddToPlaylistDialog({ song, onClose }: { song: Song; onClose: ()
             disabled={!name.trim()}
             className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-[var(--salt-primary)] px-3 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--salt-bright)] disabled:cursor-not-allowed disabled:bg-[#a7b3ba]"
           >
-            <HiPlus className="h-4 w-4" aria-hidden />
+            <Plus className="h-4 w-4" aria-hidden />
             Create
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {playlists.length === 0 ? (
-            <p className="px-4 py-8 text-center text-[13px] text-[var(--salt-mist)]">
-              No playlists yet. Name one above to start.
-            </p>
-          ) : (
-            playlists.map((playlist) => {
+        {playlists.length === 0 ? (
+          <p className="px-4 py-8 text-center text-[13px] text-[var(--salt-mist)]">
+            No playlists yet. Name one above to start.
+          </p>
+        ) : (
+          <VirtualList
+            items={playlists}
+            estimateSize={48}
+            overscan={4}
+            label="Playlists"
+            getItemKey={(playlist) => playlist.id}
+            className="min-h-0 flex-1"
+            style={{
+              height: `min(${Math.min(playlists.length * 48, 360)}px, calc(86dvh - 150px))`,
+            }}
+            renderItem={(playlist) => {
               const included = playlist.songs.some((item) => item.id === song.id);
               return (
                 <button
-                  key={playlist.id}
                   type="button"
                   aria-pressed={included}
                   onClick={() =>
@@ -148,7 +157,7 @@ export function AddToPlaylistDialog({ song, onClose }: { song: Song; onClose: ()
                   <span
                     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${included ? 'border-[var(--salt-primary)] bg-[var(--salt-primary)] text-white' : 'border-[var(--glass-border-active)]'}`}
                   >
-                    {included && <HiCheck className="h-3.5 w-3.5" aria-hidden />}
+                    {included && <Check className="h-3.5 w-3.5" aria-hidden />}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-medium text-[var(--salt-white)]">
@@ -160,9 +169,9 @@ export function AddToPlaylistDialog({ song, onClose }: { song: Song; onClose: ()
                   </span>
                 </button>
               );
-            })
-          )}
-        </div>
+            }}
+          />
+        )}
       </div>
     </dialog>
   );

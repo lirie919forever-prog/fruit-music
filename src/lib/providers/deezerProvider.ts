@@ -94,6 +94,10 @@ export function deezerTrackToSong(track: DeezerTrack, index = 0, albumOverride?:
   const artistId = String(artist.id);
   const albumId = String(album.id);
   const sourceUrl = publicUrl(track.link, `https://www.deezer.com/track/${id}`);
+  const recordingDuration =
+    typeof track.duration === 'number' && Number.isFinite(track.duration) && track.duration > 0
+      ? Math.round(track.duration)
+      : undefined;
 
   return {
     id: `deezer-${id}`,
@@ -104,6 +108,7 @@ export function deezerTrackToSong(track: DeezerTrack, index = 0, albumOverride?:
     albumId: `deezer-album-${albumId}`,
     coverArt: artwork(album.cover_xl || album.cover_big),
     duration: PREVIEW_DURATION_SECONDS,
+    ...(recordingDuration ? { recordingDuration } : {}),
     track: track.position ?? index + 1,
     year: releaseYear(album.release_date || track.release_date),
     genre: '',

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { Song } from '@/types/music';
+import type { Album, Artist, Song } from '@/types/music';
 import {
   areAllSearchProvidersUnavailable,
+  rankSearchAlbums,
+  rankSearchArtists,
   rankSearchSongs,
   rankSearchSongsForAccess,
   splitTopSearchMatches,
+  summarizeSearchProviders,
 } from './searchViewModel';
 
 function song(id: string, overrides: Partial<Song> = {}): Song {
@@ -36,6 +39,24 @@ function song(id: string, overrides: Partial<Song> = {}): Song {
   };
 }
 
+function artist(id: string, name: string): Artist {
+  return { id, name, coverArt: '/placeholder-album.svg', albumCount: 1 };
+}
+
+function album(id: string, name: string, artistName: string): Album {
+  return {
+    id,
+    name,
+    artist: artistName,
+    artistId: `${id}-artist`,
+    coverArt: '/placeholder-album.svg',
+    songCount: 10,
+    duration: 1_800,
+    year: 2024,
+    genre: 'Pop',
+  };
+}
+
 describe('search view model', () => {
   it('prioritizes an exact artist match over an unrelated track named after the artist', () => {
     const namedAfterArtist = song('audius-title', { title: 'Taylor Swift', artist: 'Someone Else' });
@@ -44,6 +65,24 @@ describe('search view model', () => {
     expect(rankSearchSongs([namedAfterArtist, officialArtistMatch], 'Taylor Swift').map(({ id }) => id)).toEqual([
       'itunes-artist',
       'audius-title',
+    ]);
+  });
+
+  it('prioritizes an exact song title over a track whose artist has that name', () => {
+    const artistNameCollision = song('audius-collision', {
+      title: 'Suicide Blonde',
+      artist: 'Blinding Lights',
+    });
+    const exactTitle = song('itunes-blinding-lights', {
+      title: 'Blinding Lights',
+      artist: 'The Weeknd',
+      provider: 'Apple Preview',
+      duration: 30,
+    });
+
+    expect(rankSearchSongs([artistNameCollision, exactTitle], 'Blinding Lights').map(({ id }) => id)).toEqual([
+      'itunes-blinding-lights',
+      'audius-collision',
     ]);
   });
 
@@ -66,6 +105,28 @@ describe('search view model', () => {
     ]);
   });
 
+  it('prefers the full recording when all-audio results contain the same preview', () => {
+    const preview = song('itunes-preview', { provider: 'Apple Preview', duration: 30 });
+    const fullRecording = song('audius-full', { provider: 'Audius' });
+
+    expect(rankSearchSongsForAccess([preview, fullRecording], 'Cruel Summer', 'all').map(({ id }) => id)).toEqual([
+      'audius-full',
+    ]);
+  });
+
+  it('does not present an unverified resolver match as a direct full track', () => {
+    const direct = song('audius-direct', { provider: 'Audius' });
+    const resolverMatch = song('kuwo-match', { provider: 'Kuwo', duration: 241 });
+
+    expect(rankSearchSongsForAccess([resolverMatch, direct], 'Cruel Summer', 'full').map(({ id }) => id)).toEqual([
+      'audius-direct',
+    ]);
+    expect(rankSearchSongsForAccess([resolverMatch, direct], 'Cruel Summer', 'preview')).toEqual([]);
+    expect(rankSearchSongsForAccess([resolverMatch, direct], 'Cruel Summer', 'all').map(({ id }) => id)).toEqual([
+      'audius-direct',
+    ]);
+  });
+
   it('keeps every ranked track while separating a compact top-results shelf', () => {
     const songs = Array.from({ length: 8 }, (_, index) => song(`track-${index}`, { title: `Track ${index}` }));
 
@@ -73,6 +134,45 @@ describe('search view model', () => {
       topMatches: songs.slice(0, 3),
       remainingTracks: songs.slice(3),
     });
+  });
+
+  it('deduplicates provider artist records and keeps the strongest exact match', () => {
+    const artists = [
+      artist('jamendo-artist-1', 'Taylor Swift'),
+      artist('itunes-artist-2', 'Taylor Swift'),
+      artist('audius-artist-3', 'Taylor Swift fan edits'),
+    ];
+
+    expect(rankSearchArtists(artists, 'Taylor Swift').map(({ id }) => id)).toEqual([
+      'itunes-artist-2',
+      'audius-artist-3',
+    ]);
+  });
+
+  it('collapses duplicate album records without merging different releases', () => {
+    const albums = [
+      album('jamendo-album-1', 'Lover', 'Taylor Swift'),
+      album('itunes-album-2', 'Lover', 'Taylor Swift'),
+      album('itunes-album-3', '1989', 'Taylor Swift'),
+    ];
+
+    expect(rankSearchAlbums(albums, 'Taylor Swift').map(({ id }) => id)).toEqual(['itunes-album-2', 'itunes-album-3']);
+  });
+
+  it('summarizes result, empty, partial, and unavailable search sources', () => {
+    const summaries = summarizeSearchProviders(
+      ['Audius', 'Jamendo', 'ccMixter', 'Archive'],
+      [song('audius-result')],
+      ['Archive'],
+      ['ccMixter'],
+    );
+
+    expect(summaries).toEqual([
+      { name: 'Audius', resultCount: 1, status: 'results' },
+      { name: 'Jamendo', resultCount: 0, status: 'no-match' },
+      { name: 'ccMixter', resultCount: 0, status: 'partial' },
+      { name: 'Archive', resultCount: 0, status: 'unavailable' },
+    ]);
   });
 
   it('counts degraded providers when every search source is unavailable', () => {

@@ -110,6 +110,37 @@ describe('persisted library survives a reload', () => {
     second.unmount();
   });
 
+  it('replaces stale local-file URLs after the IndexedDB library is hydrated', async () => {
+    const stale = song('local-demo', { provider: 'Local file', path: 'blob:stale-url' });
+    seed({
+      favorites: [stale],
+      history: [stale],
+      playlists: [{ id: 'p1', name: 'Offline set', songs: [stale], createdAt: 1 }],
+    });
+
+    const app = mountApp();
+    await waitFor(() => expect(app.store.persist.hasHydrated()).toBe(true));
+
+    const hydrated = { ...stale, path: 'blob:current-document-url' };
+    act(() => app.store.getState().reconcileLocalSongs([hydrated]));
+
+    const state = app.store.getState();
+    expect(state.favorites[0].path).toBe(hydrated.path);
+    expect(state.history[0].path).toBe(hydrated.path);
+    expect(state.playlists[0].songs[0].path).toBe(hydrated.path);
+    expect(readStored()).toMatchObject({
+      favorites: [expect.objectContaining({ id: stale.id, path: hydrated.path })],
+      history: [expect.objectContaining({ id: stale.id, path: hydrated.path })],
+      playlists: [
+        expect.objectContaining({
+          songs: [expect.objectContaining({ id: stale.id, path: hydrated.path })],
+        }),
+      ],
+    });
+
+    app.unmount();
+  });
+
   it('does not let an early write clear the saved payload before it is read back', async () => {
     seed({
       favorites: [song('saved-fav')],
@@ -157,6 +188,17 @@ describe('persisted library survives a reload', () => {
     view.unmount();
   });
 
+  it('does not start a fail-open timer for an unused storage instance', () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { dispose } = createGuardedStorage(() => window.localStorage, 5_000);
+
+    vi.advanceTimersByTime(5_000);
+
+    expect(warn).not.toHaveBeenCalled();
+    dispose();
+  });
+
   it('writes nothing at all before rehydration settles', () => {
     const backing = window.localStorage;
     const setItem = vi.spyOn(backing, 'setItem');
@@ -196,7 +238,13 @@ describe('a damaged payload does not take the app down with it', () => {
 
   it('drops individual malformed records instead of the whole library', async () => {
     seed({
-      favorites: [song('good'), { id: 'no-title' }, null, 'nonsense'],
+      favorites: [
+        song('good'),
+        song('unknown-provider', { provider: 'Unknown source' as Song['provider'] }),
+        { id: 'no-title' },
+        null,
+        'nonsense',
+      ],
       history: 'not an array',
       playlists: [
         { id: 'p1', name: 'Half good', songs: [song('ok'), { id: 'broken' }], createdAt: 1 },
@@ -225,6 +273,14 @@ describe('a damaged payload does not take the app down with it', () => {
       favorites: [expect.objectContaining({ id: 'kept' })],
       volume: 0,
     });
+  });
+
+  it('sanitizes recent searches without allowing junk or unbounded growth', () => {
+    expect(
+      sanitizePersistedState({
+        recentSearches: ['  Jazz  ', 'jazz', 'x', null, 'Classical', 'JAZZ'],
+      }),
+    ).toEqual({ recentSearches: ['Jazz', 'Classical'] });
   });
 });
 

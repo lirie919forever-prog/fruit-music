@@ -5,7 +5,9 @@ import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import { isSong } from '@/lib/songShape';
-import type { Playlist, Song, QueueItem, ViewType } from '@/types/music';
+import { getPlaybackClockSnapshot, setPlaybackClock } from '@/components/player/playbackClock';
+import type { NowPlayingPanel, Playlist, Song, QueueItem, ViewType } from '@/types/music';
+import { buildShuffleOrder, validShuffleOrder, rememberPlayed } from './playerStoreHelpers';
 
 export interface TransportCommand {
   sequence: number;
@@ -17,6 +19,22 @@ export type PlayerStatus = 'idle' | 'loading' | 'ready' | 'playing' | 'paused' |
 
 export interface PlayerState {
   currentSong: Song | null;
+  /**
+   * The track playback actually resolved to, when it differs from the catalog
+   * identity in `currentSong`.
+   *
+   * A chart row is an Apple thirty-second preview, but `getPlaybackSource`
+   * swaps it for a full-track Kuwo/LX match before the buffer fills. The queue,
+   * artwork and attribution stay tied to the song the user picked; lyrics are
+   * matched against the *recording that is playing*, so the panel needs to know
+   * which one that is. `null` until a load resolves a different track, and reset
+   * to `null` whenever the queue moves — the next track has not resolved yet.
+   *
+   * Persisted state deliberately never includes this: it is per-playback, not a
+   * library artifact, and a restored session would replay it for a track that
+   * had not resolved.
+   */
+  effectiveSong: Song | null;
   activeSongId: string | null;
   queue: QueueItem[];
   queueIndex: number | null;
@@ -37,8 +55,17 @@ export interface PlayerState {
   /** Queue indexes actually played, so `previous` can retrace a shuffled path. */
   playedIndexes: number[];
   repeat: 'off' | 'all' | 'one';
+  /** Continue with verified recommendations when the explicit queue ends. */
+  autoplay: boolean;
   currentView: ViewType;
+  /**
+   * Which side panel Now Playing opens on. Transient UI preference — not
+   * persisted — so the player bar can direct a Lyrics click to the right tab
+   * without the view having to expose its internal state.
+   */
+  nowPlayingPanel: NowPlayingPanel;
   searchQuery: string;
+  recentSearches: string[];
   status: PlayerStatus;
   error: string | null;
   transportCommand: TransportCommand | null;
@@ -61,6 +88,7 @@ export interface PlayerState {
   playSong: (song: Song) => void;
   addToQueue: (song: Song) => void;
   playNext: (song: Song) => void;
+  appendToQueue: (songs: Song[], addedBy?: QueueItem['addedBy']) => void;
   removeFromQueue: (index: number) => void;
   clearQueue: () => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
@@ -68,6 +96,8 @@ export interface PlayerState {
   next: () => void;
   previous: () => void;
   setEnginePlaying: (songId: string, playing: boolean) => void;
+  /** Records the resolved playback track for the current load, or `null` to clear it. */
+  setEffectiveSong: (song: Song | null) => void;
   setPlaybackIntent: (playing: boolean) => void;
   togglePlay: () => void;
   setVolume: (volume: number) => void;
@@ -76,12 +106,20 @@ export interface PlayerState {
   setDuration: (duration: number) => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
+  toggleAutoplay: () => void;
   toggleFavorite: (song: Song) => void;
+  /** Replaces persisted local-file references with this document's object URLs. */
+  reconcileLocalSongs: (songs: Song[]) => void;
+  /** Removes one or more deleted local-file identities from every player collection. */
+  removeLocalSongReferences: (songIds: string | string[]) => void;
   /** Minutes from now, or `null` to cancel. */
   setSleepTimer: (minutes: number | null) => void;
   clearHistory: () => void;
   setCurrentView: (view: ViewType) => void;
+  setNowPlayingPanel: (panel: NowPlayingPanel) => void;
   setSearchQuery: (query: string) => void;
+  recordSearch: (query: string) => void;
+  clearRecentSearches: () => void;
   setStatus: (status: PlayerStatus, error?: string | null) => void;
   playAlbum: (songs: Song[], startIndex?: number) => void;
   createPlaylist: (name: string, songs?: Song[]) => string | null;
@@ -92,48 +130,10 @@ export interface PlayerState {
   reorderPlaylist: (playlistId: string, fromIndex: number, toIndex: number) => void;
 }
 
+export { buildShuffleOrder, validShuffleOrder } from './playerStoreHelpers';
 function clampStartIndex(length: number, startIndex: number): number {
   if (length === 0 || !Number.isFinite(startIndex)) return 0;
   return Math.max(0, Math.min(length - 1, Math.trunc(startIndex)));
-}
-
-/** How far back `previous` can retrace. Matches the visible history length. */
-const MAX_PLAYED_HISTORY = 30;
-
-/**
- * A shuffled walk over every queue index, with `startIndex` pinned to the
- * front so the track already playing stays where it is.
- *
- * Fisher-Yates over the whole bag rather than a random pick per step: picking
- * each time is sampling with replacement, which repeats tracks and leaves
- * others unreached. Drawing an order up front guarantees each track plays once
- * per lap.
- */
-export function buildShuffleOrder(length: number, startIndex: number): number[] {
-  if (length <= 0) return [];
-  const rest = Array.from({ length }, (_, index) => index).filter((index) => index !== startIndex);
-  for (let index = rest.length - 1; index > 0; index -= 1) {
-    const swap = Math.floor(Math.random() * (index + 1));
-    [rest[index], rest[swap]] = [rest[swap], rest[index]];
-  }
-  return [startIndex, ...rest];
-}
-
-/**
- * Accepts an order only if it is still a permutation of the current queue.
- * Anything that touched the queue invalidates it, and a stale order would
- * either skip tracks or index past the end.
- */
-export function validShuffleOrder(order: number[], length: number): number[] | null {
-  if (order.length !== length) return null;
-  const seen = new Set(order);
-  return seen.size === length && order.every((index) => Number.isInteger(index) && index >= 0 && index < length)
-    ? order
-    : null;
-}
-
-function rememberPlayed(played: number[], index: number): number[] {
-  return [...played, index].slice(-MAX_PLAYED_HISTORY);
 }
 
 function queueState(songs: Song[], startIndex = 0) {
@@ -144,6 +144,7 @@ function queueState(songs: Song[], startIndex = 0) {
       shuffleOrder: [] as number[],
       playedIndexes: [] as number[],
       currentSong: null,
+      effectiveSong: null,
       activeSongId: null,
       isPlaying: false,
       playbackIntent: false,
@@ -164,6 +165,8 @@ function queueState(songs: Song[], startIndex = 0) {
     shuffleOrder: [] as number[],
     playedIndexes: [] as number[],
     currentSong: queue[queueIndex].song,
+    // The resolved track is unknown until the next load resolves a different one.
+    effectiveSong: null,
     activeSongId: null,
     isPlaying: false,
     playbackIntent: true,
@@ -193,6 +196,10 @@ function dedupeById(songs: Song[]): Song[] {
   return songs.filter((song) => (seen.has(song.id) ? false : (seen.add(song.id), true)));
 }
 
+function isLocalSong(song: Song): boolean {
+  return song.provider === 'Local file' || song.id.startsWith('local-');
+}
+
 const noopStorage: StateStorage = {
   getItem: () => null,
   setItem: () => {},
@@ -210,6 +217,7 @@ export const PERSIST_KEY = 'marea-player-v1';
  * saving for the rest of the session with nothing to show for it.
  */
 const REHYDRATE_TIMEOUT_MS = 5_000;
+const MAX_RECENT_SEARCHES = 8;
 
 function isPlaylist(value: unknown): value is Playlist {
   if (typeof value !== 'object' || value === null) return false;
@@ -229,6 +237,21 @@ function songList(value: unknown): Song[] | undefined {
 
 function boundedVolume(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : undefined;
+}
+
+function recentSearchList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  const searches: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const query = item.trim();
+    if (query.length < 2 || seen.has(query.toLocaleLowerCase())) continue;
+    seen.add(query.toLocaleLowerCase());
+    searches.push(query);
+    if (searches.length >= MAX_RECENT_SEARCHES) break;
+  }
+  return searches;
 }
 
 /**
@@ -254,10 +277,12 @@ export function sanitizePersistedState(value: unknown): Partial<PlayerState> {
     ...(songList(raw.favorites) ? { favorites: dedupeById(songList(raw.favorites)!) } : {}),
     ...(songList(raw.history) ? { history: dedupeById(songList(raw.history)!) } : {}),
     ...(playlists ? { playlists } : {}),
+    ...(recentSearchList(raw.recentSearches) ? { recentSearches: recentSearchList(raw.recentSearches)! } : {}),
     ...(boundedVolume(raw.volume) !== undefined ? { volume: boundedVolume(raw.volume) } : {}),
     ...(boundedVolume(raw.lastNonZeroVolume) ? { lastNonZeroVolume: boundedVolume(raw.lastNonZeroVolume) } : {}),
     ...(typeof raw.shuffle === 'boolean' ? { shuffle: raw.shuffle } : {}),
     ...(raw.repeat === 'off' || raw.repeat === 'all' || raw.repeat === 'one' ? { repeat: raw.repeat } : {}),
+    ...(typeof raw.autoplay === 'boolean' ? { autoplay: raw.autoplay } : {}),
   };
 }
 
@@ -279,24 +304,35 @@ export function createGuardedStorage(
   timeoutMs = REHYDRATE_TIMEOUT_MS,
 ): { storage: StateStorage; allowWrites: () => void; dispose: () => void } {
   let writable = false;
-  const failOpen = setTimeout(() => {
-    if (writable) return;
-    writable = true;
-    console.warn('[marea] rehydration did not settle; persisting anyway so changes are not silently dropped.');
-  }, timeoutMs);
-  // Node's timer would otherwise hold a test process open for the full timeout.
-  failOpen.unref?.();
+  let failOpen: ReturnType<typeof setTimeout> | null = null;
+
+  // React may construct a store that never becomes part of the committed tree
+  // (Strict Mode does this deliberately). Do not start a timer for that store;
+  // the guard only becomes relevant once persist actually touches storage.
+  const startFailOpenTimer = () => {
+    if (writable || failOpen) return;
+    failOpen = setTimeout(() => {
+      if (writable) return;
+      writable = true;
+      console.warn('[marea] rehydration did not settle; persisting anyway so changes are not silently dropped.');
+    }, timeoutMs);
+    // Node's timer would otherwise hold a test process open for the full timeout.
+    failOpen.unref?.();
+  };
 
   const allowWrites = () => {
     writable = true;
-    clearTimeout(failOpen);
+    if (failOpen) clearTimeout(failOpen);
   };
 
   return {
     allowWrites,
-    dispose: () => clearTimeout(failOpen),
+    dispose: () => {
+      if (failOpen) clearTimeout(failOpen);
+    },
     storage: {
       getItem: (name) => {
+        startFailOpenTimer();
         // Storage access itself throws when cookies are blocked, which must
         // read as "nothing saved", not as a failure to start.
         try {
@@ -306,6 +342,7 @@ export function createGuardedStorage(
         }
       },
       setItem: (name, value) => {
+        startFailOpenTimer();
         if (!writable) return;
         try {
           backing().setItem(name, value);
@@ -324,6 +361,7 @@ export function createGuardedStorage(
         }
       },
       removeItem: (name) => {
+        startFailOpenTimer();
         if (!writable) return;
         try {
           backing().removeItem(name);
@@ -345,6 +383,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
     persist(
       (set, get) => ({
         currentSong: null,
+        effectiveSong: null,
         activeSongId: null,
         queue: [],
         queueIndex: null,
@@ -358,8 +397,11 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
         shuffleOrder: [],
         playedIndexes: [],
         repeat: 'off',
+        autoplay: true,
         currentView: initialView,
+        nowPlayingPanel: 'queue',
         searchQuery: initialView === 'search' ? initialQuery : '',
+        recentSearches: [],
         status: 'idle',
         error: null,
         transportCommand: null,
@@ -379,6 +421,16 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
             const queue = [...state.queue];
             queue.splice(insertAt, 0, { song, addedBy: 'user' });
             return { queue, shuffleOrder: [] };
+          }),
+        appendToQueue: (songs, addedBy = 'user') =>
+          set((state) => {
+            const existing = new Set(state.queue.map((item) => item.song.id));
+            const additions = dedupeById(songs).filter((song) => !existing.has(song.id));
+            if (additions.length === 0) return {};
+            return {
+              queue: [...state.queue, ...additions.map((song) => ({ song, addedBy }))],
+              shuffleOrder: [],
+            };
           }),
         clearQueue: () =>
           set((state) => {
@@ -427,6 +479,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
               ? {
                   progress: 0,
                   duration: 0,
+                  effectiveSong: null,
                   activeSongId: null,
                   isPlaying: false,
                   playbackIntent,
@@ -473,6 +526,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
             playedIndexes: fromIndex === null ? playedIndexes : rememberPlayed(playedIndexes, fromIndex),
             queueIndex: index,
             currentSong: queue[index].song,
+            effectiveSong: null,
             activeSongId: null,
             isPlaying: false,
             playbackIntent: true,
@@ -519,6 +573,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
             playedIndexes: rememberPlayed(get().playedIndexes, queueIndex),
             queueIndex: nextIndex,
             currentSong: queue[nextIndex].song,
+            effectiveSong: null,
             activeSongId: null,
             isPlaying: false,
             playbackIntent: true,
@@ -534,6 +589,12 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
           const { queue, queueIndex, progress, repeat, transportCommand, playedIndexes } = get();
           if (queueIndex === null || queue.length === 0) return;
 
+          // The audio engine publishes frame-rate position through the
+          // external clock. Read it here for the restart decision instead of
+          // forcing that position through Zustand on every playback tick.
+          const liveClock = getPlaybackClockSnapshot();
+          const currentProgress = liveClock.songId === get().currentSong?.id ? liveClock.progress : progress;
+
           // What "previous" means depends on whether the order was shuffled: in
           // order, it is the track above; shuffled, the only useful answer is the
           // track you actually just heard, which the queue position cannot tell you.
@@ -541,7 +602,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
           const previousPlayed = played.length > 0 ? played[played.length - 1] : null;
           const atStart = previousPlayed === null && queueIndex === 0;
 
-          if (progress > 3 || (atStart && repeat !== 'all')) {
+          if (currentProgress > 3 || (atStart && repeat !== 'all')) {
             set({
               progress: 0,
               transportCommand: {
@@ -558,6 +619,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
             playedIndexes: played.slice(0, -1),
             queueIndex: previousIndex,
             currentSong: queue[previousIndex].song,
+            effectiveSong: null,
             activeSongId: null,
             isPlaying: false,
             playbackIntent: true,
@@ -589,6 +651,25 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
               isPlaying: false,
               status: state.status === 'error' ? ('error' as PlayerStatus) : ('paused' as PlayerStatus),
             };
+          }),
+        /**
+         * Records the resolved playback track for the current load.
+         *
+         * Called from the audio engine once `getPlaybackSource` returns: when the
+         * resolved song is a different recording from the catalog identity, a
+         * fallback was substituted (an Apple preview replaced by a full Kuwo/LX
+         * track) and lyrics should be matched against it. `null` clears it,
+         * which the load effect does on every new track before resolution.
+         */
+        setEffectiveSong: (song) =>
+          set((state) => {
+            if (!state.currentSong) return {};
+            // A load that resolved the *same* catalog track carries no extra
+            // identity, so it is recorded as null rather than a duplicate. The
+            // engine clears it to null on every new track before resolution, so
+            // a stale resolved track never leaks into the next one.
+            if (song === null || song.id === state.currentSong.id) return { effectiveSong: null };
+            return { effectiveSong: song };
           }),
         setPlaybackIntent: (playing) =>
           set((state) =>
@@ -631,7 +712,12 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
               ? { volume: 0, lastNonZeroVolume: state.volume }
               : { volume: state.lastNonZeroVolume || 0.7 },
           ),
-        setProgress: (progress) => set({ progress }),
+        setProgress: (progress) => {
+          set((state) => {
+            setPlaybackClock(progress, state.currentSong?.id ?? null);
+            return { progress };
+          });
+        },
         setDuration: (duration) => set({ duration }),
         toggleShuffle: () =>
           set((state) => {
@@ -651,6 +737,7 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
             const modes: PlayerState['repeat'][] = ['off', 'all', 'one'];
             return { repeat: modes[(modes.indexOf(state.repeat) + 1) % modes.length] };
           }),
+        toggleAutoplay: () => set((state) => ({ autoplay: !state.autoplay })),
         toggleFavorite: (song) =>
           set((state) => {
             const isFavorite = state.favorites.some((item) => item.id === song.id);
@@ -658,6 +745,127 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
               favorites: isFavorite
                 ? state.favorites.filter((item) => item.id !== song.id)
                 : [song, ...state.favorites],
+            };
+          }),
+        reconcileLocalSongs: (songs) =>
+          set((state) => {
+            const freshById = new Map(songs.filter(isLocalSong).map((song) => [song.id, song]));
+            if (freshById.size === 0) return {};
+
+            let changed = false;
+            const replace = (song: Song): Song => {
+              if (!isLocalSong(song)) return song;
+              const fresh = freshById.get(song.id);
+              if (!fresh || fresh.path === song.path) return song;
+              changed = true;
+              return fresh;
+            };
+            const replaceList = (items: Song[]): Song[] => {
+              let listChanged = false;
+              const next = items.map((song) => {
+                const replacement = replace(song);
+                if (replacement !== song) listChanged = true;
+                return replacement;
+              });
+              return listChanged ? next : items;
+            };
+            const queue = state.queue.map((item) => {
+              const song = replace(item.song);
+              return song === item.song ? item : { ...item, song };
+            });
+            const playlists = state.playlists.map((playlist) => {
+              const songs = replaceList(playlist.songs);
+              return songs === playlist.songs ? playlist : { ...playlist, songs };
+            });
+
+            if (!changed) return {};
+            return {
+              currentSong: state.currentSong ? replace(state.currentSong) : null,
+              effectiveSong: state.effectiveSong ? replace(state.effectiveSong) : null,
+              queue,
+              favorites: replaceList(state.favorites),
+              history: replaceList(state.history),
+              playlists,
+            };
+          }),
+        removeLocalSongReferences: (songIds) =>
+          set((state) => {
+            const removedIds = new Set(
+              (Array.isArray(songIds) ? songIds : [songIds]).filter((songId) => songId.length > 0),
+            );
+            if (removedIds.size === 0) return {};
+
+            const isRemoved = (song: Song) => removedIds.has(song.id);
+            const nextQueue = state.queue.filter((item) => !isRemoved(item.song));
+            const queueChanged = nextQueue.length !== state.queue.length;
+            const currentRemoved = state.currentSong ? isRemoved(state.currentSong) : false;
+            const effectiveRemoved = state.effectiveSong ? isRemoved(state.effectiveSong) : false;
+            const activeRemoved = state.activeSongId ? removedIds.has(state.activeSongId) : false;
+            const favorites = state.favorites.filter((song) => !isRemoved(song));
+            const history = state.history.filter((song) => !isRemoved(song));
+            const playlists = state.playlists.map((playlist) => {
+              const songs = playlist.songs.filter((song) => !isRemoved(song));
+              return songs.length === playlist.songs.length ? playlist : { ...playlist, songs };
+            });
+            const libraryChanged =
+              favorites.length !== state.favorites.length ||
+              history.length !== state.history.length ||
+              playlists.some((playlist, index) => playlist !== state.playlists[index]);
+
+            if (!queueChanged && !currentRemoved && !effectiveRemoved && !activeRemoved && !libraryChanged) return {};
+
+            if (currentRemoved) {
+              if (nextQueue.length === 0) {
+                return { favorites, history, playlists, ...queueState([]) };
+              }
+
+              const currentIndex =
+                state.queueIndex ?? state.queue.findIndex((item) => item.song.id === state.currentSong?.id);
+              const nextItem =
+                (currentIndex >= 0
+                  ? state.queue.slice(currentIndex + 1).find((item) => !isRemoved(item.song))
+                  : undefined) ??
+                (currentIndex >= 0
+                  ? [...state.queue.slice(0, currentIndex)].reverse().find((item) => !isRemoved(item.song))
+                  : undefined) ??
+                nextQueue[0];
+              const nextIndex = nextQueue.indexOf(nextItem);
+              return {
+                favorites,
+                history,
+                playlists,
+                queue: nextQueue,
+                queueIndex: nextIndex,
+                shuffleOrder: [],
+                playedIndexes: [],
+                currentSong: nextQueue[nextIndex].song,
+                effectiveSong: null,
+                activeSongId: null,
+                isPlaying: false,
+                playbackIntent: state.playbackIntent,
+                progress: 0,
+                duration: 0,
+                status: state.playbackIntent ? ('loading' as PlayerStatus) : ('paused' as PlayerStatus),
+                error: null,
+                transportCommand: null,
+              };
+            }
+
+            let queueIndex = state.queueIndex;
+            if (queueChanged && queueIndex !== null) {
+              const removedBeforeCurrent = state.queue
+                .slice(0, queueIndex)
+                .filter((item) => isRemoved(item.song)).length;
+              queueIndex = Math.max(0, queueIndex - removedBeforeCurrent);
+            }
+
+            return {
+              favorites,
+              history,
+              playlists,
+              ...(queueChanged ? { queue: nextQueue, queueIndex, shuffleOrder: [], playedIndexes: [] } : {}),
+              ...(effectiveRemoved ? { effectiveSong: null } : {}),
+              ...(activeRemoved ? { activeSongId: null, isPlaying: false } : {}),
             };
           }),
         setSleepTimer: (minutes) =>
@@ -668,7 +876,18 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
           ),
         clearHistory: () => set({ history: [] }),
         setCurrentView: (view) => set({ currentView: view, ...(view === 'search' ? {} : { searchQuery: '' }) }),
+        setNowPlayingPanel: (panel) => set({ nowPlayingPanel: panel }),
         setSearchQuery: (searchQuery) => set({ searchQuery }),
+        recordSearch: (query) =>
+          set((state) => {
+            const trimmed = query.trim();
+            if (trimmed.length < 2) return {};
+            const withoutDuplicate = state.recentSearches.filter(
+              (item) => item.toLocaleLowerCase() !== trimmed.toLocaleLowerCase(),
+            );
+            return { recentSearches: [trimmed, ...withoutDuplicate].slice(0, MAX_RECENT_SEARCHES) };
+          }),
+        clearRecentSearches: () => set({ recentSearches: [] }),
         setStatus: (status, error = null) =>
           set({
             status,
@@ -766,10 +985,12 @@ export function createPlayerStore(initialView: ViewType = 'albums', initialQuery
           favorites: state.favorites,
           history: state.history,
           playlists: state.playlists,
+          recentSearches: state.recentSearches,
           volume: state.volume,
           lastNonZeroVolume: state.lastNonZeroVolume,
           shuffle: state.shuffle,
           repeat: state.repeat,
+          autoplay: state.autoplay,
         }),
       },
     ),

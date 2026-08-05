@@ -129,7 +129,22 @@ export const lxmusicProvider: MusicProvider = {
     }
   },
 
-  async getStreamUrl(song: Song): Promise<string> {
+  async getStreamUrl(song: Song, signal?: AbortSignal): Promise<string> {
+    const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+    const probeUrl = new URL(song.path, origin);
+    probeUrl.searchParams.set('probe', '1');
+    const probe = await providerFetch<{ available?: boolean }>(
+      'LX Music',
+      'streamProbe',
+      probeUrl.pathname,
+      {
+        ...Object.fromEntries(probeUrl.searchParams.entries()),
+        ...(song.duration > 45 ? { expected: String(song.duration) } : {}),
+      },
+      signal,
+      { timeoutMs: 12_000 },
+    );
+    if (probe.available !== true) throw new Error('LX Music stream is unavailable');
     return song.path;
   },
 

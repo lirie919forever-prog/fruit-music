@@ -1,6 +1,8 @@
 import type { ViewType } from '@/types/music';
 
-export const DEFAULT_VIEW: ViewType = 'albums';
+// First visits should start with discovery, while the album index remains a
+// deliberate Library destination.
+export const DEFAULT_VIEW: ViewType = 'new';
 
 export const renderableViews = [
   'new',
@@ -16,9 +18,11 @@ export const renderableViews = [
   'billboard',
   'uk',
   'trending',
+  'radio',
   'remixes',
   'jazz',
   'classical',
+  'sources',
 ] as const satisfies readonly ViewType[];
 
 const renderableViewSet = new Set<string>(renderableViews);
@@ -31,10 +35,59 @@ export type NavigationItem = {
 const itemPattern = /^(album|artist|track):([a-z0-9][a-z0-9._~%\-]{0,127})$/i;
 
 function isProviderItemId(kind: NavigationItem['kind'], id: string): boolean {
+  const normalizedId = id.toLowerCase();
+  if (kind === 'album' && normalizedId.includes('-artist-')) return false;
+  if (kind === 'track' && /-(?:album|artist)-/.test(normalizedId)) return false;
+
   const prefixes = {
-    album: ['jamendo-', 'ccmixter-', 'archive-', 'lxmusic-', 'itunes-'],
-    artist: ['jamendo-artist-', 'ccmixter-artist-', 'archive-artist-', 'lxmusic-artist-', 'itunes-artist-'],
-    track: ['jamendo-', 'ccmixter-', 'archive-', 'lxmusic-', 'itunes-'],
+    album: [
+      'jamendo-',
+      'ccmixter-album-',
+      'archive-album-',
+      'lxmusic-album-',
+      'kuwo-album-',
+      'itunes-album-',
+      'deezer-album-',
+      'audius-album-',
+      'openverse-album-',
+      'wikimedia-album-',
+      'somafm-album-',
+      'nts-album-',
+      'radioparadise-album-',
+      'radio-album-',
+    ],
+    artist: [
+      'jamendo-artist-',
+      'ccmixter-artist-',
+      'archive-artist-',
+      'lxmusic-artist-',
+      'kuwo-artist-',
+      'itunes-artist-',
+      'deezer-artist-',
+      'audius-artist-',
+      'openverse-artist-',
+      'wikimedia-artist-',
+      'somafm-artist-',
+      'nts-artist-',
+      'radioparadise-artist-',
+      'radio-artist-',
+    ],
+    track: [
+      'jamendo-',
+      'ccmixter-',
+      'archive-',
+      'lxmusic-',
+      'kuwo-',
+      'itunes-',
+      'deezer-',
+      'audius-',
+      'openverse-',
+      'wikimedia-',
+      'somafm-',
+      'nts-',
+      'radioparadise-',
+      'radio-',
+    ],
   }[kind];
   return prefixes.some((prefix) => id.toLowerCase().startsWith(prefix));
 }
@@ -57,6 +110,7 @@ export function parseView(value: string | string[] | null | undefined): ViewType
 export function parseNavigation(search: string | URLSearchParams): {
   view: ViewType;
   query: string;
+  source: string;
   item: NavigationItem | null;
 } {
   const params = typeof search === 'string' ? new URLSearchParams(search) : search;
@@ -65,6 +119,7 @@ export function parseNavigation(search: string | URLSearchParams): {
   return {
     view,
     query: view === 'search' ? (params.get('q') ?? '') : '',
+    source: view === 'search' ? (params.get('source') ?? '') : '',
     item,
   };
 }
@@ -74,11 +129,14 @@ export function buildNavigationUrl(
   view: ViewType,
   query = '',
   item: NavigationItem | null = null,
+  source = '',
 ): string {
   const params = new URLSearchParams(location.search);
   params.set('view', view);
   if (view === 'search' && query) params.set('q', query);
   else params.delete('q');
+  if (view === 'search' && source) params.set('source', source);
+  else params.delete('source');
   if (item) params.set('item', `${item.kind}:${item.id}`);
   else params.delete('item');
   const search = params.toString();

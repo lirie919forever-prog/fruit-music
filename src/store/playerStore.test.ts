@@ -54,7 +54,47 @@ describe('navigation state', () => {
   });
 });
 
+describe('search history', () => {
+  it('keeps recent searches newest-first, unique, and bounded', () => {
+    for (let index = 0; index < 10; index += 1) {
+      store.getState().recordSearch(`query ${index}`);
+    }
+    store.getState().recordSearch(' QUERY 9 ');
+    store.getState().recordSearch('x');
+
+    expect(store.getState().recentSearches).toEqual([
+      'QUERY 9',
+      'query 8',
+      'query 7',
+      'query 6',
+      'query 5',
+      'query 4',
+      'query 3',
+      'query 2',
+    ]);
+
+    store.getState().clearRecentSearches();
+    expect(store.getState().recentSearches).toEqual([]);
+  });
+});
+
 describe('player queue', () => {
+  it('keeps autoplay enabled by default and lets the listener opt out', () => {
+    expect(store.getState().autoplay).toBe(true);
+    store.getState().toggleAutoplay();
+    expect(store.getState().autoplay).toBe(false);
+  });
+
+  it('appends deduplicated recommendations without disturbing the current track', () => {
+    store.getState().setQueue([song('current')]);
+    store.getState().appendToQueue([song('current'), song('next'), song('next')], 'autoplay');
+
+    expect(store.getState().queue.map((item) => item.song.id)).toEqual(['current', 'next']);
+    expect(store.getState().queue[1].addedBy).toBe('autoplay');
+    expect(store.getState().queueIndex).toBe(0);
+    expect(store.getState().currentSong?.id).toBe('current');
+  });
+
   it('cannot enter a playing state without a selected track', () => {
     store.getState().togglePlay();
     expect(store.getState()).toMatchObject({
@@ -477,6 +517,59 @@ describe('playlists', () => {
     const byId = Object.fromEntries(store.getState().playlists.map((playlist) => [playlist.id, playlist]));
     expect(byId[keep].songs.map((item) => item.id)).toEqual(['a']);
     expect(byId[edit].songs.map((item) => item.id)).toEqual(['c']);
+  });
+});
+
+describe('local track cleanup', () => {
+  it('removes a deleted current track from every player collection and loads the next track', () => {
+    const local: Song = { ...song('local-a'), provider: 'Local file', path: 'blob:local-a' };
+    const remote = song('remote');
+    const playlistId = store.getState().createPlaylist('Offline mix', [local, remote])!;
+
+    store.getState().setQueue([local, remote]);
+    store.getState().toggleFavorite(local);
+    store.setState({
+      history: [local, remote],
+      effectiveSong: local,
+      activeSongId: local.id,
+      isPlaying: true,
+    });
+
+    store.getState().removeLocalSongReferences(local.id);
+
+    expect(store.getState()).toMatchObject({
+      queue: [{ song: expect.objectContaining({ id: 'remote' }) }],
+      queueIndex: 0,
+      currentSong: expect.objectContaining({ id: 'remote' }),
+      effectiveSong: null,
+      activeSongId: null,
+      isPlaying: false,
+      playbackIntent: true,
+      status: 'loading',
+    });
+    expect(store.getState().favorites).toEqual([]);
+    expect(store.getState().history.map((track) => track.id)).toEqual(['remote']);
+    expect(
+      store
+        .getState()
+        .playlists.find((playlist) => playlist.id === playlistId)
+        ?.songs.map((track) => track.id),
+    ).toEqual(['remote']);
+  });
+
+  it('removes a batch of local tracks and keeps the selected remote queue entry aligned', () => {
+    const first: Song = { ...song('local-a'), provider: 'Local file', path: 'blob:local-a' };
+    const second: Song = { ...song('local-b'), provider: 'Local file', path: 'blob:local-b' };
+    const remote = song('remote');
+
+    store.getState().setQueue([first, second, remote], 1);
+    store.getState().createPlaylist('Saved', [first, second, remote]);
+    store.getState().removeLocalSongReferences([first.id, second.id]);
+
+    expect(store.getState().queue.map((item) => item.song.id)).toEqual(['remote']);
+    expect(store.getState().queueIndex).toBe(0);
+    expect(store.getState().currentSong?.id).toBe('remote');
+    expect(store.getState().playlists[0].songs.map((track) => track.id)).toEqual(['remote']);
   });
 });
 

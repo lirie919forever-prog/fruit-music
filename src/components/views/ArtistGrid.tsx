@@ -1,19 +1,21 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countFederatedResults } from '@/lib/catalogFreshness';
-import { ArtistTile, TILE_GRID, TileSkeleton } from '@/components/ui/CatalogTile';
+import { ArtistTile, TileSkeleton } from '@/components/ui/CatalogTile';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
+import { VirtualGrid } from '@/components/ui/VirtualGrid';
 import type { ViewType } from '@/types/music';
 import type { NavigationItem } from '@/lib/navigation';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 
 export function ArtistGrid({
   onNavigateWithItem,
 }: {
   onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
 }) {
+  const catalog = useMusicCatalog();
   const {
     data: artistState,
     isLoading,
@@ -22,7 +24,7 @@ export function ArtistGrid({
     refetch,
   } = useQuery({
     queryKey: ['artists'],
-    queryFn: ({ signal }) => api.getArtists(signal),
+    queryFn: ({ signal }) => catalog.getArtists(signal),
     staleTime: catalogStaleTime(countFederatedResults),
   });
   const artists = artistState?.results;
@@ -61,11 +63,14 @@ export function ArtistGrid({
           </p>
         )}
       </div>
-      <div className={TILE_GRID}>
-        {artists.map((artist) => (
-          <ArtistTile key={artist.id} artist={artist} onNavigateWithItem={onNavigateWithItem} />
-        ))}
-      </div>
+      <VirtualGrid
+        items={artists}
+        estimateRowSize={230}
+        minColumnWidth={150}
+        label="Artists"
+        getItemKey={(artist) => artist.id}
+        renderItem={(artist) => <ArtistTile artist={artist} onNavigateWithItem={onNavigateWithItem} />}
+      />
     </section>
   );
 }

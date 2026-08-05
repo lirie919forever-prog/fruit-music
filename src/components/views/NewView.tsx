@@ -1,41 +1,45 @@
 'use client';
 
+import {
+  ChevronRight,
+  Heart,
+  Lightbulb,
+  Lock,
+  Moon,
+  Play,
+  RotateCw,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+  Zap,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion, type Variants } from 'motion/react';
-import {
-  HiArrowPath,
-  HiChartBar,
-  HiChevronRight,
-  HiClock,
-  HiGlobeAlt,
-  HiHeart,
-  HiLockClosed,
-  HiMagnifyingGlass,
-  HiPlay,
-  HiSquares2X2,
-  HiUserGroup,
-} from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
-import { ArtistLink, ChartRail, SongRail } from './SongCard';
+import { ArtistLink, AudioAccessBadge, ChartRail, SongRail } from './SongCard';
+import { ExploreGrid, navigateTo } from './discoveryShelves';
+import { AudioAccessControl } from './AudioAccessControl';
 import { EditorialBanner } from './EditorialBanner';
 import { CinematicHero } from './CinematicHero';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { TrackMenu } from '@/components/ui/TrackMenu';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
-import { api } from '@/lib/api';
+import { VirtualGrid } from '@/components/ui/VirtualGrid';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
-import { buildNavigationUrl, type NavigationItem } from '@/lib/navigation';
+import { type NavigationItem } from '@/lib/navigation';
 import {
-  buildListeningMixForAccess,
-  filterSongsByAccess,
+  buildDiscoveryMixForAccess,
+  isDirectFullTrack,
   playableSongs,
   selectSongsByAccess,
   uniqueSongs,
   type AudioAccessMode,
 } from './newViewModel';
 import { useNewViewData } from './useNewViewData';
-import type { Song, ViewType } from '@/types/music';
+import type { MusicProviderName, Song, ViewType } from '@/types/music';
+import { isPreviewSource } from '@/lib/sourceRegistry';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 
 interface ShelfProps {
   title: string;
@@ -73,9 +77,6 @@ const STAGGER: Variants = {
   shown: { transition: { staggerChildren: 0.07, delayChildren: 0.04 } },
 };
 
-function navigateTo(view: ViewType): void {
-  window.history.pushState(null, '', buildNavigationUrl(window.location, view));
-}
 
 /**
  * A browse shelf: a 17px title that is itself the link into the full view, and
@@ -103,7 +104,7 @@ function Shelf({ title, view, action, children }: ShelfProps) {
             <h2 className="min-w-0 truncate font-headline text-[17px] font-semibold tracking-[-0.01em] text-[var(--salt-white)]">
               {title}
             </h2>
-            <HiChevronRight
+            <ChevronRight
               className="h-4 w-4 shrink-0 text-[var(--salt-mist)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--salt-primary)]"
               aria-hidden
             />
@@ -137,6 +138,26 @@ function SectionLoading({ rows = 6 }: { rows?: number }) {
   );
 }
 
+/** Horizontal skeleton for a shelf that renders row cards in a scrolling rail. */
+function RailSkeleton({ cells = 4 }: { cells?: number }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Loading music">
+      {Array.from({ length: cells }, (_, index) => (
+        <div
+          key={index}
+          className="flex items-center gap-3 rounded-lg border border-[var(--glass-border)] bg-white px-3 py-2"
+        >
+          <div className="h-10 w-10 shrink-0 animate-pulse rounded bg-[var(--salt-ghost)]" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="h-3 w-3/4 animate-pulse rounded bg-[var(--salt-ghost)]" />
+            <div className="h-2.5 w-1/2 animate-pulse rounded bg-[var(--salt-ghost)]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Plays a whole shelf, mirroring the play button Apple reveals on shelf titles. */
 function PlayShelfButton({ songs, label }: { songs: Song[]; label: string }) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
@@ -149,43 +170,97 @@ function PlayShelfButton({ songs, label }: { songs: Song[]; label: string }) {
       onClick={() => playAlbum(readySongs, 0)}
       aria-label={label}
       title={label}
-      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-[#d84f5f] px-3 text-[13px] font-semibold text-white transition-colors hover:bg-[#bd3f4f]"
+      className="marea-primary-action inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-white"
     >
-      <HiPlay className="h-3.5 w-3.5" aria-hidden />
+      <Play className="h-3.5 w-3.5" aria-hidden />
       Play
     </button>
   );
 }
 
-const AUDIO_ACCESS_OPTIONS: Array<{ mode: AudioAccessMode; label: string }> = [
-  { mode: 'full', label: 'Full tracks' },
-  { mode: 'all', label: 'All audio' },
-  { mode: 'preview', label: 'Previews' },
+interface SmartMix {
+  key: string;
+  label: string;
+  detail: string;
+  songs: Song[];
+  icon: ReactNode;
+  iconClassName: string;
+}
+
+function SmartMixShelf({ mixes, hasTaste }: { mixes: SmartMix[]; hasTaste: boolean }) {
+  const playAlbum = usePlayerStore((state) => state.playAlbum);
+  if (mixes.length === 0) return null;
+
+  return (
+    <Shelf title={hasTaste ? 'Your mixes' : 'Made for right now'}>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {mixes.map((mix) => {
+          const disabled = mix.songs.length === 0;
+          return (
+            <button
+              key={mix.key}
+              type="button"
+              disabled={disabled}
+              onClick={() => playAlbum(mix.songs, 0)}
+              aria-label={`Play ${mix.label}`}
+              className="marea-glass-card group flex min-h-[104px] min-w-0 items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+            >
+              <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${mix.iconClassName}`}>
+                {mix.icon}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-bold text-[var(--salt-white)]">{mix.label}</span>
+                <span className="mt-0.5 block truncate text-xs text-[var(--salt-mist)]">{mix.detail}</span>
+                <span className="mt-1 block text-[11px] font-semibold text-[var(--salt-primary)]">
+                  {disabled ? 'No tracks available' : `${mix.songs.length} tracks`}
+                </span>
+              </span>
+              <Play
+                className="h-4 w-4 shrink-0 text-[var(--salt-primary)] transition-transform group-hover:scale-110"
+                aria-hidden
+              />
+            </button>
+          );
+        })}
+      </div>
+    </Shelf>
+  );
+}
+
+type DiscoveryVibe = 'all' | 'focus' | 'energy' | 'after-dark';
+type DiscoverySource = 'all' | MusicProviderName;
+
+const VIBE_OPTIONS: Array<{ value: DiscoveryVibe; label: string }> = [
+  { value: 'all', label: 'Everything' },
+  { value: 'focus', label: 'Focus' },
+  { value: 'energy', label: 'Energy' },
+  { value: 'after-dark', label: 'After dark' },
 ];
 
-function AudioAccessControl({ mode, onChange }: { mode: AudioAccessMode; onChange: (mode: AudioAccessMode) => void }) {
-  return (
-    <div
-      className="grid w-full grid-cols-3 gap-1 rounded-lg bg-[var(--salt-ghost)] p-1 sm:w-auto sm:min-w-[300px]"
-      role="radiogroup"
-      aria-label="Filter by playback access"
-    >
-      {AUDIO_ACCESS_OPTIONS.map((option) => {
-        const selected = option.mode === mode;
-        return (
-          <button
-            key={option.mode}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => onChange(option.mode)}
-            className={`h-8 min-w-0 rounded-md px-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${selected ? 'bg-white text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
-          >
-            <span className="block truncate">{option.label}</span>
-          </button>
-        );
-      })}
-    </div>
+const VIBE_TERMS: Record<Exclude<DiscoveryVibe, 'all'>, string[]> = {
+  focus: ['focus', 'study', 'classical', 'piano', 'acoustic', 'ambient', 'instrumental', 'concentration'],
+  energy: ['energy', 'dance', 'electronic', 'pop', 'rock', 'house', 'workout', 'remix', 'party'],
+  'after-dark': ['night', 'noir', 'jazz', 'chill', 'lounge', 'downtempo', 'late', 'soul'],
+};
+
+function matchesDiscoveryLens(song: Song, source: DiscoverySource, vibe: DiscoveryVibe): boolean {
+  if (source !== 'all' && song.provider !== source) return false;
+  if (vibe === 'all') return true;
+  const text = `${song.title} ${song.artist} ${song.album} ${song.genre}`.toLocaleLowerCase();
+  return VIBE_TERMS[vibe].some((term) => text.includes(term));
+}
+
+function filterDiscoverySongs(
+  songs: Song[],
+  accessMode: AudioAccessMode,
+  source: DiscoverySource,
+  vibe: DiscoveryVibe,
+): Song[] {
+  return uniqueSongs(
+    selectSongsByAccess(
+      songs.filter((song) => matchesDiscoveryLens(song, source, vibe)),
+      accessMode,
+    ),
   );
 }
 
@@ -193,15 +268,32 @@ function DiscoveryMasthead({
   songs,
   mode,
   onModeChange,
+  sourceOptions,
+  source,
+  onSourceChange,
+  vibe,
+  onVibeChange,
+  onSearch,
+  onRetry,
 }: {
   songs: Song[];
   mode: AudioAccessMode;
   onModeChange: (mode: AudioAccessMode) => void;
+  sourceOptions: MusicProviderName[];
+  source: DiscoverySource;
+  onSourceChange: (source: DiscoverySource) => void;
+  vibe: DiscoveryVibe;
+  onVibeChange: (vibe: DiscoveryVibe) => void;
+  onSearch: () => void;
+  onRetry?: () => void;
 }) {
   const sourceCount = new Set(songs.map((song) => song.provider)).size;
+  const fullTrackSourceCount = new Set(
+    songs.filter((song) => song.isLive !== true && isDirectFullTrack(song)).map((song) => song.provider),
+  ).size;
   const summary =
     songs.length > 0
-      ? `${songs.length} ${songs.length === 1 ? 'track' : 'tracks'} from ${sourceCount} ${sourceCount === 1 ? 'source' : 'sources'}`
+      ? `${songs.length} ${songs.length === 1 ? 'track' : 'tracks'} from ${sourceCount} ${sourceCount === 1 ? 'source' : 'sources'} · ${fullTrackSourceCount} full-track ${fullTrackSourceCount === 1 ? 'source' : 'sources'}`
       : 'Loading live catalog';
 
   return (
@@ -216,8 +308,72 @@ function DiscoveryMasthead({
         </div>
         <PlayShelfButton songs={songs} label="Play fresh picks" />
       </div>
-      <div className="mt-4">
-        <AudioAccessControl mode={mode} onChange={onModeChange} />
+      <div className="mt-4 flex flex-col gap-3 border-t border-[var(--glass-border)] pt-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <span className="inline-flex h-8 items-center gap-1.5 text-xs font-semibold text-[var(--salt-mist)]">
+            <SlidersHorizontal className="h-4 w-4" aria-hidden />
+            Refine
+          </span>
+          <label className="sr-only" htmlFor="discovery-source">
+            Filter by source
+          </label>
+          <select
+            id="discovery-source"
+            value={source}
+            onChange={(event) => onSourceChange(event.target.value as DiscoverySource)}
+            className="h-8 max-w-full rounded-lg border border-[var(--glass-border)] bg-white px-2.5 text-xs font-semibold text-[var(--salt-white)] outline-none transition-colors hover:border-[var(--glass-border-active)] focus:border-[var(--salt-primary)] focus:ring-2 focus:ring-[var(--salt-primary)]/20"
+          >
+            <option value="all">All sources</option>
+            {sourceOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <div
+            className="flex max-w-full gap-1 overflow-x-auto rounded-lg bg-[var(--salt-ghost)] p-1"
+            role="tablist"
+            aria-label="Filter by vibe"
+          >
+            {VIBE_OPTIONS.map((option) => {
+              const selected = option.value === vibe;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => onVibeChange(option.value)}
+                  className={`h-6 shrink-0 rounded-md px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${selected ? 'bg-white text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onSearch}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--glass-border)] px-3 text-xs font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+            >
+              <Search className="h-3.5 w-3.5" aria-hidden />
+              Search catalog
+            </button>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                aria-label="Retry unavailable sources"
+                title="Retry unavailable sources"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--glass-border)] text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+              >
+                <RotateCw className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            )}
+          </div>
+        </div>
+        <AudioAccessControl mode={mode} onChange={onModeChange} label="Filter by playback access" />
       </div>
     </motion.section>
   );
@@ -233,16 +389,16 @@ function EmptyDiscovery({ onNavigate, onRetry }: { onNavigate: (view: ViewType) 
         <>
           {onRetry && (
             <StatusButton onClick={onRetry}>
-              <HiArrowPath className="h-4 w-4" aria-hidden />
+              <RotateCw className="h-4 w-4" aria-hidden />
               Try again
             </StatusButton>
           )}
           <StatusButton variant={onRetry ? 'secondary' : 'primary'} onClick={() => onNavigate('search')}>
-            <HiMagnifyingGlass className="h-4 w-4" aria-hidden />
+            <Search className="h-4 w-4" aria-hidden />
             Search
           </StatusButton>
           <StatusButton variant="secondary" onClick={() => onNavigate('favorites')}>
-            <HiHeart className="h-4 w-4" aria-hidden />
+            <Heart className="h-4 w-4 fill-current" aria-hidden />
             Favorites
           </StatusButton>
         </>
@@ -266,8 +422,24 @@ function EmptyAccessMode({
       body="Other audio is ready to browse."
       actions={
         <StatusButton onClick={() => onModeChange('all')}>
-          <HiPlay className="h-4 w-4" aria-hidden />
+          <Play className="h-4 w-4" aria-hidden />
           Show all audio
+        </StatusButton>
+      }
+    />
+  );
+}
+
+function EmptyDiscoverySelection({ onReset }: { onReset: () => void }) {
+  return (
+    <StatusPanel
+      align="center"
+      title="Nothing matches these filters"
+      body="Try another source, vibe, or playback mode."
+      actions={
+        <StatusButton onClick={onReset}>
+          <RotateCw className="h-4 w-4" aria-hidden />
+          Clear filters
         </StatusButton>
       }
     />
@@ -277,10 +449,12 @@ function EmptyAccessMode({
 function DiscoverySongRow({
   song,
   playableTracks,
+  artworkLoading = 'lazy',
   onNavigateWithItem,
 }: {
   song: Song;
   playableTracks: Song[];
+  artworkLoading?: 'eager' | 'lazy';
   onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void;
 }) {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
@@ -303,12 +477,12 @@ function DiscoverySongRow({
         aria-label={unavailable ? `${song.title} is unavailable for playback` : `Play ${song.title} by ${song.artist}`}
         className="group/art relative shrink-0 overflow-hidden rounded bg-[var(--salt-ghost)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed"
       >
-        <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="40px" className="h-10 w-10 object-cover" />
+        <CoverArt src={song.coverArt} alt="" loading={artworkLoading} sizes="40px" className="h-10 w-10 object-cover" />
         <span
           aria-hidden
           className={`absolute inset-0 flex items-center justify-center bg-black/45 text-white transition-opacity ${unavailable ? 'opacity-0' : 'opacity-0 group-hover/art:opacity-100 group-focus-visible/art:opacity-100'}`}
         >
-          <HiPlay className="h-4 w-4" />
+          <Play className="h-4 w-4" />
         </span>
       </button>
       <div className="min-w-0 flex-1">
@@ -329,6 +503,7 @@ function DiscoverySongRow({
             ·
           </span>
           <span className="shrink-0 truncate">{song.provider}</span>
+          <AudioAccessBadge song={song} />
         </span>
       </div>
       {unavailable && (
@@ -337,7 +512,7 @@ function DiscoverySongRow({
           aria-label="Playback unavailable"
           className="shrink-0 text-[var(--salt-mist)]"
         >
-          <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
+          <Lock className="h-3.5 w-3.5" aria-hidden />
         </span>
       )}
       <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
@@ -355,16 +530,22 @@ function DiscoverySongGrid({
   const visibleSongs = uniqueSongs(songs);
   const readySongs = playableSongs(visibleSongs);
   return (
-    <div className="grid gap-x-8 md:grid-cols-2 xl:grid-cols-3">
-      {visibleSongs.map((song) => (
+    <VirtualGrid
+      items={visibleSongs}
+      estimateRowSize={56}
+      minColumnWidth={320}
+      columnGap={32}
+      label="Discovery tracks"
+      getItemKey={(song) => song.id}
+      renderItem={(song, index) => (
         <DiscoverySongRow
-          key={song.id}
           song={song}
           playableTracks={readySongs}
+          artworkLoading={index < 3 ? 'eager' : 'lazy'}
           onNavigateWithItem={onNavigateWithItem}
         />
-      ))}
-    </div>
+      )}
+    />
   );
 }
 
@@ -393,7 +574,7 @@ function LiveStationGrid({
         return (
           <article
             key={song.id}
-            className={`grid min-h-[104px] grid-cols-[80px_minmax(0,1fr)] gap-3 rounded-lg border border-[var(--glass-border)] bg-white p-2 transition-colors hover:border-[var(--glass-border-active)] ${index >= 4 ? 'hidden sm:grid' : ''} ${active ? 'bg-[color-mix(in_srgb,var(--salt-primary)_7%,white)]' : ''}`}
+            className={`marea-glass-card grid min-h-[104px] grid-cols-[80px_minmax(0,1fr)] gap-3 rounded-lg border p-2 transition-colors ${index >= 4 ? 'hidden sm:grid' : ''} ${active ? 'bg-[color-mix(in_srgb,var(--salt-primary)_7%,white)]' : ''}`}
           >
             <button
               type="button"
@@ -412,7 +593,7 @@ function LiveStationGrid({
                 aria-hidden
                 className={`absolute inset-0 flex items-center justify-center bg-black/40 text-white transition-opacity ${unavailable ? 'opacity-0' : 'opacity-0 group-hover/live:opacity-100 group-focus-visible/live:opacity-100'}`}
               >
-                <HiPlay className="h-5 w-5" />
+                <Play className="h-5 w-5" />
               </span>
             </button>
             <div className="flex min-w-0 flex-col justify-between py-0.5">
@@ -476,7 +657,7 @@ function ReleaseRail({
                 aria-hidden
                 className="absolute inset-0 flex items-center justify-center bg-black/35 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
               >
-                <HiPlay className="h-6 w-6" />
+                <Play className="h-6 w-6" />
               </span>
             </span>
             <span className="mt-2 block truncate text-[13px] font-medium text-[var(--salt-white)]">
@@ -524,7 +705,7 @@ function MiniSongList({
                 aria-hidden
                 className={`absolute inset-0 flex items-center justify-center bg-black/45 text-white transition-opacity ${unavailable ? 'opacity-0' : 'opacity-0 group-hover/art:opacity-100 group-focus-visible/art:opacity-100'}`}
               >
-                <HiPlay className="h-3.5 w-3.5" />
+                <Play className="h-3.5 w-3.5" />
               </span>
             </button>
             <div className="min-w-0 flex-1">
@@ -545,7 +726,7 @@ function MiniSongList({
                 className="mt-0.5 block text-xs leading-tight text-[var(--salt-mist)]"
               />
             </div>
-            {unavailable && <HiLockClosed className="h-3.5 w-3.5 shrink-0 text-[var(--salt-mist)]" aria-hidden />}
+            {unavailable && <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--salt-mist)]" aria-hidden />}
             <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
           </div>
         );
@@ -577,7 +758,7 @@ function GenrePanel({
         className="group -mx-1 mb-1 flex w-full min-w-0 items-center gap-0.5 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
       >
         <h3 className="min-w-0 truncate text-[15px] font-bold text-[var(--salt-white)]">{title}</h3>
-        <HiChevronRight
+        <ChevronRight
           className="h-4 w-4 shrink-0 text-[var(--salt-mist)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--salt-primary)]"
           aria-hidden
         />
@@ -590,18 +771,17 @@ function GenrePanel({
 
 function ChartPreview({
   onNavigateWithItem,
-  discoveryReady,
 }: {
   onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void;
-  discoveryReady: boolean;
 }) {
+  const catalog = useMusicCatalog();
   const [activeKey, setActiveKey] = useState<ChartKey>(CHART_OPTIONS[0].key);
   const [isVisible, setIsVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selected = CHART_OPTIONS.find((option) => option.key === activeKey) ?? CHART_OPTIONS[0];
 
   useEffect(() => {
-    if (!discoveryReady || isVisible) return;
+    if (isVisible) return;
     const container = containerRef.current;
     if (!container) return;
     let observer: IntersectionObserver | undefined;
@@ -628,7 +808,7 @@ function ChartPreview({
       clearTimeout(activation);
       observer?.disconnect();
     };
-  }, [discoveryReady, isVisible]);
+  }, [isVisible]);
 
   const {
     data: queriedSongs = [],
@@ -637,10 +817,10 @@ function ChartPreview({
     refetch,
   } = useQuery({
     queryKey: ['new', 'chart', selected.key],
-    queryFn: ({ signal }) => api.getChartSongs(selected.key, signal),
+    queryFn: ({ signal }) => catalog.getChartSongs(selected.key, signal),
     staleTime: catalogStaleTime(countListResults),
     retry: 1,
-    enabled: discoveryReady && isVisible,
+    enabled: isVisible,
   });
   const songs = queriedSongs;
   const isPending = queryPending;
@@ -684,7 +864,7 @@ function ChartPreview({
               onNavigateWithItem={onNavigateWithItem}
             />
           ) : (
-            <div className="flex min-h-28 flex-col items-center justify-center gap-2.5 rounded-lg border border-[var(--glass-border)] bg-white text-center text-[13px] text-[var(--salt-mist)]">
+            <div className="marea-glass-surface flex min-h-28 flex-col items-center justify-center gap-2.5 rounded-lg border text-center text-[13px] text-[var(--salt-mist)]">
               <p>
                 {isError
                   ? `${selected.label} is temporarily unavailable.`
@@ -695,7 +875,7 @@ function ChartPreview({
                 onClick={() => void refetch()}
                 className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold text-[var(--salt-primary)] hover:bg-[var(--glass-bg-hover)]"
               >
-                <HiArrowPath className="h-4 w-4" aria-hidden />
+                <RotateCw className="h-4 w-4" aria-hidden />
                 Retry
               </button>
             </div>
@@ -706,45 +886,6 @@ function ChartPreview({
   );
 }
 
-function ExploreGrid() {
-  const setCurrentView = usePlayerStore((state) => state.setCurrentView);
-  const navigate = (view: ViewType) => {
-    navigateTo(view);
-    setCurrentView(view);
-  };
-  const items: Array<{ view: ViewType; icon: ReactNode; label: string }> = [
-    { view: 'albums', icon: <HiSquares2X2 />, label: 'Albums' },
-    { view: 'artists', icon: <HiUserGroup />, label: 'Artists' },
-    { view: 'search', icon: <HiMagnifyingGlass />, label: 'Search' },
-    { view: 'favorites', icon: <HiHeart />, label: 'Favorites' },
-    { view: 'history', icon: <HiClock />, label: 'History' },
-    { view: 'billboard', icon: <HiChartBar />, label: 'Charts' },
-    // The chart preview is intentionally loaded only outside Full tracks mode,
-    // but every returned entry is still resolved to a verified full recording.
-    { view: 'jp', icon: <HiGlobeAlt />, label: 'J-Pop' },
-  ];
-
-  return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-      {items.map(({ view, icon, label }) => (
-        <button
-          key={view}
-          type="button"
-          onClick={() => navigate(view)}
-          className="flex h-12 items-center gap-2.5 rounded-lg border border-[var(--glass-border)] bg-white px-3 text-left text-[13px] font-semibold text-[var(--salt-white)] transition-colors hover:border-[var(--glass-border-active)] hover:bg-[var(--glass-bg-hover)]"
-        >
-          <span
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#eaf4f7] text-[var(--salt-primary)]"
-            aria-hidden
-          >
-            {icon}
-          </span>
-          <span className="truncate">{label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export function NewView({
   onNavigateWithItem,
@@ -755,7 +896,12 @@ export function NewView({
   const favorites = usePlayerStore((state) => state.favorites);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
+  // The first listen should be dependable. Preview clips remain available via
+  // the explicit All audio control, but discovery starts with tracks that can
+  // play beyond a short licensed sample.
   const [accessMode, setAccessMode] = useState<AudioAccessMode>('full');
+  const [sourceFilter, setSourceFilter] = useState<DiscoverySource>('all');
+  const [vibeFilter, setVibeFilter] = useState<DiscoveryVibe>('all');
 
   const {
     genres,
@@ -763,51 +909,131 @@ export function NewView({
     bestNewSongs,
     liveStations,
     releaseSongs,
+    mainstreamSongs: chartSongs,
     hasCatalogFailure,
     isLoading: discoveryLoading,
     retry: retrySources,
+    sections,
   } = useNewViewData();
 
+  const catalogSongs = useMemo(
+    () =>
+      uniqueSongs(
+        [bestNewSongs, spotlightSongs, releaseSongs, chartSongs, liveStations, ...Object.values(genres)].flat(),
+      ),
+    [bestNewSongs, chartSongs, genres, liveStations, releaseSongs, spotlightSongs],
+  );
+  const sourceOptions = useMemo(
+    () =>
+      Array.from(new Set(catalogSongs.map((song) => song.provider))).sort((left, right) => left.localeCompare(right)),
+    [catalogSongs],
+  );
+  const activeSourceFilter: DiscoverySource =
+    sourceFilter !== 'all' && sourceOptions.includes(sourceFilter) ? sourceFilter : 'all';
+
   const filteredBestNewSongs = useMemo(
-    () => uniqueSongs(selectSongsByAccess(bestNewSongs, accessMode, 12)),
-    [accessMode, bestNewSongs],
+    () => filterDiscoverySongs(bestNewSongs, accessMode, activeSourceFilter, vibeFilter).slice(0, 12),
+    [accessMode, activeSourceFilter, bestNewSongs, vibeFilter],
   );
   const filteredSpotlightSongs = useMemo(() => {
-    const directMatches = uniqueSongs(selectSongsByAccess(spotlightSongs, accessMode, 2));
+    const directMatches = filterDiscoverySongs(spotlightSongs, accessMode, activeSourceFilter, vibeFilter).slice(0, 2);
     return directMatches.length > 0 ? directMatches : filteredBestNewSongs.slice(0, 2);
-  }, [accessMode, filteredBestNewSongs, spotlightSongs]);
+  }, [accessMode, activeSourceFilter, filteredBestNewSongs, spotlightSongs, vibeFilter]);
   const filteredReleaseSongs = useMemo(
-    () => uniqueSongs(selectSongsByAccess(releaseSongs, accessMode, 10)),
-    [accessMode, releaseSongs],
+    () => filterDiscoverySongs(releaseSongs, accessMode, activeSourceFilter, vibeFilter).slice(0, 10),
+    [accessMode, activeSourceFilter, releaseSongs, vibeFilter],
   );
-  const filteredLiveStations = useMemo(
-    () => uniqueSongs(selectSongsByAccess(liveStations, accessMode, 12)),
-    [accessMode, liveStations],
-  );
-  const personalizedMix = useMemo(
+  const officialPreviewSongs = useMemo(
     () =>
-      buildListeningMixForAccess(
-        history,
-        favorites,
-        [bestNewSongs, genres.pop, genres.jazz, genres.remix, genres.classical, liveStations].flat(),
+      filterDiscoverySongs(
+        releaseSongs.filter((song) => isPreviewSource(song.provider)),
         accessMode,
-        12,
-      ),
-    [
-      accessMode,
-      bestNewSongs,
-      favorites,
-      genres.classical,
-      genres.jazz,
-      genres.pop,
-      genres.remix,
-      history,
-      liveStations,
-    ],
+        activeSourceFilter,
+        vibeFilter,
+      ).slice(0, 12),
+    [accessMode, activeSourceFilter, releaseSongs, vibeFilter],
   );
-  const spotlightOrder = filteredSpotlightSongs.map((song) => song.id).join('|');
+  const filteredMainstreamSongs = useMemo(
+    () => filterDiscoverySongs(chartSongs, accessMode, activeSourceFilter, vibeFilter).slice(0, 12),
+    [accessMode, activeSourceFilter, chartSongs, vibeFilter],
+  );
+  const liveAccessMode: AudioAccessMode = accessMode === 'preview' ? 'preview' : 'all';
+  const filteredLiveStations = useMemo(
+    () => filterDiscoverySongs(liveStations, liveAccessMode, activeSourceFilter, vibeFilter).slice(0, 12),
+    [activeSourceFilter, liveAccessMode, liveStations, vibeFilter],
+  );
+  const heroSongs = useMemo(
+    () => (filteredSpotlightSongs.length > 0 ? filteredSpotlightSongs : filteredReleaseSongs.slice(0, 2)),
+    [filteredReleaseSongs, filteredSpotlightSongs],
+  );
+  const heroSongIds = useMemo(() => new Set(heroSongs.map((song) => song.id)), [heroSongs]);
+  const mixCandidates = useMemo(
+    () =>
+      uniqueSongs(
+        [bestNewSongs, chartSongs, genres.pop, genres.jazz, genres.remix, genres.classical, liveStations].flat(),
+      ).filter((song) => !heroSongIds.has(song.id)),
+    [bestNewSongs, chartSongs, genres.classical, genres.jazz, genres.pop, genres.remix, heroSongIds, liveStations],
+  );
+  const hasListeningSignals = history.length > 0 || favorites.length > 0;
+  const smartMixes = useMemo<SmartMix[]>(() => {
+    const presets: Array<{
+      key: string;
+      label: string;
+      detail: string;
+      vibe: DiscoveryVibe;
+      icon: ReactNode;
+      iconClassName: string;
+    }> = [
+      {
+        key: 'marea',
+        label: 'Marea mix',
+        detail: hasListeningSignals ? 'Based on your listening' : 'A balanced first listen',
+        vibe: 'all',
+        icon: <Sparkles className="h-5 w-5" aria-hidden />,
+        iconClassName: 'bg-[#eaf4f7] text-[var(--salt-primary)]',
+      },
+      {
+        key: 'focus',
+        label: 'Focus',
+        detail: 'Steady, low-distraction sound',
+        vibe: 'focus',
+        icon: <Lightbulb className="h-5 w-5" aria-hidden />,
+        iconClassName: 'bg-[#f0eefb] text-[#5b4ea2]',
+      },
+      {
+        key: 'energy',
+        label: 'Energy',
+        detail: 'Upbeat picks for momentum',
+        vibe: 'energy',
+        icon: <Zap className="h-5 w-5" aria-hidden />,
+        iconClassName: 'bg-[#fff1e4] text-[#9b5d20]',
+      },
+      {
+        key: 'after-dark',
+        label: 'After dark',
+        detail: 'Late-night jazz and atmosphere',
+        vibe: 'after-dark',
+        icon: <Moon className="h-5 w-5" aria-hidden />,
+        iconClassName: 'bg-[#eef1f5] text-[#3b5568]',
+      },
+    ];
+
+    return presets
+      .map((preset) => ({
+        ...preset,
+        songs: buildDiscoveryMixForAccess(
+          history,
+          favorites,
+          mixCandidates.filter((song) => matchesDiscoveryLens(song, 'all', preset.vibe)),
+          accessMode,
+          12,
+        ),
+      }))
+      .filter((mix) => mix.songs.length > 0);
+  }, [accessMode, favorites, hasListeningSignals, history, mixCandidates]);
+  const spotlightOrder = heroSongs.map((song) => song.id).join('|');
   const spotlightRailRef = useRef<HTMLDivElement>(null);
-  const mastheadSongs = filteredBestNewSongs.length > 0 ? filteredBestNewSongs : filteredSpotlightSongs;
+  const mastheadSongs = filteredBestNewSongs.length > 0 ? filteredBestNewSongs : heroSongs;
 
   useEffect(() => {
     if (spotlightRailRef.current) spotlightRailRef.current.scrollLeft = 0;
@@ -818,66 +1044,90 @@ export function NewView({
     setCurrentView(view);
   };
 
-  const genrePanels = [
-    { title: 'Pop', view: 'pop' as const, songs: uniqueSongs(filterSongsByAccess(genres.pop, accessMode)) },
-    { title: 'Jazz', view: 'jazz' as const, songs: uniqueSongs(filterSongsByAccess(genres.jazz, accessMode)) },
-    { title: 'Remixes', view: 'remixes' as const, songs: uniqueSongs(filterSongsByAccess(genres.remix, accessMode)) },
-    { title: 'Classical', view: 'classical' as const, songs: uniqueSongs(filterSongsByAccess(genres.classical, accessMode)) },
-  ].filter(({ songs }) => songs.length > 0);
+  const genrePanels = useMemo(
+    () =>
+      [
+        {
+          title: 'Pop',
+          view: 'pop' as const,
+          songs: filterDiscoverySongs(genres.pop, accessMode, activeSourceFilter, vibeFilter),
+        },
+        {
+          title: 'Jazz',
+          view: 'jazz' as const,
+          songs: filterDiscoverySongs(genres.jazz, accessMode, activeSourceFilter, vibeFilter),
+        },
+        {
+          title: 'Remixes',
+          view: 'remixes' as const,
+          songs: filterDiscoverySongs(genres.remix, accessMode, activeSourceFilter, vibeFilter),
+        },
+        {
+          title: 'Classical',
+          view: 'classical' as const,
+          songs: filterDiscoverySongs(genres.classical, accessMode, activeSourceFilter, vibeFilter),
+        },
+      ].filter(({ songs }) => songs.length > 0),
+    [activeSourceFilter, accessMode, vibeFilter, genres.classical, genres.jazz, genres.pop, genres.remix],
+  );
   const hasFilteredDiscovery =
     filteredSpotlightSongs.length > 0 ||
     filteredBestNewSongs.length > 0 ||
     filteredLiveStations.length > 0 ||
     filteredReleaseSongs.length > 0 ||
     genrePanels.length > 0;
-  const hasAnyDiscovery =
-    spotlightSongs.length > 0 ||
-    bestNewSongs.length > 0 ||
-    liveStations.length > 0 ||
-    releaseSongs.length > 0 ||
-    Object.values(genres).some((songs) => songs.length > 0);
+  const hasAnyDiscovery = catalogSongs.length > 0;
+  const hasActiveDiscoveryFilter = accessMode !== 'all' || activeSourceFilter !== 'all' || vibeFilter !== 'all';
+
+  const resetDiscoveryFilters = () => {
+    setAccessMode('all');
+    setSourceFilter('all');
+    setVibeFilter('all');
+  };
 
   return (
-    <motion.div
-      initial="hidden"
-      animate="shown"
-      variants={STAGGER}
-      className="space-y-7 pb-8 sm:space-y-9"
-    >
-      <DiscoveryMasthead songs={mastheadSongs} mode={accessMode} onModeChange={setAccessMode} />
+    <motion.div initial="hidden" animate="shown" variants={STAGGER} className="space-y-7 pb-8 sm:space-y-9">
+      <DiscoveryMasthead
+        songs={mastheadSongs}
+        mode={accessMode}
+        onModeChange={setAccessMode}
+        sourceOptions={sourceOptions}
+        source={activeSourceFilter}
+        onSourceChange={setSourceFilter}
+        vibe={vibeFilter}
+        onVibeChange={setVibeFilter}
+        onSearch={() => navigate('search')}
+        onRetry={hasCatalogFailure ? retrySources : undefined}
+      />
 
-      {(history.length > 0 || favorites.length > 0) && personalizedMix.length > 0 && (
-        <Shelf title="Your next mix" action={<PlayShelfButton songs={personalizedMix} label="Play your next mix" />}>
-          <DiscoverySongGrid songs={personalizedMix} onNavigateWithItem={onNavigateWithItem} />
-        </Shelf>
-      )}
-
-      {filteredLiveStations.length > 0 && (
-        <Shelf title="Live right now" action={<PlayShelfButton songs={filteredLiveStations} label="Play live radio" />}>
-          <LiveStationGrid songs={filteredLiveStations} onNavigateWithItem={onNavigateWithItem} />
-        </Shelf>
-      )}
-
-      {filteredSpotlightSongs.length > 0 ? (
-        <div ref={spotlightRailRef}>
-          <CinematicHero
-            song={filteredSpotlightSongs[0]}
-            eyebrow={filteredSpotlightSongs[0].metadataVerified ? 'Marea pick' : 'Chart watch'}
-            onQueue={
-              filteredSpotlightSongs[0].playbackUnavailable
-                ? undefined
-                : () => addToQueue(filteredSpotlightSongs[0])
-            }
+      {history.length > 0 && (
+        <Shelf
+          title="Continue listening"
+          view="history"
+          action={<PlayShelfButton songs={history} label="Play recent tracks" />}
+        >
+          <SongRail
+            songs={history.slice(0, 6)}
+            label="Continue listening"
+            showIndex={false}
             onNavigateWithItem={onNavigateWithItem}
           />
-          {filteredSpotlightSongs.length > 1 && (
+        </Shelf>
+      )}
+
+      {heroSongs.length > 0 ? (
+        <div ref={spotlightRailRef}>
+          <CinematicHero
+            song={heroSongs[0]}
+            eyebrow={heroSongs[0].metadataVerified ? 'Marea pick' : 'Chart watch'}
+            onQueue={heroSongs[0].playbackUnavailable ? undefined : () => addToQueue(heroSongs[0])}
+            onNavigateWithItem={onNavigateWithItem}
+          />
+          {heroSongs.length > 1 && (
             <Shelf title="Also in the spotlight">
               <div className="rail-scroll flex snap-x snap-mandatory scroll-pl-0 gap-3 overflow-x-auto [overflow-anchor:none] lg:grid lg:grid-cols-2 lg:gap-4 lg:overflow-visible">
-                {filteredSpotlightSongs.slice(1).map((song) => (
-                  <div
-                    key={song.id}
-                    className="w-[88%] max-w-[480px] shrink-0 snap-start lg:w-auto lg:max-w-none"
-                  >
+                {heroSongs.slice(1).map((song) => (
+                  <div key={song.id} className="w-[88%] max-w-[480px] shrink-0 snap-start lg:w-auto lg:max-w-none">
                     <EditorialBanner
                       song={song}
                       eyebrow={song.metadataVerified ? 'New release' : 'Chart watch'}
@@ -899,13 +1149,29 @@ export function NewView({
         </Shelf>
       ) : !hasFilteredDiscovery ? (
         hasAnyDiscovery ? (
-          <EmptyAccessMode mode={accessMode} onModeChange={setAccessMode} />
+          hasActiveDiscoveryFilter ? (
+            <EmptyDiscoverySelection onReset={resetDiscoveryFilters} />
+          ) : (
+            <EmptyAccessMode mode={accessMode} onModeChange={setAccessMode} />
+          )
         ) : (
           <EmptyDiscovery onNavigate={navigate} onRetry={hasCatalogFailure ? retrySources : undefined} />
         )
       ) : null}
 
-      {filteredBestNewSongs.length > 0 && (
+      <SmartMixShelf mixes={smartMixes} hasTaste={hasListeningSignals} />
+
+      {filteredLiveStations.length > 0 ? (
+        <Shelf title="Live right now" action={<PlayShelfButton songs={filteredLiveStations} label="Play live radio" />}>
+          <LiveStationGrid songs={filteredLiveStations} onNavigateWithItem={onNavigateWithItem} />
+        </Shelf>
+      ) : sections.liveStations.isFetching ? (
+        <Shelf title="Live right now">
+          <RailSkeleton cells={4} />
+        </Shelf>
+      ) : null}
+
+      {filteredBestNewSongs.length > 0 ? (
         <Shelf
           title="Songs making waves"
           view="trending"
@@ -913,16 +1179,32 @@ export function NewView({
         >
           <DiscoverySongGrid songs={filteredBestNewSongs} onNavigateWithItem={onNavigateWithItem} />
         </Shelf>
-      )}
+      ) : sections.trending.isFetching || sections.pop.isFetching ? (
+        <Shelf title="Songs making waves">
+          <RailSkeleton cells={6} />
+        </Shelf>
+      ) : null}
 
-      {history.length > 0 && (
-        <Shelf title="Continue listening" view="history">
-          <SongRail
-            songs={history.slice(0, 8)}
-            label="Recently played"
-            showIndex={false}
-            onNavigateWithItem={onNavigateWithItem}
-          />
+      {filteredMainstreamSongs.length > 0 ? (
+        <Shelf
+          title="Mainstream chart picks"
+          view="billboard"
+          action={<PlayShelfButton songs={filteredMainstreamSongs} label="Play mainstream chart picks" />}
+        >
+          <DiscoverySongGrid songs={filteredMainstreamSongs} onNavigateWithItem={onNavigateWithItem} />
+        </Shelf>
+      ) : accessMode !== 'preview' && sections.chart.isFetching ? (
+        <Shelf title="Mainstream chart picks">
+          <RailSkeleton cells={6} />
+        </Shelf>
+      ) : null}
+
+      {officialPreviewSongs.length > 0 && (
+        <Shelf
+          title="Official preview picks"
+          action={<PlayShelfButton songs={officialPreviewSongs} label="Play official preview picks" />}
+        >
+          <DiscoverySongGrid songs={officialPreviewSongs} onNavigateWithItem={onNavigateWithItem} />
         </Shelf>
       )}
 
@@ -932,7 +1214,7 @@ export function NewView({
         </Shelf>
       )}
 
-      {genrePanels.length > 0 && (
+      {genrePanels.length > 0 ? (
         <Shelf title="Fresh by genre">
           {/* Four columns at the widest size because there are four genres: at
               three, Classical drops onto a row of its own beside two empty
@@ -943,14 +1225,16 @@ export function NewView({
             ))}
           </div>
         </Shelf>
-      )}
+      ) : sections.pop.isFetching ||
+        sections.jazz.isFetching ||
+        sections.remix.isFetching ||
+        sections.classical.isFetching ? (
+        <Shelf title="Fresh by genre">
+          <SectionLoading rows={4} />
+        </Shelf>
+      ) : null}
 
-      {accessMode !== 'full' && (
-        <ChartPreview
-          discoveryReady={!discoveryLoading}
-          onNavigateWithItem={onNavigateWithItem}
-        />
-      )}
+      {accessMode !== 'full' && <ChartPreview onNavigateWithItem={onNavigateWithItem} />}
 
       <Shelf title="Explore Marea">
         <ExploreGrid />

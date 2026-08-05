@@ -1,7 +1,7 @@
 'use client';
 
+import { ExternalLink, Lock, Play, Plus } from 'lucide-react';
 import { useId } from 'react';
-import { HiArrowTopRightOnSquare, HiLockClosed, HiPlay, HiPlus } from 'react-icons/hi2';
 import { usePlayerStore } from '@/store/playerStore';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { FavoriteButton } from './SongCard';
@@ -38,7 +38,7 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
   return (
     <article
       aria-labelledby={headingId}
-      className="group flex h-full items-center gap-4 rounded-xl border border-[var(--glass-border)] bg-white p-3 shadow-[0_1px_2px_rgba(16,47,69,0.05)] transition-shadow hover:shadow-[0_8px_28px_rgba(16,47,69,0.1)] sm:gap-5 sm:p-4"
+      className="marea-glass-card group flex h-full items-center gap-4 rounded-xl border p-3 transition-shadow sm:gap-5 sm:p-4"
     >
       {openAlbum ? (
         <button
@@ -91,7 +91,7 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
         <div className="mt-3 flex items-center gap-1.5 sm:mt-4 sm:gap-2">
           {unavailable ? (
             <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--salt-ghost)] px-3 text-[11px] font-semibold text-[var(--salt-mist)] sm:h-9 sm:text-xs">
-              <HiLockClosed className="h-3.5 w-3.5" aria-hidden />
+              <Lock className="h-3.5 w-3.5" aria-hidden />
               Playback unavailable
             </span>
           ) : (
@@ -99,9 +99,9 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
               <button
                 type="button"
                 onClick={() => playSong(song)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#d84f5f] px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#bd3f4f] sm:h-9 sm:px-4"
+                className="marea-primary-action inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold text-white sm:h-9 sm:px-4"
               >
-                <HiPlay className="h-3.5 w-3.5" aria-hidden />
+                <Play className="h-3.5 w-3.5" aria-hidden />
                 Play
               </button>
               {onQueue && (
@@ -112,7 +112,7 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
                   title="Add to queue"
                   className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] sm:h-9 sm:w-9"
                 >
-                  <HiPlus className="h-4 w-4" aria-hidden />
+                  <Plus className="h-4 w-4" aria-hidden />
                 </button>
               )}
             </>
@@ -127,7 +127,7 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
               aria-label={`Open on ${song.provider}`}
               className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] sm:h-9 sm:w-9"
             >
-              <HiArrowTopRightOnSquare className="h-4 w-4" aria-hidden />
+              <ExternalLink className="h-4 w-4" aria-hidden />
             </a>
           )}
         </div>

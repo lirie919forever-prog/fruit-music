@@ -1,17 +1,38 @@
 import type { Song } from '@/types/music';
+import { isPreviewSource, isResolverSource } from '@/lib/sourceRegistry';
 
 export type AudioAccessMode = 'all' | 'full' | 'preview';
 
 export function isPreviewProvider(provider: Song['provider']): boolean {
-  return provider === 'Apple Preview' || provider === 'Deezer Preview';
+  return isPreviewSource(provider);
 }
 
 export function isPreviewOnlyEntityId(id: string): boolean {
   return id.startsWith('itunes-') || id.startsWith('deezer-');
 }
 
+/** Short Kuwo responses are frequently preview-like clips, not full recordings. */
+const MIN_RELIABLE_FULL_TRACK_SECONDS = 45;
+
 export function isFullTrack(song: Song): boolean {
-  return !isPreviewProvider(song.provider) && !isPreviewOnlyEntityId(song.id);
+  return (
+    !isPreviewProvider(song.provider) &&
+    !isPreviewOnlyEntityId(song.id) &&
+    !(isResolverSource(song.provider) && song.duration < MIN_RELIABLE_FULL_TRACK_SECONDS)
+  );
+}
+
+/**
+ * Resolver catalogs can describe a full recording, but their stream still has
+ * to be checked when playback starts. Keep those candidates out of the
+ * full-track filter so that label only promises direct, full-length sources.
+ */
+export function isDirectFullTrack(song: Song): boolean {
+  return song.isLive !== true && isFullTrack(song) && !isResolverSource(song.provider);
+}
+
+function isPreviewTrack(song: Song): boolean {
+  return isPreviewProvider(song.provider) || isPreviewOnlyEntityId(song.id);
 }
 
 export function uniqueSongs(songs: Song[]): Song[] {
@@ -62,18 +83,60 @@ export function playableSongs(songs: Song[]): Song[] {
   return songs.filter((song) => song.playbackUnavailable !== true);
 }
 
+function recordingKey(song: Song): string {
+  const artist = signalKey(song.artist);
+  const title = signalKey(song.title);
+  return artist && title ? `recording:${artist}:${title}` : `id:${song.id}`;
+}
+
+/**
+ * Builds a queue for a track station. The selected track stays first, while
+ * the rest comes from verified full-track providers and is interleaved by
+ * provider so one catalog cannot consume the whole station.
+ */
+export function buildStationQueue(seed: Song, candidates: Song[], limit = 12): Song[] {
+  const requestedLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 12;
+  const results: Song[] = [];
+  const seenIds = new Set<string>();
+  const seenRecordings = new Set<string>();
+
+  const add = (song: Song, allowPreview: boolean): void => {
+    if (results.length >= requestedLimit || song.playbackUnavailable === true || song.isLive === true) return;
+    if (!allowPreview && !isFullTrack(song)) return;
+    const key = recordingKey(song);
+    if (seenIds.has(song.id) || seenRecordings.has(key)) return;
+    seenIds.add(song.id);
+    seenRecordings.add(key);
+    results.push(song);
+  };
+
+  // Preview catalog entries can still resolve to a full recording at playback
+  // time, so the listener's selected song is allowed to remain the seed.
+  add(seed, true);
+
+  const providerGroups = new Map<Song['provider'], Song[]>();
+  for (const candidate of candidates) {
+    if (candidate.playbackUnavailable === true || candidate.isLive === true || !isFullTrack(candidate)) continue;
+    const group = providerGroups.get(candidate.provider);
+    if (group) group.push(candidate);
+    else providerGroups.set(candidate.provider, [candidate]);
+  }
+
+  for (const candidate of interleaveSongGroups([...providerGroups.values()])) {
+    add(candidate, false);
+    if (results.length >= requestedLimit) break;
+  }
+
+  return results;
+}
+
 /** Apple exposes an official clip; the open providers expose full recordings. */
 export function filterSongsByAccess(songs: Song[], mode: AudioAccessMode): Song[] {
   if (mode === 'all') return songs;
-  const wantsPreview = mode === 'preview';
-  return songs.filter((song) => (isPreviewProvider(song.provider) || isPreviewOnlyEntityId(song.id)) === wantsPreview);
+  return mode === 'full' ? songs.filter(isDirectFullTrack) : songs.filter(isPreviewTrack);
 }
 
-export function selectSongsByAccess(
-  songs: Song[],
-  mode: AudioAccessMode,
-  limit = Number.POSITIVE_INFINITY,
-): Song[] {
+export function selectSongsByAccess(songs: Song[], mode: AudioAccessMode, limit = Number.POSITIVE_INFINITY): Song[] {
   const filtered = filterSongsByAccess(songs, mode);
   if (!Number.isFinite(limit)) return filtered;
   return filtered.slice(0, Math.max(0, Math.floor(limit)));
@@ -133,7 +196,10 @@ export function buildListeningMix(history: Song[], favorites: Song[], candidates
 
   const seen = new Set<string>();
   const ranked = candidates
-    .filter((song) => song.playbackUnavailable !== true && !heardIds.has(song.id) && !seen.has(song.id))
+    .filter(
+      (song) =>
+        song.playbackUnavailable !== true && song.isLive !== true && !heardIds.has(song.id) && !seen.has(song.id),
+    )
     .filter((song) => {
       seen.add(song.id);
       return true;
@@ -191,4 +257,32 @@ export function buildListeningMixForAccess(
   limit = 12,
 ): Song[] {
   return buildListeningMix(history, favorites, filterSongsByAccess(candidates, mode), limit);
+}
+
+/**
+ * Returns a useful mix even for a brand-new listener. Once history or
+ * favourites exist, the stronger on-device ranking remains the first choice;
+ * otherwise full-track candidates are preferred and provider diversity keeps
+ * the first listen from looking like one source's dump.
+ */
+export function buildDiscoveryMixForAccess(
+  history: Song[],
+  favorites: Song[],
+  candidates: Song[],
+  mode: AudioAccessMode,
+  limit = 12,
+): Song[] {
+  const personalized = buildListeningMixForAccess(history, favorites, candidates, mode, limit);
+  if (personalized.length > 0) return personalized;
+
+  const available = filterSongsByAccess(candidates, mode).filter(
+    (song) => song.playbackUnavailable !== true && song.isLive !== true,
+  );
+  const fullTracks = interleaveSongsByProvider([available.filter(isFullTrack)], limit);
+  if (fullTracks.length >= limit) return fullTracks;
+  const previews = interleaveSongsByProvider(
+    [available.filter((song) => !isFullTrack(song))],
+    limit - fullTracks.length,
+  );
+  return uniqueSongs([...fullTracks, ...previews]).slice(0, limit);
 }

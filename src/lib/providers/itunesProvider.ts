@@ -74,6 +74,10 @@ export function itunesSongId(trackId: number | string): string {
 
 export function trackToSong(item: ItunesTrack, index = 0, durationSeconds = PREVIEW_DURATION_SECONDS): Song {
   const trackId = String(item.trackId);
+  const recordingDuration =
+    typeof item.trackTimeMillis === 'number' && Number.isFinite(item.trackTimeMillis) && item.trackTimeMillis > 0
+      ? Math.round(item.trackTimeMillis / 1000)
+      : undefined;
   return {
     id: itunesSongId(trackId),
     title: item.trackName!,
@@ -83,6 +87,7 @@ export function trackToSong(item: ItunesTrack, index = 0, durationSeconds = PREV
     albumId: `itunes-album-${item.collectionId}`,
     coverArt: artworkAt(item.artworkUrl100, 600),
     duration: durationSeconds,
+    ...(recordingDuration ? { recordingDuration } : {}),
     track: item.trackNumber ?? index + 1,
     year: releaseYear(item.releaseDate),
     genre: item.primaryGenreName || '',
