@@ -865,6 +865,33 @@ describe('album federation', () => {
     await expect(api.getChartSongs('billboard')).resolves.toEqual([fullTrack]);
   });
 
+  it('hydrates a later chart row instead of limiting resolution to the first few entries', async () => {
+    const previews = Array.from({ length: 5 }, (_, index) => ({
+      ...song(`itunes-later-chart-${index + 1}`),
+      title: `Chart song ${index + 1}`,
+      artist: 'Chart artist',
+      duration: 30,
+      recordingDuration: 240,
+      provider: 'Apple Preview' as const,
+    }));
+    const fullTrack = {
+      ...song('kuwo-later-chart-5'),
+      title: 'Chart song 5',
+      artist: 'Chart artist',
+      duration: 240,
+      provider: 'Kuwo' as const,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ results: previews })),
+    );
+    vi.mocked(kuwoProvider.search).mockImplementation(async (query) =>
+      query.includes('Chart song 5') ? [fullTrack] : [],
+    );
+
+    await expect(api.getChartSongs('billboard')).resolves.toEqual([...previews.slice(0, 4), fullTrack]);
+  });
+
   it('preserves unresolved Apple chart entries while replacing only verified matches', async () => {
     const verifiedPreview = {
       ...song('itunes-chart-1'),

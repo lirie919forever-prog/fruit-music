@@ -324,6 +324,16 @@ function MainContent({
     if (nextUrl !== currentUrl) window.history.pushState(null, '', nextUrl);
   }, [currentView, searchQuery, searchSource]);
 
+  useEffect(() => {
+    const mainContent = document.getElementById('main-content');
+    if (!mainContent) return;
+    if (typeof mainContent.scrollTo === 'function') {
+      mainContent.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    } else {
+      mainContent.scrollTop = 0;
+    }
+  }, [currentView]);
+
   const navigateToView = useCallback(
     (view: ViewType) => {
       const nextUrl = buildNavigationUrl(window.location, view);
@@ -567,10 +577,12 @@ function MainContent({
                 {getViewTitle(currentView)}
               </h1>
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                <GlobalSearch onSubmit={navigateToSearch} />
-                <HeaderIconButton label="Search music" onClick={() => navigateToSearch('')} className="sm:hidden">
-                  <Search className="h-4 w-4" aria-hidden />
-                </HeaderIconButton>
+                {currentView !== 'search' && <GlobalSearch onSubmit={navigateToSearch} />}
+                {currentView !== 'search' && (
+                  <HeaderIconButton label="Search music" onClick={() => navigateToSearch('')} className="sm:hidden">
+                    <Search className="h-4 w-4" aria-hidden />
+                  </HeaderIconButton>
+                )}
                 <HeaderIconButton
                   label="Open queue"
                   title={currentSong ? 'Open queue' : 'Queue is empty'}

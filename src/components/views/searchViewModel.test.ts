@@ -106,6 +106,26 @@ describe('search view model', () => {
     ]);
   });
 
+  it('prefers a resolver track by the exact artist over a resolver title named after that artist', () => {
+    const titleCollision = song('kuwo-title-collision', {
+      title: 'YOASOBI',
+      artist: 'Fan upload',
+      provider: 'Kuwo',
+      metadataVerified: false,
+    });
+    const exactArtist = song('kuwo-exact-artist-recording', {
+      title: 'Monster',
+      artist: 'YOASOBI',
+      provider: 'Kuwo',
+      metadataVerified: false,
+    });
+
+    expect(rankSearchSongs([titleCollision, exactArtist], 'YOASOBI').map(({ id }) => id)).toEqual([
+      'kuwo-exact-artist-recording',
+      'kuwo-title-collision',
+    ]);
+  });
+
   it('keeps the higher-confidence provider when sources return the same track identity', () => {
     const upload = song('audius-upload', { title: 'Cruel Summer [ic8j13piAhQ]' });
     const official = song('itunes-official', { provider: 'Apple Preview', duration: 30 });

@@ -1,5 +1,6 @@
 import type { Album, Artist, MusicProviderName, Song } from '@/types/music';
 import { filterSongsByAccess, isDirectFullTrack, isSearchableSong, type AudioAccessMode } from './newViewModel';
+import { isResolverSource } from '@/lib/sourceRegistry';
 
 const PROVIDER_RELEVANCE: Record<MusicProviderName, number> = {
   'Apple Preview': 55,
@@ -73,6 +74,10 @@ function score(song: Song, query: string): number {
     // titles. Give an exact artist identity enough weight to beat those title
     // prefixes while keeping an exact song title the strongest song signal.
     (artist === query ? 160 : 0) +
+    // Resolver catalogs commonly return a track named after the artist before
+    // the artist's actual recordings. Prefer the exact artist record when both
+    // candidates come from the same mainstream resolver.
+    (isResolverSource(song.provider) && artist === query ? 100 : 0) +
     tokenScore(artist, query) +
     tokenScore(title, query);
   const quality =

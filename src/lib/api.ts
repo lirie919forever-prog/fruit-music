@@ -408,11 +408,11 @@ async function findFullTrackFallback(
   }
 }
 
-const CHART_FULL_TRACK_LIMIT = 4;
-const CHART_FULL_TRACK_WORKERS = 2;
-const CHART_FULL_TRACK_TIMEOUT_MS = 2_500;
+const CHART_FULL_TRACK_LIMIT = 12;
+const CHART_FULL_TRACK_WORKERS = 3;
+const CHART_FULL_TRACK_TIMEOUT_MS = 4_500;
 const CHART_FULL_TRACK_SEARCH_OPTIONS: FullTrackSearchOptions = {
-  queryLimit: 2,
+  queryLimit: 3,
   includeOpenSources: false,
 };
 
