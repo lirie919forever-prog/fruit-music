@@ -58,6 +58,7 @@ function TileShell({
   rounded,
   coverArt,
   loading,
+  eager,
   onClick,
   children,
   retry,
@@ -68,6 +69,7 @@ function TileShell({
   rounded: string;
   coverArt: string;
   loading: boolean;
+  eager?: boolean;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
   retry: () => void;
@@ -87,7 +89,7 @@ function TileShell({
           <CoverArt
             src={coverArt}
             alt=""
-            loading="lazy"
+            loading={eager ? 'eager' : 'lazy'}
             decoding="async"
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] group-focus-visible:scale-[1.03]"
           />
@@ -121,7 +123,11 @@ function TileShell({
   );
 }
 
-export function AlbumTile({ album, onNavigateWithItem }: { album: Album } & TileNavProps) {
+export function AlbumTile({
+  album,
+  onNavigateWithItem,
+  eager = false,
+}: { album: Album; eager?: boolean } & TileNavProps) {
   const catalog = useMusicCatalog();
   const { state, run } = useLoadAndPlay((signal) => catalog.getAlbumSongs(album.id, signal));
 
@@ -141,6 +147,7 @@ export function AlbumTile({ album, onNavigateWithItem }: { album: Album } & Tile
       rounded="rounded-md"
       coverArt={album.coverArt}
       loading={state === 'loading'}
+      eager={eager}
       onClick={handleClick}
       retry={() => void run()}
       errorText={state === 'error' ? 'Could not load tracks.' : null}
@@ -151,7 +158,11 @@ export function AlbumTile({ album, onNavigateWithItem }: { album: Album } & Tile
   );
 }
 
-export function ArtistTile({ artist, onNavigateWithItem }: { artist: Artist } & TileNavProps) {
+export function ArtistTile({
+  artist,
+  onNavigateWithItem,
+  eager = false,
+}: { artist: Artist; eager?: boolean } & TileNavProps) {
   const catalog = useMusicCatalog();
   const { state, run } = useLoadAndPlay((signal) => catalog.getArtistSongs(artist.id, signal));
 
@@ -169,6 +180,7 @@ export function ArtistTile({ artist, onNavigateWithItem }: { artist: Artist } & 
       rounded="rounded-full"
       coverArt={artist.coverArt}
       loading={state === 'loading'}
+      eager={eager}
       onClick={handleClick}
       retry={() => void run()}
       errorText={state === 'error' ? 'Could not load tracks.' : null}

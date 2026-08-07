@@ -107,11 +107,13 @@ function ArtworkPlayButton({
   onPlay,
   unavailable,
   size = 'h-10 w-10',
+  eager = false,
 }: {
   song: Song;
   onPlay: () => void;
   unavailable: boolean;
   size?: string;
+  eager?: boolean;
 }) {
   return (
     <button
@@ -121,7 +123,13 @@ function ArtworkPlayButton({
       aria-label={unavailable ? `${song.title} is unavailable for playback` : `Play ${song.title} by ${song.artist}`}
       className={`group/art relative shrink-0 overflow-hidden rounded bg-[var(--salt-ghost)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] disabled:cursor-not-allowed ${size}`}
     >
-      <CoverArt src={song.coverArt} alt="" loading="lazy" sizes="40px" className="h-full w-full object-cover" />
+      <CoverArt
+        src={song.coverArt}
+        alt=""
+        loading={eager ? 'eager' : 'lazy'}
+        sizes="40px"
+        className="h-full w-full object-cover"
+      />
       <span
         aria-hidden
         className={`absolute inset-0 flex items-center justify-center bg-black/45 text-white transition-opacity ${unavailable ? 'opacity-0' : 'opacity-0 group-hover/art:opacity-100 group-focus-visible/art:opacity-100'}`}
@@ -159,7 +167,7 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
           {isActive && isPlaying ? <EqualizerGlyph /> : index + 1}
         </span>
       )}
-      <ArtworkPlayButton song={song} onPlay={play} unavailable={playbackUnavailable} />
+      <ArtworkPlayButton song={song} onPlay={play} unavailable={playbackUnavailable} eager={index === 0} />
       <div className="min-w-0 flex-1">
         <button
           type="button"
@@ -192,7 +200,11 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
         </span>
       )}
       <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-[var(--salt-mist)] sm:block">
-        {song.isLive ? 'LIVE' : formatDuration(song.recordingDuration && song.recordingDuration > 0 ? song.recordingDuration : song.duration)}
+        {song.isLive
+          ? 'LIVE'
+          : formatDuration(
+              song.recordingDuration && song.recordingDuration > 0 ? song.recordingDuration : song.duration,
+            )}
       </span>
       <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
       {trailing}
@@ -270,6 +282,7 @@ function ChartRow({
         song={song}
         onPlay={() => playAlbum(playableTracks, playableIndex)}
         unavailable={unavailable}
+        eager={rank === 1}
       />
       <div className="min-w-0 flex-1">
         <p

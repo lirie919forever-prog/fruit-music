@@ -460,8 +460,8 @@ export function SearchView({
       {artists.length > 0 && (
         <ResultSection title="Artists" count={artists.length}>
           <div className={TILE_GRID}>
-            {artists.map((artist) => (
-              <ArtistTile key={artist.id} artist={artist} onNavigateWithItem={onNavigateWithItem} />
+            {artists.map((artist, index) => (
+              <ArtistTile key={artist.id} artist={artist} eager={index === 0} onNavigateWithItem={onNavigateWithItem} />
             ))}
           </div>
         </ResultSection>
@@ -470,8 +470,8 @@ export function SearchView({
       {albums.length > 0 && (
         <ResultSection title="Albums" count={albums.length}>
           <div className={TILE_GRID}>
-            {albums.map((album) => (
-              <AlbumTile key={album.id} album={album} onNavigateWithItem={onNavigateWithItem} />
+            {albums.map((album, index) => (
+              <AlbumTile key={album.id} album={album} eager={index === 0} onNavigateWithItem={onNavigateWithItem} />
             ))}
           </div>
         </ResultSection>

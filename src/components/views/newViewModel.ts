@@ -13,11 +13,17 @@ export function isPreviewOnlyEntityId(id: string): boolean {
 
 /** Short Kuwo responses are frequently preview-like clips, not full recordings. */
 const MIN_RELIABLE_FULL_TRACK_SECONDS = 45;
+const ARCHIVE_FILENAME = /\.(wav|ogg|mp3|flac|m4a|aac|opus)$/i;
+const NON_MUSIC_TITLE =
+  /\b(?:ringtone|notification|alert|alarm|sound effects?|sfx|soundbite|jingle|beep|voice memo|voice message|snippet|teaser|preview clip)\b/i;
+const SHORT_FORM_TITLE = /\b(?:interlude|intro|outro|skit|overture|movement|prelude|prologue|epilogue|transition)\b/i;
 
 export function isFullTrack(song: Song): boolean {
   return (
     !isPreviewProvider(song.provider) &&
     !isPreviewOnlyEntityId(song.id) &&
+    isCuratableTitle(song) &&
+    !isSuspiciousShortTrack(song) &&
     !(isResolverSource(song.provider) && song.duration < MIN_RELIABLE_FULL_TRACK_SECONDS)
   );
 }
@@ -45,7 +51,31 @@ export function isDirectFullTrack(song: Song): boolean {
  * the first impression is actual music, not a field recording.
  */
 export function isCuratableTitle(song: Song): boolean {
-  return !/\.(wav|ogg|mp3|flac|m4a|aac|opus)$/i.test(song.title);
+  return !ARCHIVE_FILENAME.test(song.title) && !NON_MUSIC_TITLE.test(song.title);
+}
+
+/**
+ * A known short recording is not automatically bad: an explicitly named
+ * interlude or transition can be a legitimate part of an album. Everything
+ * else below this floor is treated as a clip when presented as a full-track
+ * source. Unknown durations remain eligible because some open catalogs do not
+ * expose metadata even when their stream is complete.
+ */
+function isSuspiciousShortTrack(song: Song): boolean {
+  return (
+    song.isLive !== true &&
+    song.duration > 0 &&
+    song.duration < MIN_RELIABLE_FULL_TRACK_SECONDS &&
+    !SHORT_FORM_TITLE.test(song.title)
+  );
+}
+
+/** Filter catalog noise before access-mode ranking and source deduplication. */
+export function isSearchableSong(song: Song): boolean {
+  if (song.isLive === true) return true;
+  if (!isCuratableTitle(song)) return false;
+  if (isPreviewProvider(song.provider) || isPreviewOnlyEntityId(song.id)) return true;
+  return !isSuspiciousShortTrack(song);
 }
 
 function isPreviewTrack(song: Song): boolean {
@@ -149,8 +179,9 @@ export function buildStationQueue(seed: Song, candidates: Song[], limit = 12): S
 
 /** Apple exposes an official clip; the open providers expose full recordings. */
 export function filterSongsByAccess(songs: Song[], mode: AudioAccessMode): Song[] {
-  if (mode === 'all') return songs;
-  return mode === 'full' ? songs.filter(isDirectFullTrack) : songs.filter(isPreviewTrack);
+  const searchable = songs.filter(isSearchableSong);
+  if (mode === 'all') return searchable;
+  return mode === 'full' ? searchable.filter(isDirectFullTrack) : searchable.filter(isPreviewTrack);
 }
 
 export function selectSongsByAccess(songs: Song[], mode: AudioAccessMode, limit = Number.POSITIVE_INFINITY): Song[] {

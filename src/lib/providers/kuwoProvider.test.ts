@@ -63,6 +63,28 @@ describe('Kuwo provider', () => {
       album: 'Best & Brightest',
       duration: 211,
     });
+    expect(result.coverArt).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+  });
+
+  it('uses Kuwo album artwork when the search response exposes it', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        abslist: [
+          {
+            DC_TARGETID: '1',
+            NAME: 'Track',
+            ARTIST: 'Artist',
+            ALBUM: 'Album',
+            DURATION: '211',
+            web_albumpic_short: '120/5/7/3506979353.jpg',
+          },
+        ],
+      }),
+    );
+
+    const [result] = await kuwoProvider.search('Track');
+
+    expect(result.coverArt).toBe('https://img1.kuwo.cn/star/albumcover/120/5/7/3506979353.jpg');
   });
 
   it('decodes escaped unicode separators across track metadata', async () => {

@@ -69,7 +69,9 @@ export function ArtistGrid({
         minColumnWidth={150}
         label="Artists"
         getItemKey={(artist) => artist.id}
-        renderItem={(artist) => <ArtistTile artist={artist} onNavigateWithItem={onNavigateWithItem} />}
+        renderItem={(artist, index) => (
+          <ArtistTile artist={artist} eager={index === 0} onNavigateWithItem={onNavigateWithItem} />
+        )}
       />
     </section>
   );

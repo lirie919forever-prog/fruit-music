@@ -152,6 +152,27 @@ describe('search view model', () => {
     expect(allResults).toContain('kuwo-match');
   });
 
+  it('does not present obvious short Audius clips as search results', () => {
+    const ringtone = song('audius-ringtone', {
+      title: 'YOASOBI - Yoru ni Kakeru (iPhone ringtone version)',
+      artist: 'lasuah8',
+      duration: 35,
+    });
+    const fullTrack = song('kuwo-full', {
+      title: '夜に駆ける',
+      artist: 'YOASOBI',
+      provider: 'Kuwo',
+      duration: 261,
+    });
+
+    expect(rankSearchSongsForAccess([ringtone, fullTrack], 'YOASOBI', 'full').map(({ id }) => id)).toEqual([
+      'kuwo-full',
+    ]);
+    expect(rankSearchSongsForAccess([ringtone, fullTrack], 'YOASOBI', 'all').map(({ id }) => id)).toEqual([
+      'kuwo-full',
+    ]);
+  });
+
   it('keeps every ranked track while separating a compact top-results shelf', () => {
     const songs = Array.from({ length: 8 }, (_, index) => song(`track-${index}`, { title: `Track ${index}` }));
 

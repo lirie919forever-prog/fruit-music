@@ -18,6 +18,7 @@ import { setPlaybackClock } from './playbackClock';
 import { htmlAudioEngine } from '@/lib/audio/HtmlAudioEngine';
 import { useToast } from '@/components/ui/Toast';
 import { isResolverSource } from '@/lib/sourceRegistry';
+import { isFullTrack } from '@/components/views/newViewModel';
 import { useMusicCatalog } from '@/lib/musicCatalog';
 
 /** Every action this app registers, so the cleanup cannot fall out of step. */
@@ -249,7 +250,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         const recommendations = stationCatalog.results
           .filter(
             (candidate) =>
-              !existing.has(candidate.id) && candidate.playbackUnavailable !== true && candidate.isLive !== true,
+              !existing.has(candidate.id) &&
+              candidate.playbackUnavailable !== true &&
+              candidate.isLive !== true &&
+              isFullTrack(candidate),
           )
           .slice(0, 8);
 

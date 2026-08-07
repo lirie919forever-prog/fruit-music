@@ -8,7 +8,9 @@ import {
   filterEntitiesByAccess,
   filterSongsByAccess,
   isDirectFullTrack,
+  isCuratableTitle,
   isFullTrack,
+  isSearchableSong,
   interleaveSongGroups,
   interleaveSongsByProvider,
   playableSongs,
@@ -137,6 +139,33 @@ describe('New view model', () => {
     expect(isFullTrack(shortKuwo)).toBe(false);
     expect(filterSongsByAccess([shortKuwo], 'full')).toEqual([]);
     expect(filterSongsByAccess([shortKuwo], 'preview')).toEqual([]);
+  });
+
+  it('removes obvious short clips while keeping named short-form music', () => {
+    const ringtone = {
+      ...song('audius-ringtone'),
+      title: 'Yoru ni Kakeru (iPhone ringtone version)',
+      provider: 'Audius' as const,
+      duration: 35,
+    };
+    const shortSong = {
+      ...song('audius-short-song'),
+      title: 'Short song',
+      provider: 'Audius' as const,
+      duration: 30,
+    };
+    const interlude = {
+      ...song('audius-interlude'),
+      title: 'Interlude: Dawn',
+      provider: 'Audius' as const,
+      duration: 30,
+    };
+
+    expect(isCuratableTitle(ringtone)).toBe(false);
+    expect(isSearchableSong(ringtone)).toBe(false);
+    expect(isFullTrack(shortSong)).toBe(false);
+    expect(filterSongsByAccess([ringtone, shortSong, interlude], 'full')).toEqual([interlude]);
+    expect(filterSongsByAccess([ringtone, shortSong, interlude], 'all')).toEqual([interlude]);
   });
 
   it('includes full-length resolver matches in explicit access filters', () => {

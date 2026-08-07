@@ -22,6 +22,12 @@ describe('createDeterministicCover', () => {
     expect(safeCoverArt('data:image/svg+xml;base64,abc')).toBe('data:image/svg+xml;base64,abc');
   });
 
+  it('keeps the official Kuwo artwork host allowlisted', () => {
+    expect(safeCoverArt('https://img1.kuwo.cn/star/albumcover/120/5/7/3506979353.jpg')).toBe(
+      'https://img1.kuwo.cn/star/albumcover/120/5/7/3506979353.jpg',
+    );
+  });
+
   it('keeps artwork from Audius validator and indexer hosts', () => {
     expect(safeCoverArt('https://val011.open-audio-validator.com/content/cid/1000x1000.jpg')).toBe(
       'https://val011.open-audio-validator.com/content/cid/1000x1000.jpg',

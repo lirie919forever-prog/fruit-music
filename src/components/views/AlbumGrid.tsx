@@ -60,7 +60,9 @@ export function AlbumGrid({
         minColumnWidth={150}
         label="Albums"
         getItemKey={(album) => album.id}
-        renderItem={(album) => <AlbumTile album={album} onNavigateWithItem={onNavigateWithItem} />}
+        renderItem={(album, index) => (
+          <AlbumTile album={album} eager={index === 0} onNavigateWithItem={onNavigateWithItem} />
+        )}
       />
     </section>
   );

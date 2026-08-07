@@ -33,6 +33,7 @@ export const ARTWORK_REMOTE_PATTERNS: ArtworkPattern[] = [
   { protocol: 'https', hostname: 'www.ccmixter.org', pathname: '/**' },
   { protocol: 'https', hostname: 'is1-ssl.mzstatic.com', pathname: '/**' },
   { protocol: 'https', hostname: 'cdn-images.dzcdn.net', pathname: '/**' },
+  { protocol: 'https', hostname: 'img1.kuwo.cn', pathname: '/**' },
   { protocol: 'https', hostname: '**.figment.io', pathname: '/**' },
   { protocol: 'https', hostname: '**.staked.cloud', pathname: '/**' },
   { protocol: 'https', hostname: 'v.monophonic.digital', pathname: '/**' },

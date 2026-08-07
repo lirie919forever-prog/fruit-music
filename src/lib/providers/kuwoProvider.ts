@@ -3,7 +3,7 @@
 import type { MusicProvider } from './types';
 import type { Song } from '@/types/music';
 import { providerFetch } from './errors';
-import { safeCoverArt } from '@/lib/coverArt';
+import { createDeterministicCover, safeCoverArt } from '@/lib/coverArt';
 import { repairUtf8Mojibake } from '@/lib/repairUtf8Mojibake';
 
 const PROXY_BASE = '/api/music/kuwo';
@@ -22,6 +22,7 @@ interface KuwoSearchItem {
   ALBUMID: string;
   DURATION: string;
   ARTISTPIC?: string;
+  web_albumpic_short?: string;
 }
 
 interface KuwoSearchResponse {
@@ -50,6 +51,20 @@ function decodeKuwoText(value: string | undefined): string {
   );
 }
 
+const KUWO_ARTWORK_PATH = /^[a-z0-9/_-]+\.jpg$/i;
+
+function kuwoCoverArt(item: KuwoSearchItem, seed: string): string {
+  const albumPath = item.web_albumpic_short?.trim().replace(/^\/+/, '');
+  if (albumPath && !albumPath.includes('..') && KUWO_ARTWORK_PATH.test(albumPath)) {
+    const remote = safeCoverArt(`https://img1.kuwo.cn/star/albumcover/${albumPath}`);
+    if (remote !== '/placeholder-album.svg') return remote;
+  }
+
+  // Some Kuwo hits have no public image path at all. A stable generated cover
+  // keeps those rows identifiable without rendering a dark generic placeholder.
+  return createDeterministicCover(seed, 32);
+}
+
 function mapKuwoSong(item: KuwoSearchItem): Song {
   const rawId = item.DC_TARGETID;
   const songId = `kuwo-${rawId}`;
@@ -65,7 +80,7 @@ function mapKuwoSong(item: KuwoSearchItem): Song {
     artistId: item.ARTISTID ? `kuwo-artist-${item.ARTISTID}` : songId,
     album,
     albumId: item.ALBUMID ? `kuwo-album-${item.ALBUMID}` : songId,
-    coverArt: safeCoverArt(item.ARTISTPIC),
+    coverArt: kuwoCoverArt(item, `${artist}:${album || title}`),
     duration,
     track: 0,
     year: 0,

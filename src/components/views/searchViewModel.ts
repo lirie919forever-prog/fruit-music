@@ -1,5 +1,5 @@
 import type { Album, Artist, MusicProviderName, Song } from '@/types/music';
-import { filterSongsByAccess, isDirectFullTrack, type AudioAccessMode } from './newViewModel';
+import { filterSongsByAccess, isDirectFullTrack, isSearchableSong, type AudioAccessMode } from './newViewModel';
 
 const PROVIDER_RELEVANCE: Record<MusicProviderName, number> = {
   'Apple Preview': 55,
@@ -110,6 +110,7 @@ export function areAllSearchProvidersUnavailable(state: {
 function rankSearchSongsInternal(songs: Song[], query: string, preferFullDuplicates: boolean): Song[] {
   const normalizedQuery = normalize(query);
   const ranked = songs
+    .filter(isSearchableSong)
     .map((song, index) => ({ song, index, score: score(song, normalizedQuery) }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .map((candidate, rank) => ({ ...candidate, rank }));
