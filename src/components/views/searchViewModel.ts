@@ -68,7 +68,11 @@ function score(song: Song, query: string): number {
     // exact artist match close behind so a song named after the artist still
     // loses to the actual artist record when provider quality differs.
     phraseScore(artist, query, 680, 500, 310) +
-    phraseScore(title, query, 700, 430, 250) +
+    phraseScore(title, query, 850, 430, 250) +
+    // A one-word artist query often appears at the start of noisy upload
+    // titles. Give an exact artist identity enough weight to beat those title
+    // prefixes while keeping an exact song title the strongest song signal.
+    (artist === query ? 160 : 0) +
     tokenScore(artist, query) +
     tokenScore(title, query);
   const quality =

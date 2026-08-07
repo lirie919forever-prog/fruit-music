@@ -86,6 +86,26 @@ describe('search view model', () => {
     ]);
   });
 
+  it('keeps an exact Japanese artist above a noisy title prefix from another artist', () => {
+    const noisyTitle = song('kuwo-noisy', {
+      title: 'YOASOBI小说歌者100%的灵魂传递',
+      artist: '乐见大牌&YOASOBI',
+      provider: 'Kuwo',
+      metadataVerified: false,
+    });
+    const exactArtist = song('kuwo-exact-artist', {
+      title: '怪物',
+      artist: 'YOASOBI',
+      provider: 'Kuwo',
+      metadataVerified: false,
+    });
+
+    expect(rankSearchSongs([noisyTitle, exactArtist], 'YOASOBI').map(({ id }) => id)).toEqual([
+      'kuwo-exact-artist',
+      'kuwo-noisy',
+    ]);
+  });
+
   it('keeps the higher-confidence provider when sources return the same track identity', () => {
     const upload = song('audius-upload', { title: 'Cruel Summer [ic8j13piAhQ]' });
     const official = song('itunes-official', { provider: 'Apple Preview', duration: 30 });

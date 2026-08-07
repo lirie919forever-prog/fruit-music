@@ -12,8 +12,11 @@ import {
   SkipBack,
   SkipForward,
   Sparkles,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useState } from 'react';
 import { usePlayerStore } from '@/store/playerStore';
 import { VolumeSlider } from '@/components/ui/VolumeSlider';
 import { useAudio } from '@/components/player/AudioProvider';
@@ -105,6 +108,79 @@ function SeekSlider({
   );
 }
 
+/**
+ * A compact seek bar shown only on mobile, below the transport controls.
+ * Desktop has the full centered SeekSlider; mobile has no column for it, so
+ * this thin strip gives users in-place scrubbing without leaving browse.
+ */
+function MobileSeekBar({
+  duration,
+  isLive,
+  onSeek,
+}: {
+  duration: number;
+  isLive: boolean;
+  onSeek: (time: number) => void;
+}) {
+  const { progress } = usePlaybackClock();
+  const safeProgress = duration > 0 ? Math.max(0, Math.min(Number.isFinite(progress) ? progress : 0, duration)) : 0;
+  const progressPct = duration > 0 ? Math.max(0, Math.min(100, (safeProgress / duration) * 100)) : 0;
+  const seekable = duration > 0 && !isLive;
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-[env(safe-area-inset-bottom)] z-10 block px-3 pb-1 md:hidden">
+      <div className="relative h-3">
+        <div className="pointer-events-none absolute inset-x-0 top-1.5 h-[3px] rounded-full bg-[var(--salt-ghost)]">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--salt-bright),var(--salt-primary))]"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={Math.max(duration, 0)}
+          step={0.1}
+          value={Math.max(0, Math.min(Number.isFinite(progress) ? progress : 0, duration || 0))}
+          aria-label="Seek"
+          disabled={!seekable}
+          aria-valuetext={isLive ? 'Live stream' : `${formatTime(progress)} of ${formatTime(duration)}`}
+          onChange={(event) => onSeek(Number(event.target.value))}
+          className="player-range pointer-events-auto absolute inset-x-0 top-0 h-3"
+        />
+      </div>
+    </div>
+  );
+}
+
+function MobileVolumeControl({ disabled }: { disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const volume = usePlayerStore((state) => state.volume);
+  const muted = volume === 0;
+
+  return (
+    <div className="relative md:hidden">
+      <ControlButton
+        label={open ? 'Close volume controls' : 'Open volume controls'}
+        pressed={open}
+        onClick={() => setOpen((value) => !value)}
+        disabled={disabled}
+      >
+        {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+      </ControlButton>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Volume controls"
+          className="marea-glass-panel absolute bottom-10 right-0 z-20 rounded-xl border p-3 shadow-xl"
+        >
+          <VolumeSlider />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NowPlayingBar({
   onNavigateWithItem,
   onOpenQueue,
@@ -162,7 +238,7 @@ export function NowPlayingBar({
   return (
     <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50">
       <div
-        className="marea-player-surface pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t px-3 md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
+        className="marea-player-surface relative pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t px-3 md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
         style={{
           minHeight: 'calc(var(--player-bar-height) + env(safe-area-inset-bottom))',
           paddingBottom: 'env(safe-area-inset-bottom)',
@@ -320,6 +396,17 @@ export function NowPlayingBar({
             <ControlButton label="Queue" onClick={openQueue} disabled={!hasTrack}>
               <ListMusic size={17} />
             </ControlButton>
+            <ControlButton
+              label="Lyrics"
+              onClick={() => {
+                setNowPlayingPanel('lyrics');
+                setCurrentView('now-playing');
+              }}
+              disabled={!hasTrack}
+            >
+              <Music size={16} />
+            </ControlButton>
+            <MobileVolumeControl disabled={!hasTrack} />
           </div>
           <div className="hidden items-center gap-3 md:flex">
             <VolumeSlider />
@@ -338,6 +425,7 @@ export function NowPlayingBar({
             </ControlButton>
           </div>
         </div>
+        <MobileSeekBar duration={canSeek ? duration : 0} isLive={isLive} onSeek={seek} />
       </div>
     </div>
   );

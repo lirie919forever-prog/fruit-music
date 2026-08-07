@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createRateLimiter } from '../rateLimit';
-import { isPlayableTrack, trackToSong, type ItunesTrack } from '@/lib/providers/itunesProvider';
+import { isPlayableTrack, trackToSong, type ItunesCountry, type ItunesTrack } from '@/lib/providers/itunesProvider';
 import type { Song } from '@/types/music';
 
 /**
@@ -51,10 +51,10 @@ interface FeedEntry {
   id?: string;
 }
 
-function chartTrackToSong(item: ItunesTrack): Song {
+function chartTrackToSong(item: ItunesTrack, country: ItunesCountry): Song {
   // The chart endpoint serves Apple's fixed 30-second preview. `trackToSong`
   // keeps the full recording length separately as `recordingDuration`.
-  return trackToSong(item, 0, 30);
+  return trackToSong(item, 0, 30, country);
 }
 
 function upstreamSignal(signal?: AbortSignal): AbortSignal {
@@ -101,7 +101,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     for (const result of settled) {
       if (result.status !== 'fulfilled') continue;
       for (const item of result.value) {
-        if (isPlayableTrack(item)) byTrackId.set(String(item.trackId), chartTrackToSong(item));
+        if (isPlayableTrack(item)) byTrackId.set(String(item.trackId), chartTrackToSong(item, config.region));
       }
     }
 

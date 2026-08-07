@@ -109,6 +109,29 @@ describe('LX Music API route', () => {
     expect(new Headers(options?.headers).get('Range')).toBe('bytes=0-1');
   });
 
+  it('accepts a Kuwo CDN URL returned by the public LX resolver', async () => {
+    delete process.env.LX_API_BASE;
+    process.env.LX_RESOLVER_BASE = 'https://resolver.example.test';
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ url: 'http://kw-lw.kuwo.cn/media/song.mp3' }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-1/100' },
+        }),
+      );
+
+    const response = await GET(
+      new Request('http://localhost/api/music/lxmusic/url?id=lxmusic-wy_1_123&platform=wy&rawId=123&type=1&probe=1'),
+      { params: Promise.resolve({ path: ['url'] }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ available: true, provider: 'LX Music' });
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe('https://kw-lw.kuwo.cn/media/song.mp3');
+  });
+
   it('rejects a resolver payload that is too small for the expected recording', async () => {
     delete process.env.LX_API_BASE;
     process.env.LX_RESOLVER_BASE = 'https://resolver.example.test';

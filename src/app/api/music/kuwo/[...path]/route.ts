@@ -12,6 +12,7 @@ import {
   validContentRange,
 } from '../../streamProxy';
 import { repairUtf8Mojibake } from '@/lib/repairUtf8Mojibake';
+import { isKuwoMediaHost } from '@/lib/kuwoMedia';
 
 const KUWO_SEARCH_BASE = 'http://search.kuwo.cn/r.s';
 const KUWO_RESOLVER_BASE = 'https://antiserver.kuwo.cn/anti.s';
@@ -24,12 +25,6 @@ function catalogResponse(data: unknown): NextResponse {
   const response = NextResponse.json(data);
   setCdnCacheHeaders(response.headers, CATALOG_CACHE_CONTROL);
   return response;
-}
-
-function isKuwoMediaHost(url: URL): boolean {
-  if (url.protocol !== 'http:' || url.username || url.password || url.port || url.hash) return false;
-  const host = url.hostname.toLowerCase();
-  return host === 'sycdn.kuwo.cn' || host.endsWith('.sycdn.kuwo.cn');
 }
 
 function isStringDelimiter(text: string, index: number): boolean {

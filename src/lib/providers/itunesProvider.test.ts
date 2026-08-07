@@ -50,6 +50,11 @@ describe('Apple preview provider', () => {
     expect(trackToSong(track()).path).toBe('/api/music/itunes/stream/1440872304');
   });
 
+  it('keeps the catalog territory on a non-US preview stream', () => {
+    expect(trackToSong(track(), 0, 30, 'jp').path).toBe('/api/music/itunes/stream/1440872304?country=jp');
+    expect(trackToSong(track(), 0, 30, 'gb').path).toBe('/api/music/itunes/stream/1440872304?country=gb');
+  });
+
   it('drops the collection and artist wrappers a track response carries', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json({
@@ -145,7 +150,19 @@ describe('Apple preview provider', () => {
     const songs = await itunesProvider.getRecentReleases(2);
 
     expect(songs.map((song) => song.id)).toEqual(['itunes-2', 'itunes-1']);
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(5);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(10);
+    expect(vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).searchParams.get('country'))).toEqual([
+      'jp',
+      'us',
+      'jp',
+      'us',
+      'jp',
+      'us',
+      'jp',
+      'us',
+      'jp',
+      'us',
+    ]);
   });
 
   it('derives searched artists from albums, because Apple ships artist records with no artwork', async () => {

@@ -31,6 +31,7 @@ import { type NavigationItem } from '@/lib/navigation';
 import {
   buildDiscoveryMixForAccess,
   isDirectFullTrack,
+  isCuratableTitle,
   playableSongs,
   selectSongsByAccess,
   uniqueSongs,
@@ -76,7 +77,6 @@ const STAGGER: Variants = {
   hidden: {},
   shown: { transition: { staggerChildren: 0.07, delayChildren: 0.04 } },
 };
-
 
 /**
  * A browse shelf: a 17px title that is itself the link into the full view, and
@@ -886,7 +886,6 @@ function ChartPreview({
   );
 }
 
-
 export function NewView({
   onNavigateWithItem,
 }: {
@@ -1050,22 +1049,26 @@ export function NewView({
         {
           title: 'Pop',
           view: 'pop' as const,
-          songs: filterDiscoverySongs(genres.pop, accessMode, activeSourceFilter, vibeFilter),
+          songs: filterDiscoverySongs(genres.pop, accessMode, activeSourceFilter, vibeFilter).filter(isCuratableTitle),
         },
         {
           title: 'Jazz',
           view: 'jazz' as const,
-          songs: filterDiscoverySongs(genres.jazz, accessMode, activeSourceFilter, vibeFilter),
+          songs: filterDiscoverySongs(genres.jazz, accessMode, activeSourceFilter, vibeFilter).filter(isCuratableTitle),
         },
         {
           title: 'Remixes',
           view: 'remixes' as const,
-          songs: filterDiscoverySongs(genres.remix, accessMode, activeSourceFilter, vibeFilter),
+          songs: filterDiscoverySongs(genres.remix, accessMode, activeSourceFilter, vibeFilter).filter(
+            isCuratableTitle,
+          ),
         },
         {
           title: 'Classical',
           view: 'classical' as const,
-          songs: filterDiscoverySongs(genres.classical, accessMode, activeSourceFilter, vibeFilter),
+          songs: filterDiscoverySongs(genres.classical, accessMode, activeSourceFilter, vibeFilter).filter(
+            isCuratableTitle,
+          ),
         },
       ].filter(({ songs }) => songs.length > 0),
     [activeSourceFilter, accessMode, vibeFilter, genres.classical, genres.jazz, genres.pop, genres.remix],

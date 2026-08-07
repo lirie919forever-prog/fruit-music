@@ -109,7 +109,7 @@ describe('Kuwo API route', () => {
   it('proxies a full audio response and forwards range headers', async () => {
     const GET = await loadRoute();
     vi.mocked(fetch)
-      .mockResolvedValueOnce(new Response('http://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
+      .mockResolvedValueOnce(new Response('https://kw-bj.kuwo.cn/path/song.mp3', { status: 200 }))
       .mockResolvedValueOnce(
         new Response('audio', {
           status: 206,
@@ -137,7 +137,7 @@ describe('Kuwo API route', () => {
   it('probes the resolved media before reporting a stream as available', async () => {
     const GET = await loadRoute();
     vi.mocked(fetch)
-      .mockResolvedValueOnce(new Response('http://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
+      .mockResolvedValueOnce(new Response('https://kw-lw.kuwo.cn/path/song.mp3', { status: 200 }))
       .mockResolvedValueOnce(
         new Response('audio', {
           status: 206,
@@ -161,7 +161,7 @@ describe('Kuwo API route', () => {
   it('rejects a resolver payload that is too small for the expected recording', async () => {
     const GET = await loadRoute();
     vi.mocked(fetch)
-      .mockResolvedValueOnce(new Response('http://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
+      .mockResolvedValueOnce(new Response('https://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
       .mockResolvedValueOnce(
         new Response('audio', {
           status: 206,
@@ -183,7 +183,7 @@ describe('Kuwo API route', () => {
   it('reports an unavailable media probe as a normal provider result', async () => {
     const GET = await loadRoute();
     vi.mocked(fetch)
-      .mockResolvedValueOnce(new Response('http://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
+      .mockResolvedValueOnce(new Response('https://nf.sycdn.kuwo.cn/path/song.mp3', { status: 200 }))
       .mockResolvedValueOnce(new Response('blocked', { status: 403, headers: { 'content-type': 'text/plain' } }));
 
     const response = await GET(request('url?rid=376838694&probe=1'), {

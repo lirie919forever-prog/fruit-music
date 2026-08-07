@@ -83,6 +83,7 @@ describe('chart pages', () => {
     const body = (await response.json()) as { results: Array<{ id: string }> };
 
     expect(body.results.map((song) => song.id)).toEqual(['itunes-1', 'itunes-2', 'itunes-3']);
+    expect(body.results[0]).toMatchObject({ path: '/api/music/itunes/stream/1?country=gb' });
   });
 
   it('omits an entry with no preview rather than listing something unplayable', async () => {

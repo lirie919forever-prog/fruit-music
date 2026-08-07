@@ -563,7 +563,7 @@ function MainContent({
           <header className="marea-shell-header flex shrink-0 justify-center px-3 pb-2 pt-5 sm:px-6 sm:pb-3 sm:pt-8">
             <div className="flex w-full max-w-[1400px] items-center gap-3">
               <MobileNavigation onNavigate={navigateToView} />
-              <h1 className="min-w-0 truncate text-[26px] font-bold leading-[1.18] tracking-[-0.02em] text-[var(--salt-white)] sm:text-[34px]">
+              <h1 className="min-w-0 truncate text-[22px] font-bold leading-[1.18] tracking-[-0.02em] text-[var(--salt-white)] sm:text-[34px]">
                 {getViewTitle(currentView)}
               </h1>
               <div className="ml-auto flex shrink-0 items-center gap-1.5">

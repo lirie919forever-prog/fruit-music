@@ -15,6 +15,8 @@ const PROXY_BASE = '/api/music/itunes';
 const PREVIEW_DURATION_SECONDS = 30;
 const PREVIEW_LICENSE = '30-second preview';
 const APPLE_CATALOG_TIMEOUT_MS = 15_000;
+export type ItunesCountry = 'gb' | 'jp' | 'us';
+const SEARCH_COUNTRIES: readonly ItunesCountry[] = ['jp', 'us'];
 
 /** Apple's artwork URLs carry their size in the filename, so any size is one substitution away. */
 const ARTWORK_SIZE = /\/\d+x\d+bb\.(jpg|png)$/;
@@ -72,7 +74,12 @@ export function itunesSongId(trackId: number | string): string {
   return `itunes-${trackId}`;
 }
 
-export function trackToSong(item: ItunesTrack, index = 0, durationSeconds = PREVIEW_DURATION_SECONDS): Song {
+export function trackToSong(
+  item: ItunesTrack,
+  index = 0,
+  durationSeconds = PREVIEW_DURATION_SECONDS,
+  country: ItunesCountry = 'us',
+): Song {
   const trackId = String(item.trackId);
   const recordingDuration =
     typeof item.trackTimeMillis === 'number' && Number.isFinite(item.trackTimeMillis) && item.trackTimeMillis > 0
@@ -91,7 +98,7 @@ export function trackToSong(item: ItunesTrack, index = 0, durationSeconds = PREV
     track: item.trackNumber ?? index + 1,
     year: releaseYear(item.releaseDate),
     genre: item.primaryGenreName || '',
-    path: `${PROXY_BASE}/stream/${trackId}`,
+    path: `${PROXY_BASE}/stream/${trackId}${country === 'us' ? '' : `?country=${country}`}`,
     bitRate: 0,
     contentType: 'audio/mp4',
     suffix: 'm4a',
@@ -135,6 +142,52 @@ async function itunesFetch(
     { timeoutMs: APPLE_CATALOG_TIMEOUT_MS },
   );
   return Array.isArray(data?.results) ? data.results : [];
+}
+
+interface ItunesCountryResults {
+  country: ItunesCountry;
+  results: ItunesTrack[];
+}
+
+/**
+ * Apple's search catalog is territory-specific. Query Japan and the US in
+ * parallel so a romanized artist name such as YOASOBI or Aimer still reaches
+ * the Japanese catalog, while English mainstream searches keep their wider US
+ * coverage. A failed territory is allowed to degrade without hiding the
+ * healthy one.
+ */
+async function itunesSearchAcrossCountries(
+  params: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<ItunesCountryResults[]> {
+  const settled = await Promise.allSettled(
+    SEARCH_COUNTRIES.map(async (country) => ({
+      country,
+      results: await itunesFetch('search', { ...params, country }, signal),
+    })),
+  );
+  const fulfilled = settled.filter(
+    (result): result is PromiseFulfilledResult<ItunesCountryResults> => result.status === 'fulfilled',
+  );
+  if (fulfilled.length === 0) {
+    const failure = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    throw failure?.reason instanceof Error ? failure.reason : new Error('Apple search is unavailable');
+  }
+  return fulfilled.map((result) => result.value);
+}
+
+function songsFromCountries(groups: ItunesCountryResults[]): Song[] {
+  const seen = new Set<string>();
+  return groups.flatMap(({ country, results }) =>
+    results
+      .filter(isPlayableTrack)
+      .map((item, index) => trackToSong(item, index, PREVIEW_DURATION_SECONDS, country))
+      .filter((song) => {
+        if (seen.has(song.id)) return false;
+        seen.add(song.id);
+        return true;
+      }),
+  );
 }
 
 function songsFrom(results: ItunesTrack[]): Song[] {
@@ -222,42 +275,50 @@ interface ItunesProvider extends Required<
 export const itunesProvider: ItunesProvider = {
   async search(query: string, signal?: AbortSignal): Promise<Song[]> {
     if (!query.trim()) return [];
-    return songsFrom(await itunesFetch('search', { term: query, entity: 'song', limit: '40' }, signal));
+    return songsFromCountries(await itunesSearchAcrossCountries({ term: query, entity: 'song', limit: '40' }, signal));
   },
 
   async getSongsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<Song[]> {
-    return songsFrom(await itunesFetch('search', { term: tag, entity: 'song', limit: String(limit) }, signal));
+    return songsFromCountries(
+      await itunesSearchAcrossCountries({ term: tag, entity: 'song', limit: String(limit) }, signal),
+    ).slice(0, Math.max(1, Math.floor(limit)));
   },
 
   async getRecentReleases(limit = 20, signal?: AbortSignal): Promise<Song[]> {
     const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 20;
     const cappedLimit = Math.max(1, Math.min(normalizedLimit, 50));
     const settled = await Promise.allSettled(
-      recentReleaseSeeds().map((term) => itunesFetch('search', { term, entity: 'song', limit: '40' }, signal)),
+      recentReleaseSeeds().flatMap((term) =>
+        SEARCH_COUNTRIES.map(async (country) => ({
+          country,
+          results: await itunesFetch('search', { term, entity: 'song', limit: '40', country }, signal),
+        })),
+      ),
     );
     const fulfilled = settled.filter(
-      (result): result is PromiseFulfilledResult<ItunesTrack[]> => result.status === 'fulfilled',
+      (result): result is PromiseFulfilledResult<ItunesCountryResults> => result.status === 'fulfilled',
     );
     if (fulfilled.length === 0) {
       const failure = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
       throw failure?.reason instanceof Error ? failure.reason : new Error('Apple recent releases are unavailable');
     }
     const candidates = fulfilled
-      .flatMap((result) => result.value)
-      .filter(isPlayableTrack)
+      .flatMap((result) =>
+        result.value.results.filter(isPlayableTrack).map((track) => ({ track, country: result.value.country })),
+      )
       .sort((left, right) => {
-        const leftRelease = Date.parse(left.releaseDate || '');
-        const rightRelease = Date.parse(right.releaseDate || '');
+        const leftRelease = Date.parse(left.track.releaseDate || '');
+        const rightRelease = Date.parse(right.track.releaseDate || '');
         return (Number.isFinite(rightRelease) ? rightRelease : 0) - (Number.isFinite(leftRelease) ? leftRelease : 0);
       });
     const seen = new Set<string>();
     const releases: Song[] = [];
 
-    for (const track of candidates) {
+    for (const { track, country } of candidates) {
       const songId = itunesSongId(track.trackId!);
       if (seen.has(songId)) continue;
       seen.add(songId);
-      releases.push(trackToSong(track, releases.length));
+      releases.push(trackToSong(track, releases.length, PREVIEW_DURATION_SECONDS, country));
       if (releases.length >= cappedLimit) break;
     }
 
@@ -293,7 +354,8 @@ export const itunesProvider: ItunesProvider = {
 
   async searchAlbums(query: string, signal?: AbortSignal): Promise<Album[]> {
     if (!query.trim()) return [];
-    return albumsFrom(await itunesFetch('search', { term: query, entity: 'album', limit: '24' }, signal));
+    const groups = await itunesSearchAcrossCountries({ term: query, entity: 'album', limit: '24' }, signal);
+    return albumsFrom(groups.flatMap(({ results }) => results));
   },
 
   /**
@@ -307,7 +369,8 @@ export const itunesProvider: ItunesProvider = {
    */
   async searchArtists(query: string, signal?: AbortSignal): Promise<Artist[]> {
     if (!query.trim()) return [];
-    return artistsFrom(await itunesFetch('search', { term: query, entity: 'album', limit: '25' }, signal));
+    const groups = await itunesSearchAcrossCountries({ term: query, entity: 'album', limit: '25' }, signal);
+    return artistsFrom(groups.flatMap(({ results }) => results));
   },
 
   /**

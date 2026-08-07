@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { usePlayerStore } from '@/store/playerStore';
 import type { ViewType } from '@/types/music';
 import type { SidebarMode } from '@/lib/appSettings';
@@ -254,6 +255,46 @@ export function MobileNavigation({ onNavigate }: { onNavigate?: (view: ViewType)
     };
   }, [closeNavigation, open]);
 
+  const navigationDialog = open ? (
+    <div
+      ref={dialogRef}
+      id="mobile-navigation-dialog"
+      className="fixed inset-0 z-[70] md:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Navigation menu"
+    >
+      <button
+        tabIndex={-1}
+        aria-label="Close navigation"
+        onClick={closeNavigation}
+        className="absolute inset-0 bg-[rgba(13,43,62,0.34)] backdrop-blur-sm"
+      />
+      <div className="marea-glass-sidebar absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col border-r p-2 shadow-[18px_0_60px_rgba(25,74,102,0.2)]">
+        <div className="flex shrink-0 items-center justify-between px-2 pb-3 pt-2">
+          <div className="flex items-center gap-2.5 text-[19px] font-bold text-[var(--salt-white)]">
+            <span className="marea-glass-control flex h-7 w-7 items-center justify-center rounded-lg border text-[var(--salt-primary)]">
+              <WaveIcon />
+            </span>
+            Marea
+          </div>
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            ref={closeButtonRef}
+            onClick={closeNavigation}
+            aria-label="Close navigation"
+            className="marea-glass-control flex h-9 w-9 items-center justify-center rounded-full border text-[var(--salt-mist)]"
+          >
+            <X className="h-5 w-5" />
+          </motion.button>
+        </div>
+        <nav className="min-h-0 flex-1">
+          <NavSections onSelect={closeNavigation} onNavigate={onNavigate} />
+        </nav>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <>
       <motion.button
@@ -269,45 +310,7 @@ export function MobileNavigation({ onNavigate }: { onNavigate?: (view: ViewType)
           <path d="M4 6h16M4 12h16M4 18h16" />
         </svg>
       </motion.button>
-      {open && (
-        <div
-          ref={dialogRef}
-          id="mobile-navigation-dialog"
-          className="fixed inset-0 z-[70] md:hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Navigation menu"
-        >
-          <button
-            tabIndex={-1}
-            aria-label="Close navigation"
-            onClick={closeNavigation}
-            className="absolute inset-0 bg-[rgba(13,43,62,0.34)] backdrop-blur-sm"
-          />
-          <div className="marea-glass-sidebar absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col border-r p-2 shadow-[18px_0_60px_rgba(25,74,102,0.2)]">
-            <div className="flex shrink-0 items-center justify-between px-2 pb-3 pt-2">
-              <div className="flex items-center gap-2.5 text-[19px] font-bold text-[var(--salt-white)]">
-                <span className="marea-glass-control flex h-7 w-7 items-center justify-center rounded-lg border text-[var(--salt-primary)]">
-                  <WaveIcon />
-                </span>
-                Marea
-              </div>
-              <motion.button
-                whileTap={{ scale: 0.96 }}
-                ref={closeButtonRef}
-                onClick={closeNavigation}
-                aria-label="Close navigation"
-                className="marea-glass-control flex h-9 w-9 items-center justify-center rounded-full border text-[var(--salt-mist)]"
-              >
-                <X className="h-5 w-5" />
-              </motion.button>
-            </div>
-            <nav className="min-h-0 flex-1">
-              <NavSections onSelect={closeNavigation} onNavigate={onNavigate} />
-            </nav>
-          </div>
-        </div>
-      )}
+      {open && typeof document !== 'undefined' ? createPortal(navigationDialog, document.body) : null}
     </>
   );
 }

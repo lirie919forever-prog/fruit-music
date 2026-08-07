@@ -12,6 +12,7 @@ import {
   streamBody,
   validContentRange,
 } from '../../streamProxy';
+import { isKuwoMediaHost } from '@/lib/kuwoMedia';
 
 const LX_API_BASE = process.env.LX_API_BASE;
 const LX_RESOLVER_BASE = process.env.LX_RESOLVER_BASE;
@@ -69,6 +70,7 @@ function isApprovedLxMedia(url: URL): boolean {
   const host = url.hostname.toLowerCase();
   if (LX_APPROVED_MEDIA_HOSTS.has(host)) return true;
   if (isNetEaseMediaHost(url)) return true;
+  if (isKuwoMediaHost(url)) return true;
   return [configuredBase(LX_API_BASE), configuredBase(LX_RESOLVER_BASE)]
     .filter((base): base is string => Boolean(base))
     .some((base) => new URL(base).hostname.toLowerCase() === host);
@@ -89,6 +91,11 @@ function approvedMediaUrl(value: string): URL | null {
   }
   if (url.protocol === 'http:' && isNetEaseMediaHost(url)) {
     url.protocol = 'https:';
+  }
+  if (url.protocol === 'http:') {
+    const httpsUrl = new URL(url.toString());
+    httpsUrl.protocol = 'https:';
+    if (isKuwoMediaHost(httpsUrl)) url.protocol = 'https:';
   }
   return isApprovedLxMedia(url) ? url : null;
 }
