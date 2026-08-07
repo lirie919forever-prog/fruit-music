@@ -1,0 +1,12 @@
+# Local build, browser-audit, and deployment artifacts.
+.next/
+.playwright-cli/
+output/
+screenshots/
+*.log
+*.tsbuildinfo
+*.png
+
+# Local configuration must never enter a deployment upload.
+.env*
+.vercel/
