@@ -314,7 +314,7 @@ export function TrackMenu({
             openWith(actions.length - 1);
           }
         }}
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${open ? 'bg-[var(--glass-bg-hover)] text-[var(--salt-white)]' : ''} ${className}`}
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] lg:h-8 lg:w-8 ${open ? 'bg-[var(--glass-bg-hover)] text-[var(--salt-white)]' : ''} ${className}`}
       >
         <MoreHorizontal className="h-5 w-5" aria-hidden />
       </motion.button>

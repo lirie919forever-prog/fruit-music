@@ -56,6 +56,23 @@ describe('Radio Browser provider', () => {
     );
   });
 
+  it('uses an exact country selector for a Japan radio lane', async () => {
+    const japan = { ...station(), countryCode: 'JP' };
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ results: [japan] }));
+
+    const stations = await radioBrowserProvider.getCountryStations('jp', 8);
+
+    expect(stations[0]).toMatchObject({ artist: 'JP live radio', provider: 'Radio Browser' });
+    const request = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(request.searchParams.get('country')).toBe('JP');
+    expect(request.searchParams.get('limit')).toBe('8');
+  });
+
+  it('does not call the API for an invalid country selector', async () => {
+    await expect(radioBrowserProvider.getCountryStations('Japan')).resolves.toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('refreshes a persisted station URL by stable ID before playback', async () => {
     const current = station();
     current.streamUrl = 'https://stream.example.com/current.mp3';

@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
 import { Howl } from 'howler';
 import { usePlayerStore, usePlayerStoreApi } from '@/store/playerStore';
-import type { PlaybackCandidate } from '@/lib/catalogTypes';
+import { NO_VERIFIED_FULL_TRACK_MESSAGE, type PlaybackCandidate } from '@/lib/catalogTypes';
 import {
   effectiveDuration,
   getResumePosition,
@@ -17,7 +17,7 @@ import type { Song } from '@/types/music';
 import { setPlaybackClock } from './playbackClock';
 import { htmlAudioEngine } from '@/lib/audio/HtmlAudioEngine';
 import { useToast } from '@/components/ui/Toast';
-import { isResolverSource } from '@/lib/sourceRegistry';
+import { isPreviewSource, isResolverSource } from '@/lib/sourceRegistry';
 import { isFullTrack } from '@/components/views/newViewModel';
 import { useMusicCatalog } from '@/lib/musicCatalog';
 
@@ -198,6 +198,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     let candidateIndex = 0;
     let alternateResolutionStarted = false;
     let recoveryFailureMessage: string | null = null;
+    const resolverSelectionDisallowsPreviews = isResolverSource(song.provider);
     // A new track has not resolved yet, so any fallback identity held over from
     // the previous one must not survive — lyrics would query the wrong record.
     setEffectiveSong(null);
@@ -287,6 +288,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           const hadCandidates = playbackCandidates.length > 0;
           const seen = new Set(playbackCandidates.map((candidate) => candidate.song.id));
           const freshAlternates = alternates.filter((candidate) => {
+            if (resolverSelectionDisallowsPreviews && isPreviewSource(candidate.song.provider)) return false;
             if (seen.has(candidate.song.id)) return false;
             seen.add(candidate.song.id);
             return true;
@@ -363,7 +365,12 @@ export function AudioProvider({ children }: { children: ReactNode }) {
               .getStreamUrl(candidate.song, loadController.signal)
               .then((streamUrl) => ({ song: candidate.song, streamUrl }))
         : catalog.getPlaybackSource(song, loadController.signal).then((source) => {
-            playbackCandidates = source.candidates ?? [{ song: source.song, streamUrl: source.streamUrl }];
+            if (resolverSelectionDisallowsPreviews && isPreviewSource(source.song.provider)) {
+              throw new Error('A resolver selection cannot fall back to an official preview.');
+            }
+            playbackCandidates = (source.candidates ?? [{ song: source.song, streamUrl: source.streamUrl }]).filter(
+              (candidate) => !resolverSelectionDisallowsPreviews || !isPreviewSource(candidate.song.provider),
+            );
             candidateIndex = 0;
             return { song: source.song, streamUrl: source.streamUrl };
           });
@@ -434,10 +441,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                 pendingHowlRef.current = null;
                 howlRef.current = howl;
                 const loadedDuration = howl.duration();
+                const sourceIsPreview = isPreviewSource(sourceSong.provider);
                 const resolverCanReturnShortClips = isResolverSource(sourceSong.provider);
-                const materiallyShort = isMateriallyShortStream(loadedDuration, sourceSong.duration);
+                const materiallyShort = isMateriallyShortStream(
+                  loadedDuration,
+                  sourceSong.duration,
+                  resolverCanReturnShortClips,
+                );
                 const materiallyLong = isMateriallyLongStream(loadedDuration, sourceSong.duration);
-                if (resolverCanReturnShortClips && !sourceSong.isLive && (materiallyShort || materiallyLong)) {
+                if (
+                  !sourceSong.isLive &&
+                  (sourceIsPreview || (resolverCanReturnShortClips && (materiallyShort || materiallyLong)))
+                ) {
                   // A successful response is not enough: Kuwo and similar
                   // resolvers can return either a short preview or a completely
                   // different long recording for a catalog item. Discard it
@@ -446,9 +461,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                   // load.
                   unloadHowl(howl);
                   setEffectiveSong(null);
-                  recoveryFailureMessage = materiallyShort
-                    ? 'The provider returned a short preview instead of the full track.'
-                    : 'The provider returned a different recording instead of the full track.';
+                  recoveryFailureMessage = sourceIsPreview
+                    ? NO_VERIFIED_FULL_TRACK_MESSAGE
+                    : materiallyShort
+                      ? 'The provider returned a short preview instead of the full track.'
+                      : 'The provider returned a different recording instead of the full track.';
                   prematureEndRecoveries = 0;
                   retryCountRef.current = 0;
                   if (candidateIndex + 1 < playbackCandidates.length) {
@@ -515,7 +532,12 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                 const decodedDuration = howl.duration();
                 if (
                   state.playbackIntent &&
-                  !isNaturalTrackEnd(typeof position === 'number' ? position : 0, decodedDuration, sourceSong.duration)
+                  (isPreviewSource(sourceSong.provider) ||
+                    !isNaturalTrackEnd(
+                      typeof position === 'number' ? position : 0,
+                      decodedDuration,
+                      sourceSong.duration,
+                    ))
                 ) {
                   prematureEndRecoveries += 1;
                   const resumePosition = typeof position === 'number' ? position : state.progress;
@@ -564,9 +586,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
             fail('The audio stream took too long to load. Press Play to try again.', howl);
           }, LOAD_TIMEOUT_MS);
         })
-        .catch(() => {
+        .catch((error) => {
           if (requestId === streamRequestIdRef.current && isCurrent()) {
-            fail('The audio stream could not be resolved. Try again.');
+            const message =
+              error instanceof Error && error.message === NO_VERIFIED_FULL_TRACK_MESSAGE
+                ? error.message
+                : 'The audio stream could not be resolved. Try again.';
+            fail(message);
           }
         });
     }

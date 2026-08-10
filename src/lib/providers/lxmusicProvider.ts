@@ -74,7 +74,9 @@ function mapLxSong(item: LxSearchResult, level: string): Song {
     licenseName: 'Source terms',
     licenseUrl: '',
     attributionUrl: '',
-    metadataVerified: false,
+    // NetEase identities are trusted for catalog metadata only. Playback is
+    // still probed by the route before the player treats this as playable.
+    metadataVerified: platform === 'wy' && duration > 0,
   };
 }
 
@@ -82,6 +84,13 @@ function handleLxError(error: unknown, operation: string): never {
   if (error instanceof DOMException && error.name === 'AbortError') throw error;
   const message = error instanceof Error ? error.message : 'LX Music request failed';
   throw new Error(`LX Music ${operation}: ${message}`);
+}
+
+function markPublicNeteaseSource(path: string): string {
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const url = new URL(path, origin);
+  url.searchParams.set('source', 'netease');
+  return `${url.pathname}${url.search}`;
 }
 
 export const lxmusicProvider: MusicProvider = {
@@ -133,7 +142,7 @@ export const lxmusicProvider: MusicProvider = {
     const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
     const probeUrl = new URL(song.path, origin);
     probeUrl.searchParams.set('probe', '1');
-    const probe = await providerFetch<{ available?: boolean }>(
+    const probe = await providerFetch<{ available?: boolean; source?: string }>(
       'LX Music',
       'streamProbe',
       probeUrl.pathname,
@@ -142,10 +151,10 @@ export const lxmusicProvider: MusicProvider = {
         ...(song.duration > 45 ? { expected: String(song.duration) } : {}),
       },
       signal,
-      { timeoutMs: 12_000 },
+      { timeoutMs: 6_000 },
     );
     if (probe.available !== true) throw new Error('LX Music stream is unavailable');
-    return song.path;
+    return probe.source === 'netease' ? markPublicNeteaseSource(song.path) : song.path;
   },
 
   async getSongsByTag(tag: string, limit = 200, signal?: AbortSignal): Promise<Song[]> {

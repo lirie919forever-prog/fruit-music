@@ -377,7 +377,7 @@ describe('LyricsPanel', () => {
  * duration — not the catalog row, or LRCLIB has never heard of a thirty-second
  * song and the timed document cannot sync to a clip. The store's
  * `effectiveSong` is the resolved recording; `LyricsPanel` queries against it
- * while keeping the cache key on the catalog id so a re-play reuses the cache.
+ * while keeping the catalog id in the cache key so a re-play reuses the cache.
  */
 describe('LyricsPanel against the resolved playback track', () => {
   // A full-track fallback for the `song()` catalog row. Different id, different
@@ -398,9 +398,7 @@ describe('LyricsPanel against the resolved playback track', () => {
    * before the panel subscribes — and the only handle on the live store is the
    * `Probe` effect, which runs after the first paint. A `Seeded` wrapper mills
    * the store in its own effect, defers mounting the panel until the seed is
-   * down, and so the panel observes the resolved track from the start. No
-   * invalidate/refetch dance, no race between the re-render's new `queryFn`
-   * closure and the refetch it would trigger.
+   * down, and so the panel observes the resolved track from the start.
    */
   function SeededMount({
     catalog,
@@ -459,7 +457,52 @@ describe('LyricsPanel against the resolved playback track', () => {
     });
   });
 
-  it('keeps the cache key on the catalog id so a second pull reuses the cache', async () => {
+  it('refetches when a resolver arrives after the lyrics panel mounted', async () => {
+    const catalog = song();
+    const resolved = fallback();
+    getLyrics.mockResolvedValue(lyrics());
+
+    function LateResolver() {
+      const api = usePlayerStoreApi();
+      useEffect(() => {
+        api.getState().playSong(catalog);
+      }, [api]);
+      return (
+        <>
+          <LyricsPanel song={catalog} />
+          <button type="button" onClick={() => api.getState().setEffectiveSong(resolved)}>
+            Resolve fallback
+          </button>
+        </>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(
+      <Harness>
+        <LateResolver />
+      </Harness>,
+    );
+
+    await waitFor(() => {
+      expect(getLyrics).toHaveBeenCalledWith(
+        expect.objectContaining({ id: catalog.id, duration: 30 }),
+        expect.anything(),
+      );
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Resolve fallback' }));
+
+    await waitFor(() => {
+      expect(getLyrics).toHaveBeenCalledWith(
+        expect.objectContaining({ id: resolved.id, duration: 240 }),
+        expect.anything(),
+      );
+    });
+    expect(getLyrics).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the catalog and resolved ids in the cache key so a second pull reuses the cache', async () => {
     const catalog = song();
     getLyrics.mockResolvedValue(lyrics());
     const { unmount } = render(<SeededMount catalog={catalog} seed="fallback" />);

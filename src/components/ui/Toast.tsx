@@ -39,7 +39,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext value={{ push }}>
       {children}
       <div
-        className="pointer-events-none fixed inset-x-3 bottom-[calc(var(--player-bar-clearance)+0.75rem)] z-[140] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-5 sm:w-[min(360px,calc(100vw-2rem))]"
+        className="pointer-events-none fixed inset-x-3 bottom-[calc(var(--player-bar-clearance)_+_0.75rem)] z-[140] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-5 sm:w-[min(360px,calc(100vw-2rem))] md:bottom-[calc(var(--player-bar-desktop-clearance)_+_0.75rem)]"
         aria-label="Notifications"
       >
         {toasts.map((toast) => (

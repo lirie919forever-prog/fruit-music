@@ -9,11 +9,14 @@ export function PlaybackSourceNotice({
   catalogSong,
   effectiveSong,
   compact = false,
+  mobileShort = false,
   verified = false,
 }: {
   catalogSong: Song;
   effectiveSong: Song | null;
   compact?: boolean;
+  /** Renders a compact, phone-sized status token while keeping a full accessible name. */
+  mobileShort?: boolean;
   /** True once the audio engine has decoded a usable stream. */
   verified?: boolean;
 }) {
@@ -24,10 +27,17 @@ export function PlaybackSourceNotice({
     : !isFullTrack(playbackSong)
       ? 'Preview clip'
       : verified
-        ? 'Verified full track'
+        ? 'Verified full-length stream'
         : isResolverMatch
           ? 'Match pending'
           : 'Full-track source';
+  const shortLabel = playbackSong.isLive
+    ? 'Live'
+    : !isFullTrack(playbackSong)
+      ? 'Preview'
+      : verified || !isResolverMatch
+        ? 'Full'
+        : 'Check';
   const icon = playbackSong.isLive ? (
     <Signal className="h-3.5 w-3.5 shrink-0" aria-hidden />
   ) : verified ? (
@@ -41,7 +51,7 @@ export function PlaybackSourceNotice({
     <div
       className={
         compact
-          ? 'flex min-w-0 items-center gap-1 text-[10px] leading-tight text-[var(--salt-primary)]'
+          ? `flex min-w-0 items-center gap-1 text-[10px] leading-tight text-[var(--salt-primary)] ${mobileShort ? 'max-[359px]:hidden rounded-full border border-[rgba(32,137,193,0.2)] bg-[rgba(230,247,255,0.88)] px-1.5 py-0.5' : ''}`
           : 'flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-xs text-[var(--salt-primary)]'
       }
       title={
@@ -50,10 +60,11 @@ export function PlaybackSourceNotice({
           : `Playback source: ${playbackSong.provider}`
       }
       role="status"
+      aria-label={mobileShort ? `${label} via ${playbackSong.provider}` : undefined}
     >
       {icon}
-      <span className="truncate font-semibold">
-        {label} via {playbackSong.provider}
+      <span className={mobileShort ? 'text-[9px] font-bold uppercase tracking-[0.04em]' : 'truncate font-semibold'}>
+        {mobileShort ? shortLabel : `${label} via ${playbackSong.provider}`}
       </span>
       {!compact && crossSource && (
         <>

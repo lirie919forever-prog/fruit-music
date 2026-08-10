@@ -32,11 +32,13 @@ function SeekBar({ duration, isLive, onSeek }: { duration: number; isLive: boole
 
   return (
     <div className="group w-full space-y-2">
-      <div className="relative h-[2px] rounded-full bg-[var(--pearl-whisper)] transition-all duration-200 group-hover:h-[6px] group-focus-within:h-[6px]">
-        <div
-          className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--salt-bright),var(--salt-primary))]"
-          style={{ width: `${pct}%` }}
-        />
+      <div className="relative h-6">
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-[var(--pearl-whisper)] transition-all duration-200 group-hover:h-[6px] group-focus-within:h-[6px]">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--salt-bright),var(--salt-primary))]"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
         <input
           type="range"
           min={0}
@@ -236,7 +238,7 @@ export function NowPlayingView({
         />
 
         <div className="w-full max-w-xl px-4 text-center">
-          <h2 className="truncate text-[26px] font-bold tracking-[-0.02em] text-[var(--salt-white)] sm:text-[32px]">
+          <h2 className="line-clamp-2 max-w-full break-words text-[26px] font-bold leading-tight tracking-[-0.02em] text-[var(--salt-white)] sm:line-clamp-none sm:truncate sm:text-[32px]">
             {currentSong.title}
           </h2>
           {onNavigateWithItem ? (

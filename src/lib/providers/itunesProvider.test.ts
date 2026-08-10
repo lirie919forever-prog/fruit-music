@@ -150,14 +150,8 @@ describe('Apple preview provider', () => {
     const songs = await itunesProvider.getRecentReleases(2);
 
     expect(songs.map((song) => song.id)).toEqual(['itunes-2', 'itunes-1']);
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(10);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(4);
     expect(vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).searchParams.get('country'))).toEqual([
-      'jp',
-      'us',
-      'jp',
-      'us',
-      'jp',
-      'us',
       'jp',
       'us',
       'jp',

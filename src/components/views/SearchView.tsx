@@ -22,7 +22,7 @@ import type { NavigationItem } from '@/lib/navigation';
 import type { ViewType } from '@/types/music';
 import { usePlayerStore } from '@/store/playerStore';
 import { getSearchSourceNames } from '@/lib/sourceRegistry';
-import { playableSongs } from './newViewModel';
+import { playableSongs, queueableSongs } from './newViewModel';
 import { VirtualList } from '@/components/ui/VirtualList';
 import { useMusicCatalog } from '@/lib/musicCatalog';
 
@@ -38,7 +38,7 @@ const SEARCH_LANES: Array<{ label: string; detail: string; query: string; icon: 
   { label: 'Open catalog', detail: 'Full-length listening', query: 'creative commons', icon: <Globe /> },
 ];
 
-const SEARCH_SUGGESTIONS = ['Taylor Swift', 'J-pop', 'Lo-fi', 'Jazz', 'Classical', 'Ambient'];
+const SEARCH_SUGGESTIONS = ['YOASOBI', 'Mrs. GREEN APPLE', 'Ado', 'Taylor Swift', 'Jazz', 'Classical'];
 
 function ResultSection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
@@ -94,7 +94,7 @@ function SearchLanding({
                 key={recent}
                 type="button"
                 onClick={() => onSearch(recent)}
-                className="marea-glass-control inline-flex min-h-9 items-center gap-2 rounded-full border px-3 text-xs font-semibold text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+                className="marea-glass-control inline-flex min-h-10 items-center gap-2 rounded-full border px-3 text-xs font-semibold text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] md:min-h-9"
               >
                 <Clock className="h-3.5 w-3.5" aria-hidden />
                 {recent}
@@ -141,7 +141,7 @@ function SearchLanding({
               key={suggestion}
               type="button"
               onClick={() => onSearch(suggestion)}
-              className="min-h-8 rounded-full border border-[var(--glass-border)] px-3 text-xs font-semibold text-[var(--salt-foam)] transition-colors hover:border-[var(--glass-border-active)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+              className="min-h-10 rounded-full border border-[var(--glass-border)] px-3 text-xs font-semibold text-[var(--salt-foam)] transition-colors hover:border-[var(--glass-border-active)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] md:min-h-8"
             >
               {suggestion}
             </button>
@@ -184,14 +184,14 @@ function SearchSourceCoverage({ summaries }: { summaries: SearchProviderSummary[
   };
 
   return (
-    <div className="border-t border-[var(--glass-border)] pt-3">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+    <details className="border-t border-[var(--glass-border)] pt-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px] marker:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]">
         <span className="font-semibold text-[var(--salt-white)]">Source coverage</span>
         <span className="text-[var(--salt-mist)]">
           {responding}/{summaries.length} responding
         </span>
-      </div>
-      <div className="flex flex-wrap gap-1.5" role="list" aria-label="Search source coverage">
+      </summary>
+      <div className="mt-2 flex flex-wrap gap-1.5" role="list" aria-label="Search source coverage">
         {summaries.map((summary) => (
           <span
             key={summary.name}
@@ -205,7 +205,7 @@ function SearchSourceCoverage({ summaries }: { summaries: SearchProviderSummary[
           </span>
         ))}
       </div>
-    </div>
+    </details>
   );
 }
 
@@ -230,7 +230,10 @@ export function SearchView({
   const clearRecentSearches = usePlayerStore((state) => state.clearRecentSearches);
   const playAlbum = usePlayerStore((state) => state.playAlbum);
   const canSearch = debouncedQuery.trim().length >= 2;
-  const [accessMode, setAccessMode] = useState<AudioAccessMode>('full');
+  // Search should expose the mainstream catalog immediately. Full-track mode
+  // remains one tap away, while all-audio mode can still rank a verified full
+  // source above the clearly labelled Apple/Deezer preview when one exists.
+  const [accessMode, setAccessMode] = useState<AudioAccessMode>('all');
   const searchSources = useMemo(() => getSearchSourceNames(process.env.NEXT_PUBLIC_LX_ENABLED === 'true'), []);
   const requestedSource = sourceFilter !== 'all' && searchSources.includes(sourceFilter) ? sourceFilter : 'all';
 
@@ -246,6 +249,7 @@ export function SearchView({
     data: searchState,
     isLoading,
     isError,
+    isFetched: isTrackSearchFetched,
     error,
     refetch,
   } = useQuery({
@@ -255,20 +259,20 @@ export function SearchView({
     staleTime: 30_000,
   });
 
-  // Artists and albums load beside the tracks rather than behind a tab, so a
-  // search for a performer answers with the performer instead of making you
-  // recognise them from a track list. Each is its own query: a slow album index
-  // must not hold back the track results, which are what most searches want.
+  // Tracks are the primary intent. Once that federation settles, enrich the
+  // page with artists and albums. Starting all three federations together
+  // created a 25+ request burst for every keystroke on mobile connections.
+  const entitySearchEnabled = canSearch && isTrackSearchFetched;
   const { data: artistState } = useQuery({
     queryKey: ['search-artists', debouncedQuery, requestedSource],
     queryFn: ({ signal }) => catalog.searchArtists(debouncedQuery, signal, requestedSource),
-    enabled: canSearch,
+    enabled: entitySearchEnabled,
     staleTime: 30_000,
   });
   const { data: albumState } = useQuery({
     queryKey: ['search-albums', debouncedQuery, requestedSource],
     queryFn: ({ signal }) => catalog.searchAlbums(debouncedQuery, signal, requestedSource),
-    enabled: canSearch,
+    enabled: entitySearchEnabled,
     staleTime: 30_000,
   });
 
@@ -298,18 +302,22 @@ export function SearchView({
   const { topMatches, remainingTracks } = useMemo(() => splitTopSearchMatches(results ?? []), [results]);
   const allProvidersFailed = searchState ? areAllSearchProvidersUnavailable(searchState) : false;
   const playableResults = useMemo(() => playableSongs(results ?? []), [results]);
-  const sourceCount = useMemo(() => new Set((results ?? []).map((song) => song.provider)).size, [results]);
+  const queueResults = useMemo(() => queueableSongs(playableResults), [playableResults]);
+  const respondingSourceCount = useMemo(
+    () => new Set(sourceFilteredResults.map((song) => song.provider)).size,
+    [sourceFilteredResults],
+  );
   const sourceCoverage = useMemo(
     () =>
       searchState
         ? summarizeSearchProviders(
             requestedSource === 'all' ? searchSources : [requestedSource],
-            results ?? [],
+            sourceFilteredResults,
             searchState.failedProviders,
             searchState.degradedProviders,
           )
         : [],
-    [requestedSource, results, searchSources, searchState],
+    [requestedSource, searchSources, searchState, sourceFilteredResults],
   );
   const unavailableProviders = useMemo(
     () => [...new Set([...(searchState?.failedProviders ?? []), ...(searchState?.degradedProviders ?? [])])],
@@ -345,7 +353,7 @@ export function SearchView({
             aria-label="Filter search results by source"
             value={activeSourceFilter}
             onChange={(event) => onSourceFilterChange?.(event.target.value)}
-            className="marea-glass-control h-9 min-w-0 flex-1 rounded-lg border px-2.5 text-xs font-semibold text-[var(--salt-white)] outline-none focus:border-[var(--glass-border-active)] focus:ring-2 focus:ring-[var(--salt-primary)]/15 sm:w-[220px] sm:flex-none"
+            className="marea-glass-control h-10 min-w-0 flex-1 rounded-lg border px-2.5 text-xs font-semibold text-[var(--salt-white)] outline-none focus:border-[var(--glass-border-active)] focus:ring-2 focus:ring-[var(--salt-primary)]/15 lg:h-9 sm:w-[220px] sm:flex-none"
           >
             <option value="all">All sources ({sourceOptions.length})</option>
             {sourceOptions.map((source) => (
@@ -401,7 +409,7 @@ export function SearchView({
               <span className="px-1 text-[var(--pearl-whisper)]" aria-hidden>
                 |
               </span>
-              <span>{sourceCount} sources returned matches</span>
+              <span>{respondingSourceCount} sources returned matches</span>
               <span className="px-1 text-[var(--pearl-whisper)]" aria-hidden>
                 |
               </span>
@@ -412,12 +420,17 @@ export function SearchView({
             </div>
             <button
               type="button"
-              onClick={() => playAlbum(playableResults, 0)}
-              disabled={playableResults.length === 0}
-              className="marea-primary-action inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold text-white disabled:cursor-not-allowed"
+              onClick={() => playAlbum(queueResults, 0)}
+              disabled={queueResults.length === 0}
+              title={
+                queueResults.length < playableResults.length
+                  ? 'Queue the highest-ranked results with a limited number of resolver matches for reliable transitions.'
+                  : 'Play all results'
+              }
+              className="marea-primary-action inline-flex h-10 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold text-white disabled:cursor-not-allowed lg:h-9"
             >
               <Play className="h-3.5 w-3.5" aria-hidden />
-              Play all ({playableResults.length})
+              Play all ({queueResults.length})
             </button>
           </div>
           {unavailableProviders.length > 0 && (

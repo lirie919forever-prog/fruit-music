@@ -46,6 +46,6 @@ export function getSourceHealth(): SourceHealthSnapshot[] {
       return { name: source.name, readiness: 'ready', detail: 'Available for imported files' };
     }
 
-    return { name: source.name, readiness: 'ready', detail: 'Public adapter enabled' };
+    return { name: source.name, readiness: 'ready', detail: 'Configured adapter; runtime status is checked when used' };
   });
 }

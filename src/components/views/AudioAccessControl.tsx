@@ -32,7 +32,7 @@ export function AudioAccessControl({
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(option.mode)}
-            className={`h-8 min-w-0 rounded-md px-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${selected ? 'bg-white/80 text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
+            className={`h-10 min-w-0 rounded-md px-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] lg:h-8 ${selected ? 'bg-white/80 text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
           >
             <span className="block truncate">{option.label}</span>
           </button>

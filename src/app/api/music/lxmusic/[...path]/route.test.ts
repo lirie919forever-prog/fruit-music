@@ -146,7 +146,8 @@ describe('LX Music API route', () => {
             'content-range': 'bytes 0-1/181521',
           },
         }),
-      );
+      )
+      .mockResolvedValueOnce(new Response('public stream unavailable', { status: 503 }));
 
     const response = await GET(
       new Request(
@@ -157,6 +158,52 @@ describe('LX Music API route', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ available: false, provider: 'LX Music', code: 'short' });
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('uses the public NetEase CDN when the configured resolver only returns a short sample', async () => {
+    delete process.env.LX_API_BASE;
+    process.env.LX_RESOLVER_BASE = 'https://resolver.example.test';
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ url: 'https://resolver.example.test/media/song.mp3' }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-1/181521',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://m701.music.126.net/path/full-song.mp3' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-1/8468942',
+          },
+        }),
+      );
+
+    const response = await GET(
+      new Request(
+        'http://localhost/api/music/lxmusic/url?id=lxmusic-wy_1_123&platform=wy&rawId=123&type=1&probe=1&expected=180',
+      ),
+      { params: Promise.resolve({ path: ['url'] }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ available: true, provider: 'LX Music', source: 'netease' });
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(String(vi.mocked(fetch).mock.calls[2][0])).toContain('https://api.injahow.cn/meting/');
+    expect(String(vi.mocked(fetch).mock.calls[3][0])).toBe('https://m701.music.126.net/path/full-song.mp3');
   });
 
   it('reports an unavailable media probe as a normal provider result', async () => {
@@ -233,6 +280,33 @@ describe('LX Music API route', () => {
     expect(headers.get('User-Agent')).toBe('lx-music-api/1.0');
   });
 
+  it('enriches NetEase search identities with public recording durations', async () => {
+    process.env.LX_API_BASE = 'https://lx.xiaomusic.dpdns.org';
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          data: {
+            total: 1,
+            result: [{ id: 2745026895, name: 'IRIS OUT', ar: [{ name: '\u7c73\u6d25\u7384\u5e2b' }], platform: 'wy' }],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ songs: [{ id: 2745026895, duration: 151626 }] }));
+
+    const response = await GET(new Request('http://localhost/api/music/lxmusic/search?key=IRIS%20OUT'), {
+      params: Promise.resolve({ path: ['search'] }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: { result: [{ id: 2745026895, dt: 151626 }] },
+    });
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toContain('https://music.163.com/api/song/detail');
+    expect(new URL(String(vi.mocked(fetch).mock.calls[1][0])).searchParams.get('ids')).toBe('[2745026895]');
+  });
+
   it('validates search type parameter', async () => {
     const GET = await loadRoute();
     const url = new URL('http://localhost/api/music/lxmusic/search');
@@ -307,7 +381,7 @@ describe('LX Music API route', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('falls back to the community search API only when the LX API is not ok', async () => {
+  it('enriches community fallback results after the LX API is unavailable', async () => {
     process.env.LX_API_BASE = 'https://lx.xiaomusic.dpdns.org';
     const GET = await loadRoute();
     // 530 is not `ok`, so the old `response.ok && response.status !== 530`
@@ -315,8 +389,12 @@ describe('LX Music API route', () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response('down', { status: 530 }))
       .mockResolvedValueOnce(
-        Response.json({ code: 200, data: [{ id: 7, song: 'Track', singer: 'A/B', album: 'Album' }] }),
-      );
+        Response.json({
+          code: 200,
+          data: [{ id: 2745026895, song: 'IRIS OUT', singer: '米津玄師', album: 'IRIS OUT' }],
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ songs: [{ id: 2745026895, duration: 151626 }] }));
 
     const url = new URL('http://localhost/api/music/lxmusic/search');
     url.searchParams.set('key', 'test');
@@ -325,7 +403,8 @@ describe('LX Music API route', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       code: 0,
-      data: { result: [{ id: 7, name: 'Track', ar: [{ name: 'A' }, { name: 'B' }], platform: 'wy' }] },
+      data: { result: [{ id: 2745026895, name: 'IRIS OUT', dt: 151626, platform: 'wy' }] },
     });
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 });

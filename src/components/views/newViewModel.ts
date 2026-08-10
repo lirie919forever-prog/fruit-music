@@ -34,13 +34,11 @@ export function isFullTrack(song: Song): boolean {
  * full-track filter so that label only promises direct, full-length sources.
  */
 export function isDirectFullTrack(song: Song): boolean {
-  // Include resolver sources (Kuwo, LX Music) whose tracks pass the full-track
-  // duration check. Excluding them entirely hid mainstream full-track search
-  // results behind the CC-only sources: a user searching for a chart artist
-  // saw covers and remixes, not the real full track that exists on Kuwo at
-  // 320kbps. isFullTrack already enforces a 45-second minimum for resolver
-  // tracks, so short preview clips are still excluded.
-  return song.isLive !== true && isFullTrack(song);
+  // Resolver catalogs can describe a recording that is likely full length,
+  // but they do not expose a stream until the play action verifies it. Keep
+  // that distinction here: a direct full track is immediately playable from
+  // its source, while a resolver record remains a clearly marked candidate.
+  return song.isLive !== true && !isResolverSource(song.provider) && isFullTrack(song);
 }
 
 /**
@@ -91,6 +89,37 @@ export function uniqueSongs(songs: Song[]): Song[] {
   });
 }
 
+/** Keep the first viewport anchored to the strongest mainstream catalog signal. */
+export function selectHeroSongs(
+  mainstreamSongs: Song[],
+  spotlightSongs: Song[],
+  releaseSongs: Song[],
+  limit = 2,
+): Song[] {
+  const requestedLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 2;
+  if (requestedLimit === 0) return [];
+
+  // The lead card is a listener's first play target. A direct full recording
+  // is more useful there than a licensed 30-second chart clip, while the
+  // chart shelf below still keeps the mainstream catalog prominent.
+  const directCandidates = uniqueSongs([...spotlightSongs, ...releaseSongs, ...mainstreamSongs]).filter(
+    (song) => song.playbackUnavailable !== true && isDirectFullTrack(song),
+  );
+  if (directCandidates.length > 0) return directCandidates.slice(0, requestedLimit);
+
+  // When a direct source is not available, prefer a full-length resolver
+  // candidate before an official preview. The UI labels these as VERIFY, so
+  // this remains an honest fallback rather than a claim of guaranteed audio.
+  const fullLengthCandidates = uniqueSongs([...spotlightSongs, ...mainstreamSongs, ...releaseSongs]).filter(
+    (song) => song.playbackUnavailable !== true && isFullTrack(song),
+  );
+  if (fullLengthCandidates.length > 0) return fullLengthCandidates.slice(0, requestedLimit);
+
+  return uniqueSongs([...mainstreamSongs, ...spotlightSongs, ...releaseSongs])
+    .filter((song) => song.playbackUnavailable !== true)
+    .slice(0, requestedLimit);
+}
+
 export function interleaveSongGroups(groups: Array<Song[] | undefined>, limit = Number.POSITIVE_INFINITY): Song[] {
   const populatedGroups = groups.filter((group): group is Song[] => Boolean(group?.length));
   const maxLength = Math.max(0, ...populatedGroups.map((group) => group.length));
@@ -128,6 +157,75 @@ export function interleaveSongsByProvider(groups: Array<Song[] | undefined>, lim
 
 export function playableSongs(songs: Song[]): Song[] {
   return songs.filter((song) => song.playbackUnavailable !== true);
+}
+
+/**
+ * Keeps a bulk queue useful when a search contains resolver matches.
+ *
+ * Kuwo and LX entries are catalog identities whose stream still has to be
+ * verified at playback time. A search can legitimately return dozens of them,
+ * but queueing every unverified identity makes one unavailable endpoint turn a
+ * normal play action into a long chain of retries. Keep the highest-ranked
+ * resolver matches, fill the rest from direct full-length sources, and leave
+ * individual rows free to resolve on demand.
+ */
+export const MAX_BULK_QUEUE_TRACKS = 24;
+export const MAX_UNVERIFIED_RESOLVER_QUEUE_TRACKS = 8;
+
+export function queueableSongs(songs: Song[], limit = MAX_BULK_QUEUE_TRACKS): Song[] {
+  const requestedLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : MAX_BULK_QUEUE_TRACKS;
+  if (requestedLimit === 0) return [];
+
+  const seen = new Set<string>();
+  const queue: Song[] = [];
+  let resolverCount = 0;
+
+  for (const song of songs) {
+    if (
+      queue.length >= requestedLimit ||
+      seen.has(song.id) ||
+      song.playbackUnavailable === true ||
+      song.isLive === true
+    ) {
+      continue;
+    }
+    if (isResolverSource(song.provider)) {
+      if (resolverCount >= MAX_UNVERIFIED_RESOLVER_QUEUE_TRACKS) continue;
+      resolverCount += 1;
+    }
+    seen.add(song.id);
+    queue.push(song);
+  }
+
+  return queue;
+}
+
+/**
+ * Keeps an individual resolver selection responsive without hiding the
+ * selected catalog match. Its siblings are only safe to queue when they are
+ * direct full-track sources; another resolver row would repeat the same
+ * unverified failure path immediately after the selected song.
+ */
+export function selectionQueue(song: Song, songs: Song[]): Song[] {
+  const playableTracks = playableSongs(songs);
+  if (isPreviewTrack(song)) {
+    // A chart or preview search can contain dozens of official clips. Keep
+    // the selected clip playable while avoiding an autoplay queue made only
+    // of 30-second samples; direct full-track siblings remain useful next.
+    const directTracks = playableTracks.filter(
+      (track) => track.id !== song.id && !isResolverSource(track.provider) && isDirectFullTrack(track),
+    );
+    return [song, ...directTracks];
+  }
+  if (!isResolverSource(song.provider)) {
+    const queue = queueableSongs(playableTracks);
+    return queue.some((track) => track.id === song.id) ? queue : [song];
+  }
+
+  const directTracks = playableTracks.filter(
+    (track) => track.id !== song.id && !isResolverSource(track.provider) && isDirectFullTrack(track),
+  );
+  return [song, ...directTracks];
 }
 
 function recordingKey(song: Song): string {
@@ -181,7 +279,12 @@ export function buildStationQueue(seed: Song, candidates: Song[], limit = 12): S
 export function filterSongsByAccess(songs: Song[], mode: AudioAccessMode): Song[] {
   const searchable = songs.filter(isSearchableSong);
   if (mode === 'all') return searchable;
-  return mode === 'full' ? searchable.filter(isDirectFullTrack) : searchable.filter(isPreviewTrack);
+  // A resolver record has a catalog-reported full duration but still needs a
+  // stream check at play time. It belongs in the full-track candidate filter,
+  // not in previews, and carries a VERIFY badge in the UI.
+  return mode === 'full'
+    ? searchable.filter((song) => song.isLive !== true && isFullTrack(song))
+    : searchable.filter(isPreviewTrack);
 }
 
 export function selectSongsByAccess(songs: Song[], mode: AudioAccessMode, limit = Number.POSITIVE_INFINITY): Song[] {

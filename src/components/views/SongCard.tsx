@@ -7,7 +7,7 @@ import { CoverArt } from '@/components/ui/CoverArt';
 import { TrackMenu } from '@/components/ui/TrackMenu';
 import { VirtualList } from '@/components/ui/VirtualList';
 import { isResolverSource } from '@/lib/sourceRegistry';
-import { isFullTrack, playableSongs } from './newViewModel';
+import { isFullTrack, playableSongs, selectionQueue } from './newViewModel';
 import type { NavigationItem } from '@/lib/navigation';
 import type { Song, ViewType } from '@/types/music';
 
@@ -35,7 +35,7 @@ export function FavoriteButton({ song, className = '' }: { song: Song; className
       onClick={() => toggleFavorite(song)}
       aria-label={`${favorite ? 'Remove' : 'Add'} ${song.title} ${favorite ? 'from' : 'to'} favorites`}
       aria-pressed={favorite}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base leading-none transition hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${favorite ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'} ${className}`}
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-base leading-none transition hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] lg:h-8 lg:w-8 ${favorite ? 'text-[#d84f5f]' : 'text-[var(--salt-mist)]'} ${className}`}
     >
       {favorite ? <Heart className="h-4 w-4 fill-current" aria-hidden /> : <Heart className="h-4 w-4" aria-hidden />}
     </button>
@@ -47,7 +47,7 @@ export function AudioAccessBadge({ song }: { song: Song }) {
   const unavailable = song.playbackUnavailable === true;
   const resolverMatch = isResolverSource(song.provider);
   const full = isFullTrack(song);
-  const label = unavailable ? 'OFFLINE' : live ? 'LIVE' : !full ? 'PREVIEW' : resolverMatch ? 'MATCH' : 'FULL';
+  const label = unavailable ? 'OFFLINE' : live ? 'LIVE' : !full ? 'PREVIEW' : resolverMatch ? 'VERIFY' : 'FULL';
   const title = unavailable
     ? 'Playback is unavailable for this source'
     : live
@@ -55,7 +55,7 @@ export function AudioAccessBadge({ song }: { song: Song }) {
       : !full
         ? 'Official preview clip'
         : resolverMatch
-          ? 'Mainstream catalog match; playback is verified when you press play'
+          ? 'Catalog match; stream availability is checked before playback'
           : 'Direct full-length source';
   return (
     <span
@@ -149,9 +149,10 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
   // A known-unplayable sibling must never enter the queue: it would only
   // stall playback when its turn comes around.
   const playableTracks = playableSongs(tracks);
-  const playableIndex = playableTracks.findIndex((track) => track.id === song.id);
+  const playTracks = selectionQueue(song, playableTracks);
+  const playableIndex = playTracks.findIndex((track) => track.id === song.id);
   const play = () => {
-    if (!playbackUnavailable) playAlbum(playableTracks, playableIndex);
+    if (!playbackUnavailable) playAlbum(playTracks, playableIndex);
   };
 
   return (
@@ -167,7 +168,7 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
           {isActive && isPlaying ? <EqualizerGlyph /> : index + 1}
         </span>
       )}
-      <ArtworkPlayButton song={song} onPlay={play} unavailable={playbackUnavailable} eager={index === 0} />
+      <ArtworkPlayButton song={song} onPlay={play} unavailable={playbackUnavailable} eager={index < 2} />
       <div className="min-w-0 flex-1">
         <button
           type="button"
@@ -200,11 +201,7 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
         </span>
       )}
       <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-[var(--salt-mist)] sm:block">
-        {song.isLive
-          ? 'LIVE'
-          : formatDuration(
-              song.recordingDuration && song.recordingDuration > 0 ? song.recordingDuration : song.duration,
-            )}
+        {song.isLive ? 'LIVE' : formatDuration(song.duration)}
       </span>
       <TrackMenu song={song} onNavigateWithItem={onNavigateWithItem} />
       {trailing}
@@ -265,7 +262,8 @@ function ChartRow({
   const isActive = currentSong?.id === song.id;
   const unavailable = song.playbackUnavailable === true;
   const playableTracks = playableSongs(tracks);
-  const playableIndex = playableTracks.findIndex((track) => track.id === song.id);
+  const playTracks = selectionQueue(song, playableTracks);
+  const playableIndex = playTracks.findIndex((track) => track.id === song.id);
 
   return (
     <article
@@ -280,7 +278,7 @@ function ChartRow({
       </span>
       <ArtworkPlayButton
         song={song}
-        onPlay={() => playAlbum(playableTracks, playableIndex)}
+        onPlay={() => playAlbum(playTracks, playableIndex)}
         unavailable={unavailable}
         eager={rank === 1}
       />
@@ -290,11 +288,17 @@ function ChartRow({
         >
           {song.title}
         </p>
-        <ArtistLink
-          song={song}
-          onNavigateWithItem={onNavigateWithItem}
-          className="mt-0.5 block text-xs leading-tight text-[var(--salt-mist)]"
-        />
+        <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-tight text-[var(--salt-mist)]">
+          <ArtistLink
+            song={song}
+            onNavigateWithItem={onNavigateWithItem}
+            className="min-w-0 flex-1 text-xs text-[var(--salt-mist)]"
+          />
+          <AudioAccessBadge song={song} />
+          <span className="shrink-0 text-[11px] tabular-nums text-[var(--salt-mist)]">
+            {song.isLive ? 'LIVE' : formatDuration(song.duration)}
+          </span>
+        </div>
       </div>
       {unavailable && (
         <span

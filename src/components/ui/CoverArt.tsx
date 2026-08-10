@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import Image, { type ImageProps } from 'next/image';
 import { safeCoverArt } from '@/lib/coverArt';
-import { useToast } from './Toast';
 
 const FALLBACK = '/placeholder-album.svg';
 
@@ -36,24 +35,18 @@ export function CoverArt({
   ...props
 }: Omit<ImageProps, 'src' | 'alt'> & { src?: string; alt: string }) {
   const safeSrc = safeCoverArt(src);
-  const { push } = useToast();
   const [attempt, setAttempt] = useState({ source: safeSrc, count: 0 });
-  const notifiedSourceRef = useRef<string | null>(null);
   // A tile can be reused while a virtualized list changes its song. Treating a
   // new source as a fresh image prevents a prior fallback from sticking to it.
   const count = attempt.source === safeSrc ? attempt.count : 0;
   const displaySrc = count === 0 ? safeSrc : count === 1 ? retrySource(safeSrc) : FALLBACK;
 
-  useEffect(() => {
-    if (attempt.source !== safeSrc || attempt.count < 2 || safeSrc === FALLBACK || safeSrc.startsWith('data:')) return;
-    if (notifiedSourceRef.current === safeSrc) return;
-    notifiedSourceRef.current = safeSrc;
-    push('Artwork is unavailable, so Marea is using a fallback cover.', 'info');
-  }, [attempt.count, attempt.source, push, safeSrc]);
-
-  // Next 16 deprecated `priority`. Keep accepting it from callers while
-  // forwarding the supported equivalent, and never combine preload + loading.
-  const shouldPreload = preload ?? priority ?? loading === 'eager';
+  // Next 16 supports `preload`, but it emits `loading="auto"` on the image.
+  // For this shared wrapper, `loading="eager"` is the more precise contract:
+  // it gives the browser an immediate request without turning every eager
+  // tile into a document-level preload candidate. Keep accepting the legacy
+  // flags so existing callers retain their intent.
+  const shouldLoadEagerly = preload === true || priority === true || loading === 'eager';
   return (
     <Image
       {...props}
@@ -62,7 +55,7 @@ export function CoverArt({
       width={200}
       height={200}
       sizes={sizes}
-      {...(shouldPreload ? { preload: true } : { loading })}
+      loading={shouldLoadEagerly ? 'eager' : loading}
       unoptimized={shouldServeArtworkDirectly(displaySrc)}
       onError={(event) => {
         onError?.(event);

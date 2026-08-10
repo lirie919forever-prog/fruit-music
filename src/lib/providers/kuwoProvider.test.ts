@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { kuwoProvider } from './kuwoProvider';
+import { kuwoProvider, searchKuwo } from './kuwoProvider';
 import type { Song } from '@/types/music';
 
 function song(id = 'kuwo-1'): Song {
@@ -127,6 +127,36 @@ describe('Kuwo provider', () => {
     expect(result.artist).toBe('Aditya Singh&Beats');
   });
 
+  it('keeps Kuwo version labels from SONGNAME when NAME is abbreviated', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        abslist: [
+          {
+            DC_TARGETID: '1',
+            NAME: 'IRIS OUT',
+            SONGNAME: 'IRIS OUT (trial version)',
+            ARTIST: 'Artist',
+            ALBUM: 'Album',
+            DURATION: '72',
+          },
+        ],
+      }),
+    );
+
+    const [result] = await kuwoProvider.search('IRIS OUT');
+
+    expect(result.title).toBe('IRIS OUT (trial version)');
+  });
+
+  it('marks optional resolver searches so upstream failures can degrade quietly', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ abslist: [], degraded: true }));
+
+    await expect(searchKuwo('YOASOBI', undefined, { soft: true })).resolves.toEqual([]);
+
+    const [url] = vi.mocked(fetch).mock.calls[0];
+    expect(new URL(String(url)).searchParams.get('soft')).toBe('1');
+  });
+
   it('repairs UTF-8 metadata decoded as Latin-1 by the upstream endpoint', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json({
@@ -157,6 +187,12 @@ describe('Kuwo provider', () => {
     const [url] = vi.mocked(fetch).mock.calls[0];
     expect(new URL(String(url)).searchParams.get('probe')).toBe('1');
     expect(new URL(String(url)).searchParams.get('expected')).toBe('180');
+  });
+
+  it('uses the bitrate selected by the duration-aware resolver fallback', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ available: true, bitrate: '192kmp3' }));
+
+    await expect(kuwoProvider.getStreamUrl(song())).resolves.toBe('/api/music/kuwo/url?rid=1&br=192kmp3');
   });
 
   it('does not accept a short resolver response as a playable stream', async () => {

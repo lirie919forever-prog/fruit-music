@@ -1222,4 +1222,161 @@ describe('music media proxy', () => {
     expect(invalid.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it('uses an exact country endpoint for Japan Radio Browser discovery', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([
+        {
+          stationuuid: '1adf1539-e647-44c3-85d8-b437b768fb8c',
+          name: 'Japan Pop Radio',
+          url_resolved: 'https://stream.example.test/japan-pop.mp3',
+          homepage: 'https://example.test/',
+          tags: 'jpop,music',
+          codec: 'MP3',
+          bitrate: 128,
+          countrycode: 'JP',
+          lastcheckok: 1,
+        },
+      ]),
+    );
+
+    const response = await GET(request('radio/stations?country=JP&limit=4'), context(['radio', 'stations']));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      results: [{ name: 'Japan Pop Radio', countryCode: 'JP' }],
+    });
+    const upstream = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(upstream.pathname).toBe('/json/stations/bycountrycodeexact/JP');
+    expect(upstream.searchParams.get('limit')).toBe('4');
+  });
+
+  it('keeps QQ Music search and signed-stream resolution server-controlled', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        code: 0,
+        data: {
+          song: {
+            list: [
+              {
+                songmid: '003b34Vx21nbbp',
+                songname: 'Night Run',
+                singer: [{ name: 'Artist' }],
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    const catalog = await GET(request('qq/tracks?q=artist&limit=2'), context(['qq', 'tracks']));
+
+    expect(catalog.status).toBe(200);
+    await expect(catalog.json()).resolves.toMatchObject({ results: [{ songmid: '003b34Vx21nbbp' }] });
+    const searchUrl = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(searchUrl.origin).toBe('https://c.y.qq.com');
+    expect(searchUrl.pathname).toBe('/soso/fcgi-bin/client_search_cp');
+    expect(searchUrl.searchParams.get('w')).toBe('artist');
+
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        req_1: {
+          data: {
+            midurlinfo: [
+              {
+                songmid: '003b34Vx21nbbp',
+                result: 0,
+                purl: 'C400003b34Vx21nbbp.m4a?guid=1&vkey=signed&uin=&fromtag=120032',
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    const probe = await GET(request('qq/stream/003b34Vx21nbbp?probe=1'), context(['qq', 'stream', '003b34Vx21nbbp']));
+
+    expect(probe.status).toBe(200);
+    await expect(probe.json()).resolves.toEqual({ available: true });
+    expect(new URL(String(vi.mocked(fetch).mock.calls[0][0])).origin).toBe('https://u.y.qq.com');
+
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          req_1: {
+            data: {
+              midurlinfo: [
+                {
+                  songmid: '003b34Vx21nbbp',
+                  result: 0,
+                  purl: 'C400003b34Vx21nbbp.m4a?guid=1&vkey=signed&uin=&fromtag=120032',
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response('audio', { status: 200, headers: { 'content-type': 'audio/mp4' } }));
+
+    const stream = await GET(request('qq/stream/003b34Vx21nbbp'), context(['qq', 'stream', '003b34Vx21nbbp']));
+
+    expect(stream.status).toBe(200);
+    expect(new URL(String(vi.mocked(fetch).mock.calls[1][0])).origin).toBe('https://isure6.stream.qqmusic.qq.com');
+    expect(new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers).get('referer')).toBe('https://y.qq.com/');
+  });
+
+  it('rejects a QQ media response that is too small for the requested full recording', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          req_1: {
+            data: {
+              midurlinfo: [
+                {
+                  songmid: '003b34Vx21nbbp',
+                  result: 0,
+                  purl: 'C400003b34Vx21nbbp.m4a?guid=1&vkey=signed&uin=&fromtag=120032',
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('a', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mp4',
+            'content-range': 'bytes 0-1/1000',
+          },
+        }),
+      );
+
+    const response = await GET(
+      request('qq/stream/003b34Vx21nbbp?probe=1&expected=247'),
+      context(['qq', 'stream', '003b34Vx21nbbp']),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ available: false, code: 'short' });
+    expect(new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers).get('range')).toBe('bytes=0-1');
+  });
+
+  it('rejects QQ Music records that do not expose a public signed stream', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        req_1: { data: { midurlinfo: [{ songmid: '003b34Vx21nbbp', result: 104003, purl: '' }] } },
+      }),
+    );
+
+    const response = await GET(
+      request('qq/stream/003b34Vx21nbbp?probe=1'),
+      context(['qq', 'stream', '003b34Vx21nbbp']),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ available: false });
+  });
 });

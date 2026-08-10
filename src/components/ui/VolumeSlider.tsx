@@ -19,11 +19,13 @@ export function VolumeSlider() {
         {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
       </button>
 
-      <div className="relative h-[2px] w-20 rounded-full bg-[var(--salt-ghost)] transition-all duration-200 group-hover:h-[6px] group-focus-within:h-[6px]">
-        <div
-          className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--salt-bright),var(--salt-primary))]"
-          style={{ width: `${volumePct}%` }}
-        />
+      <div className="relative h-6 w-20">
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-[var(--salt-ghost)] transition-all duration-200 group-hover:h-[6px] group-focus-within:h-[6px]">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--salt-bright),var(--salt-primary))]"
+            style={{ width: `${volumePct}%` }}
+          />
+        </div>
         <input
           type="range"
           min={0}

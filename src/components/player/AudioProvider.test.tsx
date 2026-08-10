@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEffect } from 'react';
 import { act, render, waitFor } from '@testing-library/react';
 import type { Song } from '@/types/music';
+import { NO_VERIFIED_FULL_TRACK_MESSAGE } from '@/lib/catalogTypes';
 import type { MusicCatalog } from '@/lib/catalogTypes';
 import { MusicCatalogProvider } from '@/lib/musicCatalog';
 
@@ -279,6 +280,39 @@ describe('load and play', () => {
     view.unmount();
   });
 
+  it('does not play a resolver response when its catalog duration is also preview length', async () => {
+    const catalogSong = song('catalog', { provider: 'Kuwo', duration: 30 });
+    const alternate = song('alternate', { provider: 'Jamendo', duration: 184 });
+    getPlaybackSource.mockResolvedValue({
+      song: catalogSong,
+      streamUrl: 'https://cdn.example/short.mp3',
+      candidates: [{ song: catalogSong, streamUrl: 'https://cdn.example/short.mp3' }, { song: alternate }],
+    });
+
+    const view = mount();
+    act(() => {
+      store.getState().playSong(catalogSong);
+    });
+
+    const first = await latestHowl();
+    first.setDuration(30);
+    act(() => {
+      first.fire('onload');
+    });
+
+    expect(first.unloaded).toBe(true);
+    expect(first.playCalls).toBe(0);
+    const second = await latestHowl(1);
+    second.setDuration(184);
+    act(() => {
+      second.fire('onload');
+    });
+
+    expect(store.getState()).toMatchObject({ duration: 184, isPlaying: true, status: 'playing' });
+    expect(streamUrl).toHaveBeenCalledWith(alternate);
+    view.unmount();
+  });
+
   it('resolves recovery candidates lazily after a direct source decodes as a short clip', async () => {
     const catalogSong = song('catalog', { provider: 'Kuwo', duration: 184 });
     const alternate = song('alternate', { provider: 'Audius', duration: 184 });
@@ -332,6 +366,37 @@ describe('load and play', () => {
     expect(store.getState()).toMatchObject({ duration: 184, isPlaying: true, status: 'playing' });
     expect(streamUrl).toHaveBeenCalledWith(alternate);
     expect(store.getState().currentSong?.id).toBe(catalogSong.id);
+    view.unmount();
+  });
+
+  it('does not accept an official preview returned during resolver recovery', async () => {
+    const catalogSong = song('catalog', { provider: 'LX Music', duration: 184 });
+    const preview = song('preview', { provider: 'Apple Preview', duration: 30, recordingDuration: 184 });
+    getPlaybackSource.mockResolvedValue({
+      song: catalogSong,
+      streamUrl: 'https://cdn.example/short.mp3',
+    });
+    getPlaybackAlternates.mockResolvedValue([{ song: preview }]);
+
+    const view = mount();
+    act(() => {
+      store.getState().playSong(catalogSong);
+    });
+
+    const first = await latestHowl();
+    first.setDuration(11);
+    act(() => {
+      first.fire('onload');
+    });
+
+    await waitFor(() =>
+      expect(store.getState()).toMatchObject({
+        status: 'error',
+        error: 'The provider returned a short preview instead of the full track.',
+      }),
+    );
+    expect(FakeHowl.instances).toHaveLength(1);
+    expect(store.getState().effectiveSong).toBeNull();
     view.unmount();
   });
 
@@ -436,9 +501,59 @@ describe('retry ladder', () => {
     });
     view.unmount();
   });
+
+  it('explains when a preview has no verified full recording', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    getPlaybackSource.mockRejectedValue(new Error(NO_VERIFIED_FULL_TRACK_MESSAGE));
+
+    const view = mount();
+    act(() => {
+      store.getState().playSong(song('preview-unavailable'));
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(store.getState()).toMatchObject({
+      status: 'error',
+      error: NO_VERIFIED_FULL_TRACK_MESSAGE,
+    });
+    view.unmount();
+  });
 });
 
 describe('premature end recovery', () => {
+  it('rejects an official preview that reaches the audio engine', async () => {
+    const view = mount();
+    const preview = song('apple-preview', {
+      provider: 'Apple Preview',
+      duration: 30,
+      recordingDuration: 214,
+    });
+    act(() => {
+      store.getState().toggleAutoplay();
+      store.getState().playSong(preview);
+    });
+
+    const howl = await latestHowl();
+    // A stale or mocked resolver must not be able to turn the catalog preview
+    // into a successful playback session.
+    howl.setDuration(0);
+    act(() => {
+      howl.fire('onload');
+    });
+    expect(FakeHowl.instances).toHaveLength(1);
+    expect(howl.unloaded).toBe(true);
+    expect(store.getState()).toMatchObject({
+      currentSong: preview,
+      isPlaying: false,
+      playbackIntent: false,
+      status: 'error',
+      error: NO_VERIFIED_FULL_TRACK_MESSAGE,
+    });
+    view.unmount();
+  });
+
   it('resumes from where a truncated stream stopped rather than skipping the rest', async () => {
     const view = mount();
     act(() => {

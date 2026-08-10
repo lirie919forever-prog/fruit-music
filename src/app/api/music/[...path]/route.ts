@@ -18,6 +18,9 @@ import { normalizeCreativeCommonsLicense } from '@/lib/licenses';
 const JAMENDO_API = 'https://api.jamendo.com/v3.0';
 const ITUNES_API = 'https://itunes.apple.com';
 const DEEZER_API = 'https://api.deezer.com';
+const QQ_MUSIC_SEARCH_API = 'https://c.y.qq.com/soso/fcgi-bin/client_search_cp';
+const QQ_MUSIC_VKEY_API = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
+const QQ_MUSIC_STREAM_ORIGIN = 'https://isure6.stream.qqmusic.qq.com/';
 const AUDIUS_API = 'https://api.audius.co/v1';
 const OPENVERSE_API = 'https://api.openverse.org/v1/audio';
 const WIKIMEDIA_COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
@@ -49,6 +52,7 @@ const ARCHIVE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const SOMAFM_ID = /^[a-z0-9-]{1,64}$/;
 const NTS_CHANNEL_ID = /^(?:1|2)$/;
 const RADIO_STATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const QQ_SONG_MID = /^[A-Za-z0-9]{8,32}$/;
 const CCMIXTER_MEDIA_HOSTS = new Set(['ccmixter.org', 'www.ccmixter.org']);
 const ARCHIVE_ENRICHMENT_CONCURRENCY = 4;
 const NON_MUSIC_ARCHIVE_TERMS =
@@ -59,6 +63,11 @@ const MAX_STREAM_REDIRECTS = 3;
 const OPENVERSE_USER_AGENT = 'Marea music catalog/1.0 (+https://github.com/)';
 const WIKIMEDIA_USER_AGENT = 'Marea music catalog/1.0 (+https://github.com/)';
 const RADIO_BROWSER_USER_AGENT = 'Marea music catalog/1.0 (+https://github.com/)';
+const QQ_MUSIC_HEADERS = {
+  referer: 'https://y.qq.com/',
+  'user-agent': 'Mozilla/5.0 (compatible; Marea/1.0; +https://github.com/)',
+} as const;
+const FULL_TRACK_EXPECTATION_THRESHOLD_SECONDS = 45;
 const WIKIMEDIA_UPLOAD_HOST = 'upload.wikimedia.org';
 const MIN_FULL_TRACK_DURATION_SECONDS = 60;
 const MUSIC_STATION_TERMS =
@@ -316,7 +325,7 @@ function jamendoUrl(endpoint: string, params: URLSearchParams): string {
  * and stream the response back through our own origin.
  */
 const MEDIA_HOSTS: Record<
-  'jamendo' | 'ccmixter' | 'archive' | 'itunes' | 'deezer' | 'wikimedia' | 'somafm',
+  'jamendo' | 'ccmixter' | 'archive' | 'itunes' | 'deezer' | 'qq' | 'wikimedia' | 'somafm',
   ApprovedMediaHost
 > = {
   jamendo: mediaHostAllowlist(['mp3l.jamendo.com'], ['.jamendo.com']),
@@ -324,6 +333,7 @@ const MEDIA_HOSTS: Record<
   archive: mediaHostAllowlist(['archive.org'], ['.archive.org']),
   itunes: mediaHostAllowlist([ITUNES_PREVIEW_HOST]),
   deezer: mediaHostAllowlist([], ['.dzcdn.net']),
+  qq: mediaHostAllowlist(['isure6.stream.qqmusic.qq.com', 'sjy6.stream.qqmusic.qq.com', 'aqqmusic.tc.qq.com']),
   wikimedia: mediaHostAllowlist([WIKIMEDIA_UPLOAD_HOST]),
   somafm: mediaHostAllowlist([], ['.somafm.com']),
 };
@@ -918,6 +928,179 @@ async function handleDeezer(req: NextRequest, resource: string | undefined, rest
   }
 }
 
+interface QQVkeyInfo {
+  songmid?: unknown;
+  purl?: unknown;
+  result?: unknown;
+}
+
+interface QQVkeyResponse {
+  req_1?: {
+    data?: {
+      midurlinfo?: QQVkeyInfo[];
+    };
+  };
+}
+
+function qqSongMid(value: string | undefined): NextResponse | string {
+  if (!value || !QQ_SONG_MID.test(value))
+    return NextResponse.json({ error: 'Invalid QQ Music song ID' }, { status: 400 });
+  return value;
+}
+
+/**
+ * QQ returns a relative signed media path for publicly playable records. The
+ * base origin is controlled here; a response can never turn this endpoint into
+ * an arbitrary fetch proxy.
+ */
+function qqPublicStreamUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value || value.startsWith('/') || value.includes('://')) return null;
+  let url: URL;
+  try {
+    url = new URL(value, QQ_MUSIC_STREAM_ORIGIN);
+  } catch {
+    return null;
+  }
+  if (
+    url.origin !== new URL(QQ_MUSIC_STREAM_ORIGIN).origin ||
+    !/^\/[A-Za-z0-9._-]{1,120}\.(?:m4a|mp3|flac|ogg|aac)$/i.test(url.pathname)
+  ) {
+    return null;
+  }
+  return url.toString();
+}
+
+interface QQProbeResult {
+  available: boolean;
+  code?: 'short' | 'unavailable';
+}
+
+function totalResponseBytes(response: Response): number {
+  const contentRange = response.headers.get('content-range');
+  const total = contentRange?.match(/^bytes \d+-\d+\/(\d+)$/)?.[1];
+  if (total) return Number(total);
+  const length = response.headers.get('content-length');
+  return length ? Number(length) : 0;
+}
+
+function expectedMinimumBytes(expectedDuration: number): number {
+  // Even a 32 kbps recording is larger than this floor. It rejects the common
+  // 30-second preview response without pretending bitrate metadata is exact.
+  return Math.ceil(expectedDuration * 4_000);
+}
+
+async function probeQQMedia(req: NextRequest, streamUrl: string, expectedDuration: number): Promise<QQProbeResult> {
+  const headers = new Headers(QQ_MUSIC_HEADERS);
+  headers.set('Range', 'bytes=0-1');
+  const fetched = await fetchApprovedMedia(req, streamUrl, {
+    isApproved: MEDIA_HOSTS.qq,
+    headers,
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  });
+  if (!fetched.ok) return { available: false, code: 'unavailable' };
+
+  const { response, cleanup } = fetched;
+  const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase();
+  const validStatus = response.status >= 200 && response.status < 300;
+  const validType = contentType === 'application/octet-stream' || Boolean(contentType?.startsWith('audio/'));
+  const validRange = response.status !== 206 || validContentRange(response.headers.get('content-range'));
+  const totalBytes = totalResponseBytes(response);
+  closeUpstream(response, cleanup);
+
+  if (!validStatus || !validType || !validRange) return { available: false, code: 'unavailable' };
+  if (expectedDuration > 0 && totalBytes > 0 && totalBytes < expectedMinimumBytes(expectedDuration)) {
+    return { available: false, code: 'short' };
+  }
+  return { available: true };
+}
+
+async function resolveQQStreamUrl(req: NextRequest, songMid: string): Promise<string | null> {
+  const data = {
+    comm: { ct: 24, cv: 0 },
+    req_1: {
+      module: 'vkey.GetVkeyServer',
+      method: 'CgiGetVkey',
+      param: {
+        guid: '1',
+        songmid: [songMid],
+        songtype: [0],
+        uin: '0',
+        loginflag: 1,
+        platform: '20',
+      },
+    },
+  };
+  const url = new URL(QQ_MUSIC_VKEY_API);
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('data', JSON.stringify(data));
+  const upstream = await upstreamFetch(req, url.toString(), { headers: QQ_MUSIC_HEADERS });
+  if (!upstream.ok) return null;
+  const payload = (await upstream.json()) as QQVkeyResponse;
+  const info = payload.req_1?.data?.midurlinfo?.find((candidate) => candidate.songmid === songMid);
+  if (!info || info.result !== 0) return null;
+  return qqPublicStreamUrl(info.purl);
+}
+
+async function handleQQMusic(req: NextRequest, resource: string | undefined, rest: string[]): Promise<NextResponse> {
+  if (resource === 'stream') {
+    const songMid = qqSongMid(rest[0]);
+    if (songMid instanceof NextResponse) return songMid;
+    if (rest.length !== 1) return NextResponse.json({ error: 'Invalid QQ Music stream path' }, { status: 400 });
+    const probe = req.nextUrl.searchParams.get('probe');
+    if (probe !== null && probe !== '1') return NextResponse.json({ error: 'Invalid QQ Music probe' }, { status: 400 });
+    const expectedDuration = Number(req.nextUrl.searchParams.get('expected'));
+    const fullTrackExpected =
+      Number.isFinite(expectedDuration) && expectedDuration > FULL_TRACK_EXPECTATION_THRESHOLD_SECONDS
+        ? expectedDuration
+        : 0;
+
+    try {
+      const streamUrl = await resolveQQStreamUrl(req, songMid);
+      if (probe === '1') {
+        if (fullTrackExpected > 0 && streamUrl) {
+          const result = await probeQQMedia(req, streamUrl, fullTrackExpected);
+          return NextResponse.json(result, { headers: { 'Cache-Control': 'private, no-store' } });
+        }
+        return NextResponse.json(
+          { available: Boolean(streamUrl) },
+          { headers: { 'Cache-Control': 'private, no-store' } },
+        );
+      }
+      if (!streamUrl) return new NextResponse('Public QQ Music stream unavailable', { status: 404 });
+      return proxyStream(req, streamUrl, MEDIA_HOSTS.qq, QQ_MUSIC_HEADERS);
+    } catch (error) {
+      return providerFailure(error, 'QQ Music stream fetch failed');
+    }
+  }
+
+  if (resource !== 'tracks' || rest.length > 0) {
+    return NextResponse.json({ error: `Unknown QQ Music endpoint: ${resource ?? ''}` }, { status: 400 });
+  }
+
+  const searchParams = req.nextUrl.searchParams;
+  const query = queryValue(searchParams, 'q', 'query');
+  if (query instanceof NextResponse) return query;
+  const limit = boundedLimit(searchParams, 40, 50);
+  if (limit instanceof NextResponse) return limit;
+
+  try {
+    const url = new URL(QQ_MUSIC_SEARCH_API);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('p', '1');
+    url.searchParams.set('n', limit);
+    url.searchParams.set('w', query);
+    const upstream = await upstreamFetch(req, url.toString(), { headers: QQ_MUSIC_HEADERS });
+    if (!upstream.ok) return NextResponse.json({ error: 'QQ Music upstream error' }, { status: 502 });
+    const payload = (await upstream.json()) as { data?: { song?: { list?: unknown[] } }; code?: unknown };
+    if (payload.code !== undefined && payload.code !== 0) {
+      return NextResponse.json({ error: 'QQ Music upstream error' }, { status: 502 });
+    }
+    return catalogResponse({ results: Array.isArray(payload.data?.song?.list) ? payload.data.song.list : [] });
+  } catch (error) {
+    return providerFailure(error, 'QQ Music search failed');
+  }
+}
+
 function audiusRecords(payload: unknown): unknown[] {
   if (!payload || typeof payload !== 'object') return [];
   const data = (payload as { data?: unknown }).data;
@@ -1389,7 +1572,8 @@ async function handleRadioBrowser(
   const id = searchParams.get('id');
   const query = searchParams.get('q');
   const tag = searchParams.get('tag');
-  if (selectorCount([id, query, tag]) > 1) {
+  const country = searchParams.get('country');
+  if (selectorCount([id, query, tag, country]) > 1) {
     return NextResponse.json({ error: 'Choose one radio station selector' }, { status: 400 });
   }
   const limit = boundedLimit(searchParams, 20, 50);
@@ -1408,6 +1592,12 @@ async function handleRadioBrowser(
     endpoint = '/stations/search';
     searchKey = query !== null ? 'name' : 'tag';
     searchTerm = selector;
+  } else if (country !== null) {
+    const normalizedCountry = country.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(normalizedCountry)) {
+      return NextResponse.json({ error: 'Invalid radio country' }, { status: 400 });
+    }
+    endpoint = `/stations/bycountrycodeexact/${encodeURIComponent(normalizedCountry)}`;
   } else {
     endpoint = `/stations/topclick/${limit}`;
   }
@@ -1681,6 +1871,8 @@ export async function GET(
       return handleItunes(req, resource, rest);
     case 'deezer':
       return handleDeezer(req, resource, rest);
+    case 'qq':
+      return handleQQMusic(req, resource, rest);
     case 'audius':
       return handleAudius(req, resource, rest);
     case 'openverse':

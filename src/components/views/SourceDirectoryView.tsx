@@ -51,7 +51,7 @@ function CapabilityBadge({ capability }: { capability: SourceCapability }) {
 function IntegrationBadge({ readiness }: { readiness?: SourceReadiness }) {
   const label =
     readiness === 'ready'
-      ? 'Ready'
+      ? 'Configured'
       : readiness === 'setup-required'
         ? 'Setup required'
         : readiness === 'disabled'
@@ -133,13 +133,13 @@ export function SourceDirectoryView({ onSearchSource }: { onSearchSource?: (sour
         </h2>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[var(--salt-mist)]">
           Marea keeps direct full-track catalogs, resolver matches, live stations, official previews, and metadata
-          references separate. Ready means this build has the configuration needed to invoke the adapter; upstream
-          outages are still reported in the view that queried them.
+          references separate. Configured means this build can invoke the adapter; upstream availability is checked when
+          a view or playback request uses it.
         </p>
       </header>
 
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-        <SummaryStat value={connectedSources} label="Ready adapters" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
+        <SummaryStat value={connectedSources} label="Configured adapters" />
         <SummaryStat value={playableSources} label="Full-track catalogs" />
         <SummaryStat value={matchSources} label="Resolver match sources" />
         <SummaryStat value={liveSources} label="Live radio networks" />
@@ -158,7 +158,7 @@ export function SourceDirectoryView({ onSearchSource }: { onSearchSource?: (sour
             role="radio"
             aria-checked={filter === option.value}
             onClick={() => setFilter(option.value)}
-            className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${filter === option.value ? 'bg-white text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
+            className={`min-h-11 rounded-lg px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] sm:min-h-9 ${filter === option.value ? 'bg-white text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
           >
             {option.label}
           </button>
@@ -169,7 +169,7 @@ export function SourceDirectoryView({ onSearchSource }: { onSearchSource?: (sour
           disabled={isHealthLoading}
           aria-label="Refresh source status"
           title="Refresh source status"
-          className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--salt-mist)] transition-colors hover:bg-white hover:text-[var(--salt-primary)] disabled:cursor-wait disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+          className="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-lg text-[var(--salt-mist)] transition-colors hover:bg-white hover:text-[var(--salt-primary)] disabled:cursor-wait disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] sm:h-9 sm:w-9"
         >
           <RotateCw className={`h-4 w-4 ${isHealthLoading ? 'animate-spin' : ''}`} aria-hidden />
         </button>
@@ -220,7 +220,7 @@ export function SourceDirectoryView({ onSearchSource }: { onSearchSource?: (sour
                   <button
                     type="button"
                     onClick={() => onSearchSource?.(source.name)}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-[var(--salt-primary)] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#1f6f9b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+                    className="inline-flex h-11 items-center justify-center gap-1.5 rounded-full bg-[var(--salt-primary)] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#1f6f9b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] sm:h-9"
                   >
                     Search source
                     <Search className="h-3.5 w-3.5" aria-hidden />
@@ -231,7 +231,7 @@ export function SourceDirectoryView({ onSearchSource }: { onSearchSource?: (sour
                     href={source.homepage}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-[var(--glass-border)] px-3 text-xs font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+                    className="inline-flex h-11 items-center justify-center gap-1.5 rounded-full border border-[var(--glass-border)] px-3 text-xs font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] sm:h-9"
                   >
                     Open source
                     <ExternalLink className="h-3.5 w-3.5" aria-hidden />
@@ -248,9 +248,9 @@ export function SourceDirectoryView({ onSearchSource }: { onSearchSource?: (sour
 
 function SummaryStat({ value, label }: { value: number; label: string }) {
   return (
-    <div className="marea-glass-surface rounded-xl border px-4 py-3">
-      <p className="text-2xl font-bold text-[var(--salt-white)]">{value}</p>
-      <p className="mt-1 text-xs text-[var(--salt-mist)]">{label}</p>
+    <div className="marea-glass-surface rounded-xl border px-3 py-2 sm:px-4 sm:py-3">
+      <p className="text-xl font-bold text-[var(--salt-white)] sm:text-2xl">{value}</p>
+      <p className="mt-1 text-[11px] text-[var(--salt-mist)] sm:text-xs">{label}</p>
     </div>
   );
 }

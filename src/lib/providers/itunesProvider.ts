@@ -242,9 +242,14 @@ const BROWSE_SEEDS = ['pop', 'rock', 'hip-hop', 'jazz', 'classical', 'electronic
  * release timestamp gives the New page a useful, live recent-release rail
  * without inventing dates or depending on a private feed.
  */
-function recentReleaseSeeds(): string[] {
+function recentReleaseSeeds(limit: number): string[] {
   const year = new Date().getUTCFullYear();
-  return [String(year), String(year - 1), 'new music', 'pop', 'j-pop'];
+  const seeds = [String(year), 'j-pop', 'new music', 'pop', String(year - 1)];
+  // The New page only needs a compact rail. Two broad, current queries are
+  // enough for small requests, and larger consumers can opt into the wider
+  // live catalog without paying ten upstream requests by default.
+  const seedCount = limit <= 12 ? 2 : limit <= 24 ? 3 : seeds.length;
+  return seeds.slice(0, seedCount);
 }
 
 function seedFor(offset: number): string {
@@ -288,7 +293,7 @@ export const itunesProvider: ItunesProvider = {
     const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 20;
     const cappedLimit = Math.max(1, Math.min(normalizedLimit, 50));
     const settled = await Promise.allSettled(
-      recentReleaseSeeds().flatMap((term) =>
+      recentReleaseSeeds(cappedLimit).flatMap((term) =>
         SEARCH_COUNTRIES.map(async (country) => ({
           country,
           results: await itunesFetch('search', { term, entity: 'song', limit: '40', country }, signal),

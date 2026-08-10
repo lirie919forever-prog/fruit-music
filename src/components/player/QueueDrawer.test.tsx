@@ -128,6 +128,27 @@ describe('QueueDrawer modality', () => {
 });
 
 describe('QueueDrawer actions', () => {
+  it('shows the verified playback source and duration for the active queue item', async () => {
+    mount();
+    const resolved = {
+      ...song('qq-resolved'),
+      provider: 'QQ Music' as const,
+      duration: 235,
+    };
+    store.getState().setEffectiveSong(resolved);
+    store.getState().setDuration(resolved.duration);
+
+    const dialog = await openDrawer();
+    const list = within(dialog).getByRole('list', { name: 'Playback queue' });
+
+    expect(within(list).getByText('QQ Music')).toBeInTheDocument();
+    expect(within(list).getByText('3:55')).toBeInTheDocument();
+    expect(within(list).getByText('QQ Music')).toHaveAttribute(
+      'title',
+      'Playback resolved via QQ Music; selected from Jamendo',
+    );
+  });
+
   it('reorders, removes, plays, toggles autoplay, clears, and opens the full player', async () => {
     mount();
     const dialog = await openDrawer();

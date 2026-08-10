@@ -58,6 +58,33 @@ function album(id: string, name: string, artistName: string): Album {
 }
 
 describe('search view model', () => {
+  it('ranks an original recording above covers for a combined artist and Japanese title query', () => {
+    const original = song('itunes-original', {
+      provider: 'Apple Preview',
+      title: '\u591c\u306b\u99c6\u3051\u308b',
+      artist: 'YOASOBI',
+      duration: 30,
+    });
+    const musicBoxCover = song('deezer-music-box', {
+      provider: 'Deezer Preview',
+      title: '\u591c\u306b\u99c6\u3051\u308b (YOASOBI)',
+      artist: '\u30b3\u30ed\u30e0\u30d3\u30a2\u30aa\u30eb\u30b4\u30fc\u30eb',
+      duration: 30,
+    });
+    const karaokeCover = song('itunes-karaoke', {
+      provider: 'Apple Preview',
+      title: '\u591c\u306b\u99c6\u3051\u308b \u30ab\u30e9\u30aa\u30b1',
+      artist: '\u6b4c\u3063\u3061\u3083\u738b',
+      duration: 30,
+    });
+
+    expect(
+      rankSearchSongs([musicBoxCover, karaokeCover, original], 'YOASOBI \u591c\u306b\u99c6\u3051\u308b').map(
+        ({ id }) => id,
+      ),
+    ).toEqual(['itunes-original', 'deezer-music-box', 'itunes-karaoke']);
+  });
+
   it('prioritizes an exact artist match over an unrelated track named after the artist', () => {
     const namedAfterArtist = song('audius-title', { title: 'Taylor Swift', artist: 'Someone Else' });
     const officialArtistMatch = song('itunes-artist', { provider: 'Apple Preview', duration: 30 });
@@ -66,6 +93,33 @@ describe('search view model', () => {
       'itunes-artist',
       'audius-title',
     ]);
+  });
+
+  it('uses repeated exact artist evidence to beat an equal-provider title collision', () => {
+    const titleCollision = song('itunes-title-collision', {
+      provider: 'Apple Preview',
+      title: 'YOASOBI',
+      artist: 'KIRA & 下拓',
+      duration: 30,
+    });
+    const firstArtistTrack = song('itunes-artist-track-1', {
+      provider: 'Apple Preview',
+      title: '夜に駆ける',
+      artist: 'YOASOBI',
+      duration: 30,
+      recordingDuration: 261,
+    });
+    const secondArtistTrack = song('itunes-artist-track-2', {
+      provider: 'Apple Preview',
+      title: '怪物',
+      artist: 'YOASOBI',
+      duration: 30,
+      recordingDuration: 222,
+    });
+
+    expect(
+      rankSearchSongs([titleCollision, firstArtistTrack, secondArtistTrack], 'YOASOBI').map(({ id }) => id),
+    ).toEqual(['itunes-artist-track-1', 'itunes-artist-track-2', 'itunes-title-collision']);
   });
 
   it('prioritizes an exact song title over a track whose artist has that name', () => {
@@ -124,6 +178,208 @@ describe('search view model', () => {
       'kuwo-exact-artist-recording',
       'kuwo-title-collision',
     ]);
+  });
+
+  it('uses cross-provider identity evidence for full-track same-title collisions', () => {
+    const apple = song('itunes-iris-out', {
+      provider: 'Apple Preview',
+      title: 'IRIS OUT',
+      artist: 'Kenshi Yonezu',
+      duration: 30,
+      recordingDuration: 152,
+    });
+    const deezer = song('deezer-iris-out', {
+      provider: 'Deezer Preview',
+      title: 'IRIS OUT',
+      artist: 'Kenshi Yonezu',
+      duration: 30,
+      recordingDuration: 151,
+    });
+    const lxMatch = song('lxmusic-iris-out', {
+      provider: 'LX Music',
+      title: 'IRIS OUT',
+      artist: 'Kenshi Yonezu',
+      duration: 152,
+      metadataVerified: true,
+    });
+    const sameTitleAlternative = song('kuwo-rime-iris-out', {
+      provider: 'Kuwo',
+      title: 'IRIS OUT',
+      artist: 'rime',
+      duration: 149,
+      metadataVerified: false,
+    });
+
+    expect(
+      rankSearchSongsForAccess([sameTitleAlternative, apple, deezer, lxMatch], 'IRIS OUT', 'full').map(({ id }) => id),
+    ).toEqual(['lxmusic-iris-out', 'kuwo-rime-iris-out']);
+  });
+
+  it('keeps a full upload with the known Japanese artist above exact-title covers', () => {
+    const apple = song('itunes-yoru-ni-kakeru', {
+      provider: 'Apple Preview',
+      title: '夜に駆ける',
+      artist: 'YOASOBI',
+      duration: 30,
+      recordingDuration: 261,
+    });
+    const deezer = song('deezer-yoru-ni-kakeru', {
+      provider: 'Deezer Preview',
+      title: '夜に駆ける',
+      artist: 'YOASOBI',
+      duration: 30,
+      recordingDuration: 261,
+    });
+    const cover = song('kuwo-yoru-cover', {
+      provider: 'Kuwo',
+      title: '夜に駆ける',
+      artist: 'Amelia Khor',
+      duration: 269,
+      metadataVerified: false,
+    });
+    const taggedUpload = song('audius-yoru-tagged', {
+      provider: 'Audius',
+      title: '夜に駆ける - YOASOBI',
+      artist: 'Myeong Kyu',
+      duration: 259,
+      metadataVerified: true,
+    });
+
+    expect(
+      rankSearchSongsForAccess([cover, apple, deezer, taggedUpload], '夜に駆ける', 'full').map(({ id }) => id),
+    ).toEqual(['audius-yoru-tagged', 'kuwo-yoru-cover']);
+  });
+
+  it('prefers a clean mainstream resolver identity over an open duplicate', () => {
+    const archive = song('archive-idol', {
+      provider: 'Archive',
+      title: 'Idol',
+      artist: 'YOASOBI',
+      duration: 213,
+    });
+    const kuwo = song('kuwo-idol', {
+      provider: 'Kuwo',
+      title: 'Idol',
+      artist: 'YOASOBI',
+      duration: 213,
+      metadataVerified: false,
+    });
+
+    expect(rankSearchSongsForAccess([archive, kuwo], 'Idol', 'full').map(({ id }) => id)).toEqual(['kuwo-idol']);
+  });
+
+  it('keeps mainstream resolver identities ahead of open uploads in a full artist search', () => {
+    const archive = song('archive-yoasobi-upload', {
+      provider: 'Archive',
+      title: '三原色',
+      artist: 'YOASOBI',
+      duration: 228,
+    });
+    const resolverAlternate = song('qq-yoasobi-english', {
+      provider: 'QQ Music',
+      title: 'Orion (English Version)',
+      artist: 'YOASOBI',
+      duration: 224,
+    });
+    const cleanResolver = song('qq-yoasobi-orion', {
+      provider: 'QQ Music',
+      title: 'オリオン',
+      artist: 'YOASOBI (ヨアソビ)',
+      duration: 222,
+    });
+    const shortResolverAlternate = song('kuwo-yoasobi-interlude', {
+      provider: 'Kuwo',
+      title: 'Interlude "Worship"',
+      artist: 'YOASOBI',
+      duration: 83,
+    });
+
+    expect(
+      rankSearchSongsForAccess(
+        [archive, shortResolverAlternate, resolverAlternate, cleanResolver],
+        'YOASOBI',
+        'full',
+      ).map(({ id }) => id),
+    ).toEqual(['qq-yoasobi-orion', 'qq-yoasobi-english', 'archive-yoasobi-upload', 'kuwo-yoasobi-interlude']);
+  });
+
+  it('pushes live and cover markers below a clean Japanese resolver result', () => {
+    const live = song('kuwo-live', {
+      provider: 'Kuwo',
+      title: '怪物 (2026 ライブ 現場版)',
+      artist: 'YOASOBI',
+      duration: 229,
+    });
+    const studio = song('kuwo-studio', {
+      provider: 'Kuwo',
+      title: '怪物',
+      artist: 'YOASOBI',
+      duration: 229,
+    });
+
+    expect(rankSearchSongsForAccess([live, studio], '怪物', 'full').map(({ id }) => id)).toEqual([
+      'kuwo-studio',
+      'kuwo-live',
+    ]);
+  });
+
+  it('keeps official Japanese identities above noisy resolver alternates in All audio', () => {
+    const officialTracks = [
+      song('itunes-yoru-ni-kakeru', {
+        provider: 'Apple Preview',
+        title: '\u591c\u306b\u99c6\u3051\u308b',
+        artist: 'YOASOBI',
+        duration: 30,
+      }),
+      song('itunes-gunjou', {
+        provider: 'Apple Preview',
+        title: '\u7fa4\u9752',
+        artist: 'YOASOBI',
+        duration: 30,
+      }),
+      song('itunes-idol', {
+        provider: 'Apple Preview',
+        title: '\u30a2\u30a4\u30c9\u30eb',
+        artist: 'YOASOBI',
+        duration: 30,
+      }),
+    ];
+    const noisyAlternates = [
+      song('archive-sanshoku', {
+        provider: 'Archive',
+        title: '\u4e09\u539f\u8272',
+        artist: 'Yoasobi',
+        duration: 228,
+      }),
+      song('kuwo-translated', {
+        provider: 'Kuwo',
+        title: '\u6d77\u306e\u307e\u306b\u307e\u306b (\u4efb\u7531\u6d77\u6ce2\u8361\u6f3e)',
+        artist: 'YOASOBI',
+        duration: 226,
+      }),
+      song('kuwo-interlude', {
+        provider: 'Kuwo',
+        title: 'Interlude "Worship"',
+        artist: 'YOASOBI',
+        duration: 83,
+      }),
+      song('kuwo-festival-live', {
+        provider: 'Kuwo',
+        title: '\u602a\u7269 (2026 Lollapalooza\u97f3\u4e50\u8282\u829d\u52a0\u54e5\u7ad9\u73b0\u573a)',
+        artist: 'YOASOBI',
+        duration: 229,
+      }),
+      song('kuwo-uploader-title', {
+        provider: 'Kuwo',
+        title: 'YOASOBI-\u30a2\u30a4\u30c9\u30eb',
+        artist: '\u4e8c\u6b21\u5143\u7a7a\u9593&YOASOBI',
+        duration: 216,
+      }),
+    ];
+
+    const ranked = rankSearchSongsForAccess([...noisyAlternates, ...officialTracks], 'YOASOBI', 'all');
+    expect(ranked.slice(0, 3).map(({ id }) => id)).toEqual(['itunes-yoru-ni-kakeru', 'itunes-gunjou', 'itunes-idol']);
+    expect(ranked).toEqual(expect.arrayContaining(noisyAlternates));
   });
 
   it('keeps the higher-confidence provider when sources return the same track identity', () => {
@@ -200,6 +456,17 @@ describe('search view model', () => {
       topMatches: songs.slice(0, 3),
       remainingTracks: songs.slice(3),
     });
+  });
+
+  it('puts a deep official preview lane above open uploads in the compact shelf', () => {
+    const archive = song('archive-upload', { provider: 'Archive', title: '\u4e09\u539f\u8272', artist: 'Yoasobi' });
+    const official = ['\u591c\u306b\u99c6\u3051\u308b', '\u7fa4\u9752', '\u30a2\u30a4\u30c9\u30eb'].map(
+      (title, index) =>
+        song(`itunes-official-${index}`, { provider: 'Apple Preview', title, artist: 'YOASOBI', duration: 30 }),
+    );
+
+    expect(splitTopSearchMatches([archive, ...official], 3).topMatches).toEqual(official);
+    expect(splitTopSearchMatches([archive, ...official], 3).remainingTracks).toEqual([archive]);
   });
 
   it('deduplicates provider artist records and keeps the strongest exact match', () => {

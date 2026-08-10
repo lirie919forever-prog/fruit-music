@@ -57,6 +57,23 @@ describe('Kuwo API route', () => {
     });
   });
 
+  it('returns a quiet degraded result for optional resolver searches', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('upstream unavailable', { status: 503 }));
+
+    const response = await GET(request('search?key=YOASOBI&soft=1'), {
+      params: Promise.resolve({ path: ['search'] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    await expect(response.json()).resolves.toEqual({
+      abslist: [],
+      degraded: true,
+      error: 'Kuwo upstream error (status 503)',
+    });
+  });
+
   it('parses apostrophes in Kuwo metadata without corrupting the payload', async () => {
     const GET = await loadRoute();
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -170,6 +187,26 @@ describe('Kuwo API route', () => {
             'content-range': 'bytes 0-1/181521',
           },
         }),
+      )
+      .mockResolvedValueOnce(new Response('https://nf.sycdn.kuwo.cn/path/song-192.mp3', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-1/181521',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response('https://nf.sycdn.kuwo.cn/path/song-128.mp3', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-1/181521',
+          },
+        }),
       );
 
     const response = await GET(request('url?rid=376838694&probe=1&expected=180'), {
@@ -178,6 +215,40 @@ describe('Kuwo API route', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ available: false, provider: 'Kuwo', code: 'short' });
+  });
+
+  it('falls back to a lower public bitrate when the preferred resolver object is a short clip', async () => {
+    const GET = await loadRoute();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('https://nf.sycdn.kuwo.cn/path/song-320.mp3', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-1/181521',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response('https://nf.sycdn.kuwo.cn/path/song-192.mp3', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-1/3676550',
+          },
+        }),
+      );
+
+    const response = await GET(request('url?rid=631727764&probe=1&expected=229'), {
+      params: Promise.resolve({ path: ['url'] }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ available: true, provider: 'Kuwo', bitrate: '192kmp3' });
+    const [fallbackUrl] = vi.mocked(fetch).mock.calls[2];
+    expect(new URL(String(fallbackUrl)).searchParams.get('br')).toBe('192kmp3');
   });
 
   it('reports an unavailable media probe as a normal provider result', async () => {

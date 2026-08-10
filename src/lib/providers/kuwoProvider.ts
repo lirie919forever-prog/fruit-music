@@ -16,6 +16,7 @@ const PROXY_BASE = '/api/music/kuwo';
 interface KuwoSearchItem {
   DC_TARGETID: string;
   NAME: string;
+  SONGNAME?: string;
   ARTIST: string;
   ARTISTID: string;
   ALBUM: string;
@@ -28,6 +29,16 @@ interface KuwoSearchItem {
 interface KuwoSearchResponse {
   abslist?: KuwoSearchItem[];
   TOTAL?: string;
+}
+
+export interface KuwoSearchOptions {
+  /** Background exact-match hydration should degrade without a noisy 502. */
+  soft?: boolean;
+}
+
+interface KuwoProbeResponse {
+  available?: boolean;
+  bitrate?: '128kmp3' | '192kmp3' | '320kmp3';
 }
 
 function decodeKuwoText(value: string | undefined): string {
@@ -68,7 +79,10 @@ function kuwoCoverArt(item: KuwoSearchItem, seed: string): string {
 function mapKuwoSong(item: KuwoSearchItem): Song {
   const rawId = item.DC_TARGETID;
   const songId = `kuwo-${rawId}`;
-  const title = decodeKuwoText(item.NAME);
+  // SONGNAME carries version labels that NAME sometimes drops (for example
+  // cover, live, and trial recordings). Keep that context so matching cannot
+  // silently promote an alternate recording as the studio track.
+  const title = decodeKuwoText(item.SONGNAME || item.NAME);
   const artist = decodeKuwoText(item.ARTIST) || 'Unknown';
   const album = decodeKuwoText(item.ALBUM);
   const rawDuration = Number(item.DURATION);
@@ -106,7 +120,36 @@ function handleKuwoError(error: unknown, operation: string): never {
   throw new Error(`Kuwo ${operation}: ${message}`);
 }
 
-export const kuwoProvider: MusicProvider = {
+function pathAtBitrate(path: string, bitrate: KuwoProbeResponse['bitrate']): string {
+  if (!bitrate) return path;
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const url = new URL(path, origin);
+  url.searchParams.set('br', bitrate);
+  return `${url.pathname}${url.search}`;
+}
+
+export async function searchKuwo(query: string, signal?: AbortSignal, options?: KuwoSearchOptions): Promise<Song[]> {
+  if (!query.trim()) return [];
+  try {
+    const data = await providerFetch<KuwoSearchResponse>(
+      'Kuwo',
+      'search',
+      `${PROXY_BASE}/search`,
+      { key: query.trim(), ...(options?.soft ? { soft: '1' } : {}) },
+      signal,
+    );
+    const list = Array.isArray(data.abslist) ? data.abslist : [];
+    return list.map(mapKuwoSong).filter((song) => song.title !== 'Unknown');
+  } catch (error) {
+    return handleKuwoError(error, 'search');
+  }
+}
+
+type KuwoProvider = MusicProvider & {
+  search(query: string, signal?: AbortSignal, options?: KuwoSearchOptions): Promise<Song[]>;
+};
+
+export const kuwoProvider: KuwoProvider = {
   async getAlbums(): Promise<never[]> {
     return [];
   },
@@ -123,25 +166,12 @@ export const kuwoProvider: MusicProvider = {
     return [];
   },
 
-  async search(query: string, signal?: AbortSignal): Promise<Song[]> {
-    if (!query.trim()) return [];
-    try {
-      const data = await providerFetch<KuwoSearchResponse>(
-        'Kuwo',
-        'search',
-        `${PROXY_BASE}/search`,
-        { key: query.trim() },
-        signal,
-      );
-      const list = Array.isArray(data.abslist) ? data.abslist : [];
-      return list.map(mapKuwoSong).filter((song) => song.title !== 'Unknown');
-    } catch (error) {
-      return handleKuwoError(error, 'search');
-    }
+  async search(query: string, signal?: AbortSignal, options?: KuwoSearchOptions): Promise<Song[]> {
+    return searchKuwo(query, signal, options);
   },
 
   async getStreamUrl(song: Song, signal?: AbortSignal): Promise<string> {
-    const probe = await providerFetch<{ available?: boolean }>(
+    const probe = await providerFetch<KuwoProbeResponse>(
       'Kuwo',
       'streamProbe',
       song.path,
@@ -150,10 +180,10 @@ export const kuwoProvider: MusicProvider = {
         ...(song.duration > 45 ? { expected: String(song.duration) } : {}),
       },
       signal,
-      { timeoutMs: 12_000 },
+      { timeoutMs: 6_000 },
     );
     if (probe.available !== true) throw new Error('Kuwo stream is unavailable');
-    return song.path;
+    return pathAtBitrate(song.path, probe.bitrate);
   },
 
   async getSongsByTag(tag: string, limit = 200, signal?: AbortSignal): Promise<Song[]> {

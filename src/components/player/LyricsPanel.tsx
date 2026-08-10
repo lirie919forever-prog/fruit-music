@@ -93,7 +93,15 @@ function SyncedLyricsList({
     selfScrollRef.current = true;
 
     if (activeIsRendered && activeRef.current?.scrollIntoView) {
-      activeRef.current.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' });
+      // `container: 'nearest'` keeps the page shell still when the lyrics tab
+      // opens on mobile. Without it, scrollIntoView also moves the outer main
+      // scroller to center the lyric button.
+      const options: ScrollIntoViewOptions & { container: 'nearest' } = {
+        block: 'center',
+        behavior: smooth ? 'smooth' : 'auto',
+        container: 'nearest',
+      };
+      activeRef.current.scrollIntoView(options);
     } else {
       // The active line may be outside the render window. Scrolling the
       // virtualizer first keeps the next render focused on the actual line
@@ -208,11 +216,12 @@ export function LyricsPanel({ song }: { song: Song }) {
     isError,
     refetch,
   } = useQuery({
-    // The cache key stays on the catalog identity (`song.id`) so a fallback
-    // resolved on a second play reuses the lookup already in the cache rather
-    // than refetching under a different key. The query identity, not the key,
-    // is what carries the effective title/artist/duration.
-    queryKey: ['lyrics', song.id],
+    // Keep the catalog identity in the key so the lookup belongs to the row the
+    // user selected, but include every query input as well. A resolver can
+    // arrive after this panel mounted; without the resolved identity and
+    // duration, React Query keeps the preview lookup and never asks for the
+    // full recording's duration-aware lyrics.
+    queryKey: ['lyrics', song.id, querySong.id, querySong.title, querySong.artist, querySong.album, querySong.duration],
     queryFn: ({ signal }) => catalog.getLyrics(querySong, signal),
     // A track's lyrics do not change while the app is open, and the route
     // already caches the answer. Refetching on remount would only re-ask this

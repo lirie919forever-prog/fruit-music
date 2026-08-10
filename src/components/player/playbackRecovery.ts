@@ -10,9 +10,20 @@ const MAX_DURATION_DRIFT_RATIO = 0.2;
  * Keep a little room for metadata drift, but reject a clearly truncated decode
  * before the player presents it as a full recording.
  */
-export function isMateriallyShortStream(decodedDuration: number, expectedDuration: number): boolean {
+export function isMateriallyShortStream(
+  decodedDuration: number,
+  expectedDuration: number,
+  requireFullLength = false,
+): boolean {
   if (!Number.isFinite(decodedDuration) || decodedDuration <= 0) {
     return false;
+  }
+
+  // Resolver catalogs can report the preview length as their only duration.
+  // When the caller expects a resolver to provide a full recording, matching
+  // 30-second metadata must not make a 30-second clip look trustworthy.
+  if (requireFullLength && decodedDuration < MIN_FULL_TRACK_DECODE_SECONDS) {
+    return true;
   }
 
   // Resolver catalogs are not trustworthy when they omit duration. A short

@@ -116,7 +116,9 @@ async function stationFetch(params: Record<string, string>, signal?: AbortSignal
 }
 
 type RadioBrowserProvider = MusicProvider &
-  Required<Pick<MusicProvider, 'getAlbumById' | 'getArtistById' | 'getSongById' | 'getArtistAlbums'>>;
+  Required<Pick<MusicProvider, 'getAlbumById' | 'getArtistById' | 'getSongById' | 'getArtistAlbums'>> & {
+    getCountryStations(countryCode: string, limit?: number, signal?: AbortSignal): Promise<Song[]>;
+  };
 
 export const radioBrowserProvider: RadioBrowserProvider = {
   async search(query: string, signal?: AbortSignal): Promise<Song[]> {
@@ -133,6 +135,16 @@ export const radioBrowserProvider: RadioBrowserProvider = {
 
   async getTrending(limit = 50, signal?: AbortSignal): Promise<Song[]> {
     const data = await stationFetch({ limit: String(Math.min(limit, 30)) }, signal);
+    return songsFrom(Array.isArray(data.results) ? data.results : []);
+  },
+
+  async getCountryStations(countryCode: string, limit = 50, signal?: AbortSignal): Promise<Song[]> {
+    const normalizedCountryCode = countryCode.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(normalizedCountryCode)) return [];
+    const data = await stationFetch(
+      { country: normalizedCountryCode, limit: String(Math.min(Math.max(1, limit), 30)) },
+      signal,
+    );
     return songsFrom(Array.isArray(data.results) ? data.results : []);
   },
 

@@ -72,7 +72,7 @@ describe('LX Music provider', () => {
       duration: 269,
       bitRate: 320,
       provider: 'LX Music',
-      metadataVerified: false,
+      metadataVerified: true,
       licenseName: 'Source terms',
     });
     expect(result[0].path).toContain(
@@ -173,6 +173,39 @@ describe('LX Music provider', () => {
     const [url] = vi.mocked(fetch).mock.calls[0];
     expect(new URL(String(url)).searchParams.get('probe')).toBe('1');
     expect(new URL(String(url)).searchParams.get('expected')).toBe('180');
+  });
+
+  it('carries a public NetEase fallback marker into the media request', async () => {
+    const song = {
+      id: 'lxmusic-wy_1_123',
+      title: 'Test',
+      artist: 'A',
+      artistId: 'aid',
+      album: 'Alb',
+      albumId: 'alid',
+      coverArt: '/p',
+      duration: 180,
+      track: 0,
+      year: 0,
+      genre: '',
+      path: '/api/music/lxmusic/url?id=lxmusic-wy_1_123&platform=wy&rawId=123&type=1',
+      bitRate: 320,
+      contentType: 'audio/mpeg',
+      suffix: 'mp3',
+      size: 0,
+      provider: 'LX Music' as const,
+      sourceUrl: '',
+      creatorUrl: '',
+      licenseName: '',
+      licenseUrl: '',
+      attributionUrl: '',
+      metadataVerified: true,
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ available: true, provider: 'LX Music', source: 'netease' }));
+
+    const streamUrl = await lxmusicProvider.getStreamUrl(song);
+
+    expect(new URL(`http://localhost${streamUrl}`).searchParams.get('source')).toBe('netease');
   });
 
   it('handles empty ar array', async () => {

@@ -14,6 +14,9 @@ import {
   interleaveSongGroups,
   interleaveSongsByProvider,
   playableSongs,
+  queueableSongs,
+  selectHeroSongs,
+  selectionQueue,
   selectSongsByAccess,
   uniqueAlbumSongs,
 } from './newViewModel';
@@ -61,6 +64,16 @@ describe('New view model', () => {
     ).toEqual([song('a1'), song('b1'), song('a2'), song('b3')]);
   });
 
+  it('puts directly playable tracks ahead of mainstream preview clips in the New-page hero', () => {
+    const chartTracks = [providerSong('chart-one', 'Apple Preview'), providerSong('chart-two', 'Apple Preview')];
+    const spotlight = [providerSong('open-one', 'Audius')];
+    const releases = [providerSong('release-one', 'Jamendo')];
+
+    expect(selectHeroSongs(chartTracks, spotlight, releases).map(({ id }) => id)).toEqual(['open-one', 'release-one']);
+    expect(selectHeroSongs([], spotlight, releases).map(({ id }) => id)).toEqual(['open-one', 'release-one']);
+    expect(selectHeroSongs([], [], releases).map(({ id }) => id)).toEqual(['release-one']);
+  });
+
   it('limits results after interleaving', () => {
     expect(interleaveSongGroups([[song('a1'), song('a2')], [song('b1')]], 2).map(({ id }) => id)).toEqual(['a1', 'b1']);
   });
@@ -103,6 +116,51 @@ describe('New view model', () => {
     const songs = [song('a1', 'album-a'), song('a2', 'album-a'), song('b1', 'album-b', true), unknownAlbum];
     expect(playableSongs(songs).map(({ id }) => id)).toEqual(['a1', 'a2', 'unknown']);
     expect(uniqueAlbumSongs(songs).map(({ id }) => id)).toEqual(['a1', 'b1']);
+  });
+
+  it('limits unverified resolver matches in bulk queues while filling from direct sources', () => {
+    const resolverMatches = Array.from({ length: 10 }, (_, index) => providerSong(`kuwo-${index}`, 'Kuwo'));
+    const directTracks = Array.from({ length: 12 }, (_, index) => providerSong(`audius-${index}`, 'Audius'));
+
+    const queue = queueableSongs([...resolverMatches, ...directTracks], 12);
+
+    expect(queue).toHaveLength(12);
+    expect(queue.filter((track) => track.provider === 'Kuwo')).toHaveLength(8);
+    expect(queue.slice(-4).map(({ id }) => id)).toEqual(['audius-0', 'audius-1', 'audius-2', 'audius-3']);
+  });
+
+  it('keeps an individual resolver selection ahead of direct full-track siblings', () => {
+    const selected = providerSong('kuwo-selected', 'Kuwo');
+    const otherResolver = providerSong('lx-other', 'LX Music');
+    const directOne = providerSong('audius-one', 'Audius');
+    const directTwo = providerSong('jamendo-two', 'Jamendo');
+    const preview = providerSong('apple-preview', 'Apple Preview');
+
+    expect(selectionQueue(selected, [otherResolver, directOne, selected, preview, directTwo])).toEqual([
+      selected,
+      directOne,
+      directTwo,
+    ]);
+  });
+
+  it('does not turn a preview selection into a bulk queue of short clips', () => {
+    const selected = providerSong('itunes-selected', 'Apple Preview');
+    const otherPreview = providerSong('itunes-other', 'Apple Preview');
+    const direct = providerSong('audius-direct', 'Audius');
+
+    expect(selectionQueue(selected, [otherPreview, direct, selected])).toEqual([selected, direct]);
+  });
+
+  it('preserves the existing bulk queue for a direct selection', () => {
+    const selected = providerSong('audius-selected', 'Audius');
+    const resolver = providerSong('kuwo-sibling', 'Kuwo');
+    const direct = providerSong('jamendo-sibling', 'Jamendo');
+
+    expect(selectionQueue(selected, [selected, resolver, direct]).map(({ id }) => id)).toEqual([
+      'audius-selected',
+      'kuwo-sibling',
+      'jamendo-sibling',
+    ]);
   });
 
   it('lets discovery distinguish full tracks from official previews', () => {
@@ -168,14 +226,11 @@ describe('New view model', () => {
     expect(filterSongsByAccess([ringtone, shortSong, interlude], 'all')).toEqual([interlude]);
   });
 
-  it('includes full-length resolver matches in explicit access filters', () => {
+  it('keeps resolver candidates in explicit full-track filters without calling them direct streams', () => {
     const resolverMatch = { ...song('kuwo-match'), provider: 'Kuwo' as const, duration: 241 };
 
     expect(isFullTrack(resolverMatch)).toBe(true);
-    // Resolver sources with a full-track duration (>= 45s) are now included
-    // in the 'Full tracks' filter so users searching for mainstream artists
-    // actually see the real, playable tracks from Kuwo/LX, not just CC covers.
-    expect(isDirectFullTrack(resolverMatch)).toBe(true);
+    expect(isDirectFullTrack(resolverMatch)).toBe(false);
     expect(filterSongsByAccess([resolverMatch], 'full')).toEqual([resolverMatch]);
     expect(filterSongsByAccess([resolverMatch], 'preview')).toEqual([]);
     expect(filterSongsByAccess([resolverMatch], 'all')).toEqual([resolverMatch]);

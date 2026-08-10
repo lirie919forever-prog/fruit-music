@@ -34,6 +34,8 @@ export const ARTWORK_REMOTE_PATTERNS: ArtworkPattern[] = [
   { protocol: 'https', hostname: 'is1-ssl.mzstatic.com', pathname: '/**' },
   { protocol: 'https', hostname: 'cdn-images.dzcdn.net', pathname: '/**' },
   { protocol: 'https', hostname: 'img1.kuwo.cn', pathname: '/**' },
+  { protocol: 'https', hostname: 'y.gtimg.cn', pathname: '/**' },
+  { protocol: 'https', hostname: '**.hdslb.com', pathname: '/**' },
   { protocol: 'https', hostname: '**.figment.io', pathname: '/**' },
   { protocol: 'https', hostname: '**.staked.cloud', pathname: '/**' },
   { protocol: 'https', hostname: 'v.monophonic.digital', pathname: '/**' },
@@ -60,6 +62,7 @@ export function isAllowedArtworkHost(hostname: string): boolean {
     /^cn\d+\.mainnet\.audiusindex\.org$/.test(host) ||
     /^audius-discovery-\d+\.altego\.net$/.test(host) ||
     /^cn\d+\.shakespearetech\.com$/.test(host) ||
-    host === 'validator.stuffisup.com'
+    host === 'validator.stuffisup.com' ||
+    host.endsWith('.hdslb.com')
   );
 }

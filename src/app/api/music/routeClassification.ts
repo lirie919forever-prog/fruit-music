@@ -14,6 +14,8 @@ export type RouteBucket =
   | 'deezer:albums'
   | 'deezer:artists'
   | 'deezer:stream'
+  | 'qq:tracks'
+  | 'qq:stream'
   | 'audius:tracks'
   | 'audius:albums'
   | 'audius:artists'
@@ -42,6 +44,8 @@ const validBuckets = new Set<RouteBucket>([
   'deezer:albums',
   'deezer:artists',
   'deezer:stream',
+  'qq:tracks',
+  'qq:stream',
   'audius:tracks',
   'audius:albums',
   'audius:artists',

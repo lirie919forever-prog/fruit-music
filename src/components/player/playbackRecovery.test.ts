@@ -27,6 +27,12 @@ describe('playback recovery', () => {
     expect(isMateriallyShortStream(45, 0)).toBe(false);
   });
 
+  it('rejects preview-length media when a resolver promises a full recording', () => {
+    expect(isMateriallyShortStream(30, 30, true)).toBe(true);
+    expect(isMateriallyShortStream(44, 44, true)).toBe(true);
+    expect(isMateriallyShortStream(45, 45, true)).toBe(false);
+  });
+
   it('identifies a different long recording returned for a matching title', () => {
     expect(isMateriallyLongStream(2660, 190)).toBe(true);
     expect(isMateriallyLongStream(212, 241)).toBe(false);

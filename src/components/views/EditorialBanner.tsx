@@ -6,6 +6,7 @@ import { usePlayerStore } from '@/store/playerStore';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { FavoriteButton } from './SongCard';
 import type { NavigationItem } from '@/lib/navigation';
+import { getSourceLinkLabel } from '@/lib/sourceLink';
 import type { Song, ViewType } from '@/types/music';
 
 interface EditorialBannerProps {
@@ -88,7 +89,7 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
           <p className="mt-0.5 truncate text-[13px] text-[var(--salt-mist)] sm:text-[15px]">{song.artist}</p>
         )}
 
-        <div className="mt-3 flex items-center gap-1.5 sm:mt-4 sm:gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 sm:mt-4 sm:gap-2">
           {unavailable ? (
             <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--salt-ghost)] px-3 text-[11px] font-semibold text-[var(--salt-mist)] sm:h-9 sm:text-xs">
               <Lock className="h-3.5 w-3.5" aria-hidden />
@@ -99,7 +100,7 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
               <button
                 type="button"
                 onClick={() => playSong(song)}
-                className="marea-primary-action inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold text-white sm:h-9 sm:px-4"
+                className="marea-primary-action inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold text-white sm:px-4 lg:h-9"
               >
                 <Play className="h-3.5 w-3.5" aria-hidden />
                 Play
@@ -110,22 +111,22 @@ export function EditorialBanner({ song, onQueue, eyebrow, eager = false, onNavig
                   onClick={onQueue}
                   aria-label={`Add ${song.title} to queue`}
                   title="Add to queue"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] sm:h-9 sm:w-9"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] lg:h-9 lg:w-9"
                 >
                   <Plus className="h-4 w-4" aria-hidden />
                 </button>
               )}
             </>
           )}
-          <FavoriteButton song={song} className="sm:h-9 sm:w-9" />
+          <FavoriteButton song={song} className="lg:h-9 lg:w-9" />
           {song.sourceUrl && (
             <a
               href={song.sourceUrl}
               target="_blank"
               rel="noreferrer"
-              title={`${song.provider} · ${song.licenseName || 'Provider terms'}`}
-              aria-label={`Open on ${song.provider}`}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] sm:h-9 sm:w-9"
+              title={`${getSourceLinkLabel(song.sourceUrl)} · ${song.licenseName || 'Provider terms'}`}
+              aria-label={getSourceLinkLabel(song.sourceUrl)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)] lg:h-9 lg:w-9"
             >
               <ExternalLink className="h-4 w-4" aria-hidden />
             </a>

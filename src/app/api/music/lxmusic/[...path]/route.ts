@@ -17,6 +17,8 @@ import { isKuwoMediaHost } from '@/lib/kuwoMedia';
 const LX_API_BASE = process.env.LX_API_BASE;
 const LX_RESOLVER_BASE = process.env.LX_RESOLVER_BASE;
 const LX_SEARCH_BASE = process.env.LX_SEARCH_BASE || 'https://api.vkeys.cn/v2/music/netease';
+const NETEASE_DETAIL_BASE = 'https://music.163.com/api/song/detail';
+const NETEASE_PUBLIC_STREAM_API = 'https://api.injahow.cn/meting/';
 const LX_APPROVED_MEDIA_HOSTS = new Set(
   (process.env.LX_APPROVED_MEDIA_HOSTS || '')
     .split(',')
@@ -148,9 +150,107 @@ async function upstreamFetch(request: Request, url: string, init: RequestInit = 
   return fetch(url, { ...init, headers: mergedHeaders, signal: requestSignal(request, REQUEST_TIMEOUT_MS) });
 }
 
+/**
+ * Some NetEase records are returned by the configured LX resolver as a short
+ * sample even though the public catalog carries a complete recording. The
+ * community Meting endpoint can expose that public CDN URL without a login.
+ * Keep this fallback narrow: the ID is validated before it reaches here and
+ * the returned URL must still be a NetEase media host.
+ */
+async function resolvePublicNeteaseStreamUrl(request: Request, rawId: string): Promise<string | null> {
+  try {
+    const url = new URL(NETEASE_PUBLIC_STREAM_API);
+    url.searchParams.set('server', 'netease');
+    url.searchParams.set('type', 'url');
+    url.searchParams.set('id', rawId);
+    const response = await fetch(url, {
+      redirect: 'manual',
+      signal: requestSignal(request, REQUEST_TIMEOUT_MS),
+      headers: { 'User-Agent': 'Marea/1.0' },
+    });
+    const location = response.headers.get('location');
+    if (location) return approvedMediaUrl(location)?.toString() ?? null;
+    if (!response.ok) return null;
+
+    const body = (await response.text()).trim();
+    if (!body) return null;
+    try {
+      const payload = JSON.parse(body) as { url?: unknown; data?: { url?: unknown } };
+      const candidate = typeof payload.url === 'string' ? payload.url : payload.data?.url;
+      return typeof candidate === 'string' ? (approvedMediaUrl(candidate)?.toString() ?? null) : null;
+    } catch {
+      return approvedMediaUrl(body)?.toString() ?? null;
+    }
+  } catch {
+    return null;
+  }
+}
+
 interface LxSearchResponse {
   code?: number;
   data?: unknown;
+}
+
+interface LxSearchResult {
+  id?: number | string;
+  platform?: string;
+  dt?: number;
+  [key: string]: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * The reviewed LX adapter returns NetEase identities but often omits their
+ * duration. Resolve that metadata through NetEase's public detail endpoint so
+ * the playback matcher can distinguish a complete recording from a clip.
+ * Failure is intentionally non-fatal: LX search remains useful without the
+ * optional enrichment request.
+ */
+async function enrichNeteaseDurations(request: Request, payload: unknown): Promise<unknown> {
+  if (!isRecord(payload) || !isRecord(payload.data) || !Array.isArray(payload.data.result)) return payload;
+
+  const results = payload.data.result.filter(isRecord) as LxSearchResult[];
+  const ids = results
+    .filter((item) => item.platform === 'wy' && Number.isFinite(Number(item.id)) && !(Number(item.dt) > 0))
+    .map((item) => Number(item.id))
+    .filter((id) => Number.isSafeInteger(id) && id > 0)
+    .slice(0, 50);
+  if (ids.length === 0) return payload;
+
+  try {
+    const url = new URL(NETEASE_DETAIL_BASE);
+    url.searchParams.set('ids', JSON.stringify(ids));
+    const response = await fetch(url, {
+      signal: requestSignal(request, REQUEST_TIMEOUT_MS),
+      headers: { 'User-Agent': 'Marea/1.0' },
+    });
+    if (!response.ok) return payload;
+    const data = (await response.json()) as { songs?: unknown };
+    const details = Array.isArray(data.songs) ? data.songs.filter(isRecord) : [];
+    const durations = new Map(
+      details
+        .map((item) => [Number(item.id), Number(item.duration ?? item.dt)] as const)
+        .filter(([id, duration]) => Number.isSafeInteger(id) && id > 0 && Number.isFinite(duration) && duration > 0),
+    );
+    if (durations.size === 0) return payload;
+
+    return {
+      ...payload,
+      data: {
+        ...payload.data,
+        result: payload.data.result.map((item) => {
+          if (!isRecord(item)) return item;
+          const duration = durations.get(Number(item.id));
+          return duration ? { ...item, dt: duration } : item;
+        }),
+      },
+    };
+  } catch {
+    return payload;
+  }
 }
 
 interface LxUrlResponse {
@@ -235,7 +335,12 @@ async function proxyStream(request: Request, streamUrl: string, expireTime?: num
   }
 }
 
-async function probeStream(request: Request, streamUrl: string, expectedDuration = 0): Promise<NextResponse> {
+async function probeStream(
+  request: Request,
+  streamUrl: string,
+  expectedDuration = 0,
+  source?: 'netease',
+): Promise<NextResponse> {
   const headers = new Headers(lxHeaders());
   headers.set('Range', 'bytes=0-1');
 
@@ -264,11 +369,21 @@ async function probeStream(request: Request, streamUrl: string, expectedDuration
     }
 
     return NextResponse.json(
-      { available: true, provider: 'LX Music' },
+      { available: true, provider: 'LX Music', ...(source ? { source } : {}) },
       { headers: { 'Cache-Control': 'private, no-store' } },
     );
   } catch (error) {
     return providerFailure(error, 'LX Music stream probe failed');
+  }
+}
+
+async function isSuccessfulProbe(response: NextResponse): Promise<boolean> {
+  if (!response.ok) return false;
+  try {
+    const payload = (await response.clone().json()) as { available?: unknown };
+    return payload.available === true;
+  } catch {
+    return false;
   }
 }
 
@@ -287,7 +402,7 @@ function resolveQuality(level: string): string {
 }
 
 /** Shape the community search API's payload into the one the LX API returns. */
-function mapFallbackSearch(payload: unknown): NextResponse {
+function mapFallbackSearchPayload(payload: unknown): LxSearchResponse {
   const data = payload as {
     code?: number;
     data?: Array<{ id?: number | string; song?: string; singer?: string; album?: string; cover?: string }>;
@@ -302,7 +417,7 @@ function mapFallbackSearch(payload: unknown): NextResponse {
         type: 1,
       }))
     : [];
-  return catalogResponse({ code: data.code === 200 ? 0 : data.code, data: { result } });
+  return { code: data.code === 200 ? 0 : data.code, data: { result } };
 }
 
 function fetchFallbackSearch(req: Request, key: string): Promise<Response> {
@@ -334,7 +449,7 @@ async function handleSearch(req: Request): Promise<NextResponse> {
     const upstream = new URL(`${apiBase}/search/${type}/${encodeURIComponent(key)}/1`);
     const response = await upstreamFetch(req, upstream.toString());
     if (response.ok) {
-      return catalogResponse((await response.json()) as LxSearchResponse);
+      return catalogResponse(await enrichNeteaseDurations(req, (await response.json()) as LxSearchResponse));
     }
 
     const fallbackResponse = await fetchFallbackSearch(req, key);
@@ -344,7 +459,7 @@ async function handleSearch(req: Request): Promise<NextResponse> {
         { status: response.status },
       );
     }
-    return mapFallbackSearch(await fallbackResponse.json());
+    return catalogResponse(await enrichNeteaseDurations(req, mapFallbackSearchPayload(await fallbackResponse.json())));
   } catch (error) {
     // An aborted request is the caller giving up, not the upstream failing —
     // retrying it against the fallback would only waste a second request.
@@ -354,7 +469,9 @@ async function handleSearch(req: Request): Promise<NextResponse> {
     try {
       const fallbackResponse = await fetchFallbackSearch(req, key);
       if (!fallbackResponse.ok) return providerFailure(error, 'LX Music search failed');
-      return mapFallbackSearch(await fallbackResponse.json());
+      return catalogResponse(
+        await enrichNeteaseDurations(req, mapFallbackSearchPayload(await fallbackResponse.json())),
+      );
     } catch (fallbackError) {
       return providerFailure(fallbackError, 'LX Music search failed');
     }
@@ -375,6 +492,7 @@ async function handleUrl(req: Request): Promise<NextResponse> {
   const platform = searchParams.get('platform');
   const rawId = searchParams.get('rawId');
   const type = searchParams.get('type');
+  const requestedSource = searchParams.get('source');
   const expectedDuration = Number(searchParams.get('expected'));
 
   if (!lxSongId) {
@@ -392,13 +510,25 @@ async function handleUrl(req: Request): Promise<NextResponse> {
   if (!LX_RAW_ID.test(pathId)) {
     return NextResponse.json({ error: 'Invalid LX stream identity' }, { status: 400 });
   }
+  if (requestedSource !== null && requestedSource !== 'netease') {
+    return NextResponse.json({ error: 'Invalid LX stream source' }, { status: 400 });
+  }
 
   const resolvedLevel = resolveQuality(level);
 
   let streamUrl: string | null = null;
   let expireTime: number | undefined;
+  let publicNeteaseSelected = false;
 
-  if (rawId && type) {
+  if (requestedSource === 'netease' && platform.toLowerCase() === 'wy') {
+    const publicUrl = await resolvePublicNeteaseStreamUrl(req, pathId);
+    if (publicUrl) {
+      streamUrl = publicUrl;
+      publicNeteaseSelected = true;
+    }
+  }
+
+  if (!streamUrl && rawId && type) {
     const resolverBase = configuredBase(LX_RESOLVER_BASE) || configuredBase(LX_API_BASE);
     if (!resolverBase) return NextResponse.json({ error: 'LX resolver is not configured' }, { status: 503 });
     const directUrl = `${resolverBase}/url/${platform}/${encodeURIComponent(rawId)}/${resolvedLevel}`;
@@ -424,12 +554,29 @@ async function handleUrl(req: Request): Promise<NextResponse> {
     streamUrl = `${proxyBase}/url/${platform}/${encodeURIComponent(pathId)}/${resolvedLevel}`;
   }
 
+  const fullTrackExpected = Number.isFinite(expectedDuration) && expectedDuration > 45;
+  let selectedProbe: NextResponse | null = null;
+  if (fullTrackExpected) {
+    selectedProbe = await probeStream(req, streamUrl, expectedDuration, publicNeteaseSelected ? 'netease' : undefined);
+    if (!publicNeteaseSelected && !(await isSuccessfulProbe(selectedProbe)) && platform.toLowerCase() === 'wy') {
+      const publicUrl = await resolvePublicNeteaseStreamUrl(req, pathId);
+      if (publicUrl && publicUrl !== streamUrl) {
+        const publicProbe = await probeStream(req, publicUrl, expectedDuration, 'netease');
+        if (await isSuccessfulProbe(publicProbe)) {
+          streamUrl = publicUrl;
+          expireTime = undefined;
+          publicNeteaseSelected = true;
+          selectedProbe = publicProbe;
+        }
+      }
+    }
+  }
+
   if (searchParams.get('probe') === '1') {
-    return probeStream(
-      req,
-      streamUrl,
-      Number.isFinite(expectedDuration) && expectedDuration > 45 ? expectedDuration : 0,
-    );
+    return selectedProbe ?? probeStream(req, streamUrl, fullTrackExpected ? expectedDuration : 0);
+  }
+  if (publicNeteaseSelected && fullTrackExpected && selectedProbe && !(await isSuccessfulProbe(selectedProbe))) {
+    return new NextResponse('Public NetEase stream unavailable', { status: 502 });
   }
   return proxyStream(req, streamUrl, expireTime);
 }

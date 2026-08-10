@@ -29,6 +29,35 @@ function lookupTrack(trackId: number, overrides: Record<string, unknown> = {}) {
   };
 }
 
+function rssEntry(trackId: number) {
+  return {
+    'im:name': { label: `RSS Track ${trackId}` },
+    'im:artist': {
+      label: 'RSS Artist',
+      attributes: { href: 'https://music.apple.com/jp/artist/rss-artist/9?uo=2' },
+    },
+    'im:collection': {
+      'im:name': { label: 'RSS Album' },
+      link: { attributes: { href: 'https://music.apple.com/jp/album/rss-album/5?uo=2' } },
+    },
+    'im:image': [{ label: 'https://is1-ssl.mzstatic.com/image/thumb/a/170x170bb.jpg' }],
+    link: [
+      { attributes: { rel: 'alternate', href: `https://music.apple.com/jp/album/rss-album/5?i=${trackId}` } },
+      {
+        attributes: {
+          rel: 'enclosure',
+          href: `https://audio-ssl.itunes.apple.com/rss-${trackId}.m4a`,
+        },
+      },
+    ],
+    id: {
+      label: `https://music.apple.com/jp/album/rss-album/5?i=${trackId}`,
+      attributes: { 'im:id': String(trackId) },
+    },
+    category: { attributes: { term: 'J-Pop' } },
+  };
+}
+
 function routeFetch(feed: unknown, lookup: unknown) {
   return vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
@@ -111,8 +140,8 @@ describe('chart pages', () => {
     const response = await GET(new Request('https://marea.test/api/music/charts?chart=billboard'));
 
     expect(response.status).toBe(502);
-    // Only the feed is fetched: with no usable ids there is nothing to look up.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The official RSS fallback is checked before reporting the feed failure.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('rejects an unknown chart', async () => {
@@ -152,7 +181,7 @@ describe('chart pages', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('spends exactly one feed request and one lookup per 25 entries', async () => {
+  it('spends exactly one feed request and one lookup for a 50-entry chart', async () => {
     const ids = Array.from({ length: 50 }, (_, index) => String(index + 1));
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -166,8 +195,49 @@ describe('chart pages', () => {
     const { GET } = await import('./route');
     await GET(new Request('https://marea.test/api/music/charts?chart=billboard'));
 
-    // The fan-out this endpoint's rate limit is sized against: 1 + ceil(50/25).
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // The endpoint keeps the normal fan-out to one feed plus one batch lookup.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses Apple iTunes RSS previews when the v2 chart feed is unavailable', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('rss.marketingtools.apple.com')) return new Response('upstream down', { status: 503 });
+      if (url.includes('itunes.apple.com/jp/rss/topsongs')) {
+        return Response.json({ feed: { entry: [rssEntry(701), rssEntry(702)] } });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { GET } = await import('./route');
+    const response = await GET(new Request('https://marea.test/api/music/charts?chart=jp'));
+    const body = (await response.json()) as { results: Array<{ id: string; path: string; artist: string }> };
+
+    expect(response.status).toBe(200);
+    expect(body.results).toMatchObject([
+      { id: 'itunes-701', path: '/api/music/itunes/stream/701?country=jp', artist: 'RSS Artist' },
+      { id: 'itunes-702', path: '/api/music/itunes/stream/702?country=jp', artist: 'RSS Artist' },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('serves the last successful chart during a transient upstream outage', async () => {
+    const healthy = routeFetch({ feed: { results: [feedEntry('801')] } }, { results: [lookupTrack(801)] });
+    vi.stubGlobal('fetch', healthy);
+    const { GET } = await import('./route');
+
+    await expect(GET(new Request('https://marea.test/api/music/charts?chart=jp'))).resolves.toMatchObject({
+      status: 200,
+    });
+
+    healthy.mockRejectedValue(new Error('temporary outage'));
+    const response = await GET(new Request('https://marea.test/api/music/charts?chart=jp'));
+    const body = (await response.json()) as { stale?: boolean; results?: Array<{ id: string }> };
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Marea-Chart-Stale')).toBe('true');
+    expect(body).toMatchObject({ stale: true, results: [{ id: 'itunes-801' }] });
   });
 
   it('rate limits per chart, so one chart cannot lock out another', async () => {

@@ -27,6 +27,13 @@ function catalogResponse(data: unknown): NextResponse {
   return response;
 }
 
+function degradedSearchResponse(message: string): NextResponse {
+  return NextResponse.json(
+    { abslist: [], degraded: true, error: message },
+    { status: 200, headers: { 'Cache-Control': 'private, no-store' } },
+  );
+}
+
 function isStringDelimiter(text: string, index: number): boolean {
   while (/\s/.test(text[index] ?? '')) index += 1;
   return index >= text.length || ',:]}'.includes(text[index]);
@@ -121,6 +128,7 @@ function repairKuwoPayload(value: unknown): unknown {
 async function handleSearch(request: Request): Promise<NextResponse> {
   const searchParams = new URL(request.url).searchParams;
   const key = searchParams.get('key')?.trim();
+  const soft = searchParams.get('soft') === '1';
   if (!key) return NextResponse.json({ error: 'Missing search key' }, { status: 400 });
   if (key.length > 200) return NextResponse.json({ error: 'Search key too long' }, { status: 400 });
 
@@ -140,20 +148,31 @@ async function handleSearch(request: Request): Promise<NextResponse> {
       headers: { 'User-Agent': 'Marea/1.0' },
     });
     if (!response.ok) {
-      return NextResponse.json({ error: `Kuwo upstream error (status ${response.status})` }, { status: 502 });
+      const message = `Kuwo upstream error (status ${response.status})`;
+      return soft ? degradedSearchResponse(message) : NextResponse.json({ error: message }, { status: 502 });
     }
     const payload = repairKuwoPayload(parseKuwoPayload(await response.text()));
     if (!payload || typeof payload !== 'object') {
-      return NextResponse.json({ error: 'Kuwo returned invalid search data' }, { status: 502 });
+      return soft
+        ? degradedSearchResponse('Kuwo returned invalid search data')
+        : NextResponse.json({ error: 'Kuwo returned invalid search data' }, { status: 502 });
     }
     return catalogResponse(payload);
   } catch (error) {
+    if (soft) return degradedSearchResponse('Kuwo search temporarily unavailable');
     return providerFailure(error, 'Kuwo search failed');
   }
 }
 
 const KUWO_ID = /^\d{1,20}$/;
 const KUWO_BITRATE = /^(?:128kmp3|192kmp3|320kmp3)$/;
+const KUWO_BITRATES = ['320kmp3', '192kmp3', '128kmp3'] as const;
+type KuwoBitrate = (typeof KUWO_BITRATES)[number];
+
+interface ProbeResult {
+  available: boolean;
+  code?: 'short' | 'unavailable';
+}
 
 function unavailableProbe(provider: string, code = 'unavailable'): NextResponse {
   return NextResponse.json(
@@ -182,88 +201,99 @@ async function handleUrl(request: Request): Promise<NextResponse> {
   const rid = searchParams.get('rid');
   const bitrate = searchParams.get('br') || '320kmp3';
   const expectedDuration = Number(searchParams.get('expected'));
+  const isProbe = searchParams.get('probe') === '1';
   if (!rid || !KUWO_ID.test(rid)) return NextResponse.json({ error: 'Invalid Kuwo track id' }, { status: 400 });
   if (!KUWO_BITRATE.test(bitrate)) return NextResponse.json({ error: 'Invalid Kuwo bitrate' }, { status: 400 });
 
-  const url = new URL(KUWO_RESOLVER_BASE);
-  url.searchParams.set('format', 'mp3');
-  url.searchParams.set('rid', rid);
-  url.searchParams.set('type', 'convert_url');
-  url.searchParams.set('br', bitrate);
-
+  const normalizedExpectedDuration = Number.isFinite(expectedDuration) && expectedDuration > 45 ? expectedDuration : 0;
+  const requestedBitrate = bitrate as KuwoBitrate;
+  const bitratesToTry =
+    isProbe && normalizedExpectedDuration > 0
+      ? KUWO_BITRATES.slice(KUWO_BITRATES.indexOf(requestedBitrate))
+      : [requestedBitrate];
   try {
-    const response = await fetch(url, {
-      signal: requestSignal(request, REQUEST_TIMEOUT_MS),
-      headers: { 'User-Agent': 'Marea/1.0' },
-    });
-    if (!response.ok) {
-      return NextResponse.json({ error: `Kuwo resolver error (status ${response.status})` }, { status: 502 });
+    for (const candidateBitrate of bitratesToTry) {
+      const url = new URL(KUWO_RESOLVER_BASE);
+      url.searchParams.set('format', 'mp3');
+      url.searchParams.set('rid', rid);
+      url.searchParams.set('type', 'convert_url');
+      url.searchParams.set('br', candidateBitrate);
+
+      const response = await fetch(url, {
+        signal: requestSignal(request, REQUEST_TIMEOUT_MS),
+        headers: { 'User-Agent': 'Marea/1.0' },
+      });
+      if (!response.ok) {
+        return NextResponse.json({ error: `Kuwo resolver error (status ${response.status})` }, { status: 502 });
+      }
+      const streamBody = repairUtf8Mojibake((await response.text()).trim());
+      if (streamBody.replace(/\s+/g, '').includes(KUWO_MOBILE_ONLY_MESSAGE)) {
+        if (isProbe) return unavailableProbe('Kuwo', 'mobile_only');
+        return NextResponse.json(
+          {
+            error: 'This track is only available in the Kuwo mobile app.',
+            code: 'mobile_only',
+            provider: 'Kuwo',
+          },
+          { status: 403, headers: { 'Cache-Control': 'private, no-store' } },
+        );
+      }
+      let candidate: URL;
+      try {
+        candidate = new URL(streamBody);
+      } catch {
+        if (isProbe) return unavailableProbe('Kuwo');
+        return NextResponse.json({ error: 'Kuwo returned an invalid stream URL' }, { status: 502 });
+      }
+      if (!isKuwoMediaHost(candidate)) {
+        if (isProbe) return unavailableProbe('Kuwo');
+        return NextResponse.json({ error: 'Kuwo returned an unapproved stream host' }, { status: 502 });
+      }
+      if (isProbe) {
+        const result = await probeStream(request, candidate.toString(), normalizedExpectedDuration);
+        if (result.available) {
+          return NextResponse.json(
+            {
+              available: true,
+              provider: 'Kuwo',
+              ...(candidateBitrate === requestedBitrate ? {} : { bitrate: candidateBitrate }),
+            },
+            { headers: { 'Cache-Control': 'private, no-store' } },
+          );
+        }
+        // A low-byte resolver response is often a preview at 320kmp3. Retry
+        // the same recording at a lower public quality before giving up.
+        if (result.code === 'short') continue;
+        return unavailableProbe('Kuwo', result.code);
+      }
+      return proxyStream(request, candidate.toString());
     }
-    const streamBody = repairUtf8Mojibake((await response.text()).trim());
-    if (streamBody.replace(/\s+/g, '').includes(KUWO_MOBILE_ONLY_MESSAGE)) {
-      if (searchParams.get('probe') === '1') return unavailableProbe('Kuwo', 'mobile_only');
-      return NextResponse.json(
-        {
-          error: 'This track is only available in the Kuwo mobile app.',
-          code: 'mobile_only',
-          provider: 'Kuwo',
-        },
-        { status: 403, headers: { 'Cache-Control': 'private, no-store' } },
-      );
-    }
-    let candidate: URL;
-    try {
-      candidate = new URL(streamBody);
-    } catch {
-      if (searchParams.get('probe') === '1') return unavailableProbe('Kuwo');
-      return NextResponse.json({ error: 'Kuwo returned an invalid stream URL' }, { status: 502 });
-    }
-    if (!isKuwoMediaHost(candidate)) {
-      if (searchParams.get('probe') === '1') return unavailableProbe('Kuwo');
-      return NextResponse.json({ error: 'Kuwo returned an unapproved stream host' }, { status: 502 });
-    }
-    if (searchParams.get('probe') === '1') {
-      return probeStream(
-        request,
-        candidate.toString(),
-        Number.isFinite(expectedDuration) && expectedDuration > 45 ? expectedDuration : 0,
-      );
-    }
-    return proxyStream(request, candidate.toString());
+    return unavailableProbe('Kuwo', 'short');
   } catch (error) {
     return providerFailure(error, 'Kuwo stream resolve failed');
   }
 }
 
-async function probeStream(request: Request, streamUrl: string, expectedDuration = 0): Promise<NextResponse> {
+async function probeStream(request: Request, streamUrl: string, expectedDuration = 0): Promise<ProbeResult> {
   const headers = new Headers({ 'User-Agent': 'Marea/1.0', Range: 'bytes=0-1' });
-  try {
-    const fetched = await fetchApprovedMedia(request, streamUrl, {
-      isApproved: isKuwoMediaHost,
-      headers,
-      timeoutMs: REQUEST_TIMEOUT_MS,
-    });
-    if (!fetched.ok) return unavailableProbe('Kuwo');
-    const { response, cleanup } = fetched;
-    const contentType = mediaContentType(response.headers.get('content-type'));
-    const validStatus = response.status >= 200 && response.status < 300;
-    const validType = contentType === 'application/octet-stream' || Boolean(contentType?.startsWith('audio/'));
-    const validRange = response.status !== 206 || validContentRange(response.headers.get('content-range'));
-    const totalBytes = totalResponseBytes(response);
-    closeUpstream(response, cleanup);
-    if (!validStatus || !validType || !validRange) {
-      return unavailableProbe('Kuwo');
-    }
-    if (expectedDuration > 0 && totalBytes > 0 && totalBytes < expectedMinimumBytes(expectedDuration)) {
-      return unavailableProbe('Kuwo', 'short');
-    }
-    return NextResponse.json(
-      { available: true, provider: 'Kuwo' },
-      { headers: { 'Cache-Control': 'private, no-store' } },
-    );
-  } catch (error) {
-    return providerFailure(error, 'Kuwo stream probe failed');
+  const fetched = await fetchApprovedMedia(request, streamUrl, {
+    isApproved: isKuwoMediaHost,
+    headers,
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  });
+  if (!fetched.ok) return { available: false, code: 'unavailable' };
+  const { response, cleanup } = fetched;
+  const contentType = mediaContentType(response.headers.get('content-type'));
+  const validStatus = response.status >= 200 && response.status < 300;
+  const validType = contentType === 'application/octet-stream' || Boolean(contentType?.startsWith('audio/'));
+  const validRange = response.status !== 206 || validContentRange(response.headers.get('content-range'));
+  const totalBytes = totalResponseBytes(response);
+  closeUpstream(response, cleanup);
+  if (!validStatus || !validType || !validRange) return { available: false, code: 'unavailable' };
+  if (expectedDuration > 0 && totalBytes > 0 && totalBytes < expectedMinimumBytes(expectedDuration)) {
+    return { available: false, code: 'short' };
   }
+  return { available: true };
 }
 
 async function proxyStream(request: Request, streamUrl: string): Promise<NextResponse> {

@@ -37,6 +37,8 @@ export function QueueDrawer({
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const queue = usePlayerStore((state) => state.queue);
   const queueIndex = usePlayerStore((state) => state.queueIndex);
+  const effectiveSong = usePlayerStore((state) => state.effectiveSong);
+  const duration = usePlayerStore((state) => state.duration);
   const removeFromQueue = usePlayerStore((state) => state.removeFromQueue);
   const reorderQueue = usePlayerStore((state) => state.reorderQueue);
   const playQueueIndex = usePlayerStore((state) => state.playQueueIndex);
@@ -147,6 +149,12 @@ export function QueueDrawer({
                 const active = index === queueIndex;
                 const canMoveUp = index > 0;
                 const canMoveDown = index < queue.length - 1;
+                const playbackProvider = active && effectiveSong ? effectiveSong.provider : item.song.provider;
+                const playbackDuration = active && duration > 0 ? duration : item.song.duration;
+                const playbackSourceTitle =
+                  active && effectiveSong
+                    ? `Playback resolved via ${effectiveSong.provider}; selected from ${item.song.provider}`
+                    : undefined;
                 return (
                   <div
                     className={`group flex items-center gap-2 rounded-xl px-2 py-2 transition-colors ${active ? 'bg-[var(--salt-ghost)]' : 'hover:bg-[var(--glass-bg-hover)]'}`}
@@ -182,12 +190,12 @@ export function QueueDrawer({
                           {item.song.artist}
                         </span>
                         <span className="mt-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.04em] text-[var(--salt-mist)]">
-                          <span>{item.song.provider}</span>
+                          <span title={playbackSourceTitle}>{playbackProvider}</span>
                           {item.addedBy === 'autoplay' && <span className="text-[var(--salt-primary)]">Autoplay</span>}
                         </span>
                       </span>
                       <span className="shrink-0 self-start pt-1 text-[11px] tabular-nums text-[var(--salt-mist)]">
-                        {formatDuration(item.song.duration)}
+                        {formatDuration(playbackDuration)}
                       </span>
                     </motion.button>
                     <div className="flex shrink-0 items-center opacity-70 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
@@ -198,7 +206,7 @@ export function QueueDrawer({
                         disabled={!canMoveUp}
                         aria-label={`Move ${item.song.title} earlier`}
                         title="Move earlier"
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--salt-mist)] hover:bg-white hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-25"
+                        className="flex h-9 w-9 items-center justify-center rounded-md text-[var(--salt-mist)] hover:bg-white hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-25 min-[390px]:h-10 min-[390px]:w-10"
                       >
                         <ChevronUp className="h-4 w-4" aria-hidden />
                       </motion.button>
@@ -209,7 +217,7 @@ export function QueueDrawer({
                         disabled={!canMoveDown}
                         aria-label={`Move ${item.song.title} later`}
                         title="Move later"
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--salt-mist)] hover:bg-white hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-25"
+                        className="flex h-9 w-9 items-center justify-center rounded-md text-[var(--salt-mist)] hover:bg-white hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-25 min-[390px]:h-10 min-[390px]:w-10"
                       >
                         <ChevronDown className="h-4 w-4" aria-hidden />
                       </motion.button>
@@ -219,7 +227,7 @@ export function QueueDrawer({
                         onClick={() => removeFromQueue(index)}
                         aria-label={`Remove ${item.song.title} from queue`}
                         title="Remove from queue"
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--salt-mist)] hover:bg-white hover:text-[var(--danger)]"
+                        className="flex h-9 w-9 items-center justify-center rounded-md text-[var(--salt-mist)] hover:bg-white hover:text-[var(--danger)] min-[390px]:h-10 min-[390px]:w-10"
                       >
                         <Trash2 className="h-4 w-4" aria-hidden />
                       </motion.button>

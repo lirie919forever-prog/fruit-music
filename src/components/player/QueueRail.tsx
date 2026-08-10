@@ -38,6 +38,8 @@ export function QueueRail({
   const queue = usePlayerStore((state) => state.queue);
   const queueIndex = usePlayerStore((state) => state.queueIndex);
   const currentSong = usePlayerStore((state) => state.currentSong);
+  const effectiveSong = usePlayerStore((state) => state.effectiveSong);
+  const duration = usePlayerStore((state) => state.duration);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const removeFromQueue = usePlayerStore((state) => state.removeFromQueue);
   const reorderQueue = usePlayerStore((state) => state.reorderQueue);
@@ -67,8 +69,7 @@ export function QueueRail({
     return (
       <aside
         aria-label="Collapsed playback queue"
-        className="marea-glass-sidebar hidden h-full min-h-0 w-[72px] shrink-0 flex-col border-l transition-[width,opacity] duration-300 lg:flex"
-        style={{ paddingBottom: 'var(--player-bar-clearance)' }}
+        className="marea-glass-sidebar hidden h-full min-h-0 w-[72px] shrink-0 flex-col border-l pb-[var(--player-bar-clearance)] transition-[width,opacity] duration-300 lg:flex lg:pb-[var(--player-bar-desktop-clearance)]"
       >
         <header className="flex shrink-0 flex-col items-center gap-2 border-b border-[var(--glass-border)] px-2 py-4">
           <motion.button
@@ -142,8 +143,7 @@ export function QueueRail({
   return (
     <aside
       aria-labelledby="queue-rail-title"
-      className="marea-glass-sidebar hidden h-full min-h-0 w-[min(30vw,320px)] shrink-0 flex-col border-l lg:flex"
-      style={{ paddingBottom: 'var(--player-bar-clearance)' }}
+      className="marea-glass-sidebar hidden h-full min-h-0 w-[min(30vw,320px)] shrink-0 flex-col border-l pb-[var(--player-bar-clearance)] lg:flex lg:pb-[var(--player-bar-desktop-clearance)]"
     >
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--glass-border)] px-4 py-4">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -202,6 +202,12 @@ export function QueueRail({
             style={{ height: '100%' }}
             renderItem={(item, index) => {
               const active = index === queueIndex;
+              const playbackProvider = active && effectiveSong ? effectiveSong.provider : item.song.provider;
+              const playbackDuration = active && duration > 0 ? duration : item.song.duration;
+              const playbackSourceTitle =
+                active && effectiveSong
+                  ? `Playback resolved via ${effectiveSong.provider}; selected from ${item.song.provider}`
+                  : undefined;
               return (
                 <div
                   className={`group flex items-center gap-1.5 rounded-lg px-1.5 py-2 transition-colors ${active ? 'bg-[var(--salt-ghost)]' : 'hover:bg-[var(--glass-bg-hover)]'}`}
@@ -237,12 +243,12 @@ export function QueueRail({
                         {item.song.artist}
                       </span>
                       <span className="mt-1 flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-[var(--salt-mist)]">
-                        <span>{item.song.provider}</span>
+                        <span title={playbackSourceTitle}>{playbackProvider}</span>
                         {item.addedBy === 'autoplay' && <span className="text-[var(--salt-primary)]">Autoplay</span>}
                       </span>
                     </span>
                     <span className="shrink-0 self-start pt-0.5 text-[10px] tabular-nums text-[var(--salt-mist)]">
-                      {formatDuration(item.song.duration)}
+                      {formatDuration(playbackDuration)}
                     </span>
                   </motion.button>
                   <div className="flex shrink-0 flex-col opacity-50 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
