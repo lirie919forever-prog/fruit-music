@@ -1,114 +1,83 @@
-# Marea - User-Perspective Critique (Round 2)
+# Marea - User-Perspective Critique (Round 2, Updated)
 
 This critique is from the viewpoint of a first-time visitor opening the live
-production site at https://fruit-music-nine.vercel.app. Each finding is backed
-by a concrete browsing session via Playwright and/or direct API verification.
+production site at https://fruit-music-nine.vercel.app. The original findings
+are retained below with their current status after the follow-up implementation.
 
 ## Findings
 
-### C1 (CRITICAL): Charts offer 50 songs you can only hear for 30 seconds
+### C1 (CRITICAL, residual): Charts can still contain 30-second previews
 
-**What the user sees:** Opens UK Charts, sees 50 real entries (Ariana Grande,
-Sam Fender, Taylor Swift, Bruno Mars) with a note promising 'full recording
-when a match confirms one'. Every entry shows a PREVIEW badge and 0:30 duration.
-Clicking play gives a 30-second clip. None were upgraded to full tracks.
+Apple regional charts still expose official 30-second clips when no exact,
+verified full-track resolver match exists. The chart copy and PREVIEW badge now
+say that plainly, and chart hydration preserves the Apple ranking instead of
+substituting a similar recording.
 
-**Evidence:** `GET /api/music/charts?chart=uk` returns 50 results, all
-provider='Apple Preview', duration=30. Zero upgraded to MATCH/FULL.
-resolveChartFullTracks searches Kuwo (CJK-focused, no Western mainstream),
-Audius, Jamendo (CC platforms, no major-label copyright music). None have
-these tracks, so 0/50 match.
+**Current status:** The remaining limitation is source availability: no public
+no-auth adapter can provide licensed full-length Western commercial recordings
+for every chart row. This is the primary product gap, not a matching bug.
 
-**Impact:** This is the user's #1 recurring complaint. The chart page is
-essentially a teaser gallery, not a listening experience. The honest prose
-doesn't fix the underlying problem: mainstream charts are unplayable.
+### C2 (HIGH, fixed): Homepage hero could feature a raw archive filename
 
-**Root cause:** No registered full-track source carries Western mainstream
-music outside 30-second Apple/Deezer previews. This is a licensing constraint.
-The code correctly tries to resolve them; the sources simply don't have them.
+Wikimedia Commons can return field recordings and files named with extensions
+such as `.wav` or `.ogg` alongside actual music.
 
-### C2 (HIGH): Homepage hero features a raw .wav field recording, not music
+**Current status:** Discovery selection filters archive filenames and obvious
+non-music clip titles before they reach the hero or release rails.
 
-**What the user sees:** The 'Marea pick' and 'Also in the spotlight' sections
-on the homepage feature 'Viva la Virgen de Capilludos Castrillo-Tejeriego.wav'
-by 'Elenafra' from Wikimedia Commons. This is a filed field recording with a
-filename as its title, not a curated track.
+### C3 (HIGH, fixed): Full-track search hid resolver matches
 
-**Impact:** Terrible first impression. A music app's homepage hero should
-feature actual music with proper titles, artist names, and cover art. A raw
-WAV filename novel longer than the display area signals 'this app has no real
-content'.
+Kuwo and LX Music entries are resolver identities whose stream still needs a
+playback check. They were previously excluded from the Full tracks filter even
+when their reported duration described a full recording.
 
-**Root cause:** Spotlight/hero selection is metadata-driven with no content
-quality filter. Wikimedia Commons returns field recordings alongside genuine
-music, and the selection logic surfaces one without distinguishing them.
+**Current status:** Duration-qualified resolver results are included in Full
+tracks mode and remain labeled VERIFY because playback is checked at selection
+time.
 
-### C3 (HIGH): Searching for a mainstream artist hides the real full tracks
+### C4 (MEDIUM, fixed): Search entry points looked duplicated
 
-**What the user sees:** Searching 'Ariana Grande' with the default 'Full
-tracks' filter returns 84 results from Audius and Jamendo - covers, remixes,
-and tributes. The actual full tracks exist on Kuwo (320kbps MP3, confirmed
-playable) but are filtered out because Kuwo is classified as 'match' not
-'full', and the Full tracks filter excludes resolver sources entirely.
+The header exposes a Search music action, while the Search page owns the query
+input.
 
-**Evidence:** `isDirectFullTrack()` in newViewModel.ts explicitly excludes
-resolver sources: `isFullTrack(song) && !isResolverSource(song.provider)`.
-Kuwo tracks ARE full-length playable tracks (probe confirmed available=true),
-but the filter removes them from the default view.
+**Current status:** The header control is a navigation/action button, not a
+second text input. The Search page has the single active query field.
 
-**Impact:** The user never sees the real, playable mainstream tracks they
-searched for. The app looks like it only has amateur covers.
+### C5 (MEDIUM, mitigated): Individual open providers can be unavailable
 
-### C4 (MEDIUM): Two search boxes on the search page
+Public provider uptime varies, and a search can still show a source as
+unavailable when its upstream endpoint is down.
 
-**What the user sees:** The header bar has a 'Search music' input and the
-search page body has another 'Search music' input, both active. The user does
-not know which to type in; results appear from the body one.
+**Current status:** Provider failures are isolated, surfaced in source coverage,
+and no longer blank successful results from other providers. Upstream
+availability remains variable and cannot be guaranteed by the client.
 
-### C5 (MEDIUM): Two of seven full-track CC sources are down
+### C6 (LOW, fixed): Chart rows showed the preview duration
 
-**What the user sees:** Searching 'Ariana Grande' shows 'ccMixter: Unavailable'
-and 'Archive: Unavailable' in the results status. These are supposed to be
-primary full-track sources but are failing.
+**Current status:** Chart rows use `recordingDuration` when available, while the
+PREVIEW badge and chart prose continue to make the 30-second stream limit clear.
 
-### C6 (LOW): Chart track durations show 0:30 not the real song length
+### C7 (LOW, fixed): Metadata references were mixed with playable sources
 
-**What the user sees:** Every chart track shows '0:30' as its duration
-instead of the recordingDuration (e.g. 3:18). This makes the entries look
-like samples, discouraging engagement.
-
-**Root cause:** The chart endpoint maps duration from the 30-second preview
-duration, not recordingDuration. The full duration is stored in
-recordingDuration but not displayed in the track row.
-
-### C7 (LOW): '17 sources' but 4 are metadata-only dead ends
-
-**What the user sees:** The source dropdown says '17 sources' but 4 of those
-(MusicBrainz, Open Opus, Tunetank, and the metadata-only ones) never return
-playable audio. Selecting them gives 'No match' with no explanation that
-they are metadata-only by design.
+**Current status:** Metadata-only references are categorized in the source
+directory, excluded from playable search options, and labeled as metadata-only
+instead of pretending to be audio providers.
 
 ## Summary table
 
-| ID | Severity | Finding | Code-fixable? |
-|----|----------|---------|---------------|
-| C1 | CRITICAL | Charts are all 30s previews, 0/50 upgraded | Licensed-source limitation |
-| C2 | HIGH | Homepage hero features a .wav field recording | Yes - content curation |
-| C3 | HIGH | Search hides real full tracks behind filter logic | Yes - filter logic |
-| C4 | MEDIUM | Two search boxes on search page | Yes - remove duplicate |
-| C5 | MEDIUM | ccMixter + Archive sources down | Yes - robustness |
-| C6 | LOW | Chart tracks show 0:30 not recording duration | Yes - display fix |
-| C7 | LOW | Metadata-only sources shown without explanation | Yes - labeling |
+| ID  | Severity | Finding                                        | Current status             |
+| --- | -------- | ---------------------------------------------- | -------------------------- |
+| C1  | CRITICAL | Some mainstream chart rows remain 30s previews | Residual source limitation |
+| C2  | HIGH     | Homepage hero could show archive filenames     | Fixed                      |
+| C3  | HIGH     | Resolver matches hidden by Full tracks filter  | Fixed                      |
+| C4  | MEDIUM   | Search entry points looked duplicated          | Fixed                      |
+| C5  | MEDIUM   | Individual open providers can be down          | Mitigated                  |
+| C6  | LOW      | Chart rows showed 0:30                         | Fixed                      |
+| C7  | LOW      | Metadata-only sources lacked separation        | Fixed                      |
 
-## Recommended fixes (priority order)
+## Remaining priorities
 
-1. C3: Include resolver sources (Kuwo, LX Music) in the 'Full tracks' filter
-   since their resolved tracks ARE full-length playable audio. This is the
-   single most impactful fix - it makes mainstream search actually show
-   mainstream full tracks.
-2. C6: Display recordingDuration in chart track rows, not the preview
-   duration.
-3. C2: Filter Wikimedia Commons items whose title contains '.wav', '.ogg',
-   '.mp3' or has no proper metadata from homepage hero selection.
-4. C4: Remove the duplicate search box on the search page.
-
+1. Add only licensed or user-configured full-length providers for Western
+   commercial charts. Do not turn an unrelated upload into a chart match.
+2. Continue monitoring open-provider availability and preserve per-source
+   degradation when an upstream endpoint fails.

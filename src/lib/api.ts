@@ -301,10 +301,24 @@ async function searchFullTrackSources(
   excludedIds: ReadonlySet<string> = new Set(),
   allowExplicitArtistTitleMatch = false,
 ): Promise<Song[]> {
-  const providerResults = await Promise.allSettled(
-    sources.map(async (search) => {
+  if (sources.length === 0) return [];
+
+  // Race-style resolve: as soon as ANY source finds matches, return them.
+  // This prevents slow sources (e.g., Invidious at 12s timeout) from blocking
+  // chart rows where a fast source (e.g., Netease at 300ms) already found a
+  // match. Remaining sources check \`hasEarlyMatch\` at the top of each
+  // query loop iteration and exit early once matches exist.
+  const allMatches: Song[] = [];
+  let earlyResolve!: () => void;
+  const matchedOrAllDone = new Promise<void>((resolve) => {
+    earlyResolve = resolve;
+  });
+
+  const sourcePromises = sources.map(async (search) => {
+    try {
       for (const query of queries) {
         throwIfAborted(signal);
+        if (allMatches.length > 0) return;
         const matches = matchingFullTracks(
           await search(query),
           title,
@@ -313,15 +327,25 @@ async function searchFullTrackSources(
           expectedDuration,
           allowExplicitArtistTitleMatch,
         ).filter((candidate) => !excludedIds.has(candidate.id));
-        if (matches.length > 0) return matches;
+        if (matches.length > 0) {
+          allMatches.push(...matches);
+          earlyResolve();
+          return;
+        }
       }
-      return [];
-    }),
-  );
-  for (const result of providerResults) {
-    if (result.status === 'rejected') throwIfAborted(signal);
-  }
-  return providerResults.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
+    } catch {
+      throwIfAborted(signal);
+    }
+  });
+
+  // Resolve as soon as either (a) any source finds matches, or (b) all
+  // sources have settled without finding anything.
+  await Promise.race([
+    matchedOrAllDone,
+    Promise.allSettled(sourcePromises).then(() => earlyResolve()),
+  ]);
+
+  return allMatches;
 }
 
 async function findFullTrackCandidates(

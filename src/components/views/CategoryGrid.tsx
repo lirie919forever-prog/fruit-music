@@ -64,40 +64,41 @@ export function CategoryGrid({
     degradedProviders,
     totalFailure: allProvidersFailed,
   } = getCategoryState(categoryState);
-  const songs = useMemo(
-    () =>
-      config.requiresFullLength
-        ? allSongs.filter((song) => song.playbackUnavailable !== true && isFullTrack(song))
-        : config.includePreviews === true
-          ? allSongs
-          : allSongs.filter(isDirectFullTrack),
-    [allSongs, config.includePreviews, config.requiresFullLength],
-  );
   const unavailableProviders = useMemo(
     () => [...new Set([...failedProviders, ...degradedProviders])],
     [failedProviders, degradedProviders],
   );
 
-  // When a chart promises full-length tracks, show resolved full tracks first,
-  // then any remaining preview rows so the listener sees the complete chart
-  // ranking. Full tracks come from Netease, Invidious, Kuwo, QQ Music, Bilibili,
-  // or LX Music; rows that could not be verified stay as official Apple previews
-  // with a notice. The playback engine retries resolution on demand.
-  const previewFallback = useMemo(
+  // allSongs from resolveChartFullTracks already preserves chart ranking order:
+  // full-track matches are in-place at their original chart position, and
+  // unmatched positions remain as official Apple previews. Use allSongs
+  // directly for chart views to keep the ranking intact - splitting into
+  // separate full-track and preview arrays then concatenating scrambles the
+  // chart order, which caused track misalignment.
+  const displaySongs = useMemo(
+    () =>
+      config.requiresFullLength || config.includePreviews === true
+        ? allSongs
+        : allSongs.filter(isDirectFullTrack),
+    [allSongs, config.requiresFullLength, config.includePreviews],
+  );
+  const fullCount = useMemo(
+    () =>
+      config.requiresFullLength
+        ? allSongs.filter((song) => song.playbackUnavailable !== true && isFullTrack(song)).length
+        : displaySongs.length,
+    [allSongs, config.requiresFullLength, displaySongs],
+  );
+  const previewCount = useMemo(
     () =>
       config.requiresFullLength
         ? allSongs.filter(
-            (song) =>
-              isPreviewSource(song.provider) &&
-              song.playbackUnavailable !== true &&
-              !songs.some((full) => full.id === song.id || full.albumId === song.albumId),
-          )
-        : [],
-    [allSongs, config.requiresFullLength, songs],
+            (song) => isPreviewSource(song.provider) && song.playbackUnavailable !== true,
+          ).length
+        : 0,
+    [allSongs, config.requiresFullLength],
   );
-
-  const displaySongs = useMemo(() => [...songs, ...previewFallback], [songs, previewFallback]);
-  const isShowingPreviews = previewFallback.length > 0 && config.requiresFullLength;
+  const isShowingPreviews = previewCount > 0 && config.requiresFullLength;
   const hasUnavailableTracks = useMemo(
     () => displaySongs.some((song) => song.playbackUnavailable),
     [displaySongs],
@@ -114,7 +115,7 @@ export function CategoryGrid({
       />
     );
   }
-  if (!songs?.length && previewFallback.length === 0) {
+  if (!displaySongs?.length) {
     return (
       <StatusPanel
         eyebrow={config.title}
@@ -133,11 +134,11 @@ export function CategoryGrid({
           provenance line only — track count and which source it came from. */}
       <div className="pb-3">
         <p className="text-[13px] text-[var(--salt-mist)]">
-          {isShowingPreviews && songs.length > 0
-            ? `${songs.length} full + ${previewFallback.length} preview — press any preview song and Marea will try to find a full recording.`
+          {isShowingPreviews && fullCount > 0
+            ? `${fullCount} full + ${previewCount} preview — press any preview song and Marea will try to find a full recording.`
             : isShowingPreviews
-              ? `${previewFallback.length} preview ${previewFallback.length === 1 ? 'track' : 'tracks'} — press any song and Marea will try to find a full recording.`
-              : `${songs.length} ${songs.length === 1 ? 'track' : 'tracks'} 路 ${config.description}`}
+              ? `${previewCount} preview ${previewCount === 1 ? 'track' : 'tracks'} — press any song and Marea will try to find a full recording.`
+              : `${fullCount} ${fullCount === 1 ? 'track' : 'tracks'} — ${config.description}`}
         </p>
         {unavailableProviders.length > 0 && (
           <p className="mt-1 text-xs text-[var(--salt-mist)]">

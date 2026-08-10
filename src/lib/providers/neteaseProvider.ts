@@ -1,11 +1,11 @@
-import type { MusicProvider } from './types';
+﻿import type { MusicProvider } from './types';
 import { providerFetch } from './errors';
 import { createDeterministicCover, safeCoverArt } from '@/lib/coverArt';
 import type { Song } from '@/types/music';
 
 const PROXY_BASE = '/api/music/netease';
 const NETEASE_TERMS_URL = 'https://music.163.com/';
-const SONG_ID_PATTERN = /^d{1,20}$/;
+const SONG_ID_PATTERN = /^\d{1,20}$/;
 
 interface NeteaseArtist {
   name?: string;
