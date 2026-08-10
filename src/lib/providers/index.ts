@@ -8,6 +8,7 @@ import { kuwoProvider, searchKuwo } from './kuwoProvider';
 import { qqMusicProvider } from './qqMusicProvider';
 import { bilibiliProvider } from './bilibiliProvider';
 import { invidiousProvider } from './invidiousProvider';
+import { neteaseProvider } from './neteaseProvider';
 import { itunesProvider } from './itunesProvider';
 import { deezerProvider } from './deezerProvider';
 import { audiusProvider } from './audiusProvider';
@@ -93,6 +94,13 @@ export const MUSIC_PROVIDER_ADAPTERS: readonly ProviderRegistration[] = [
     songPrefixes: ['invidious-'],
     albumPrefixes: ['invidious-album-'],
     artistPrefixes: ['invidious-artist-'],
+  },
+  {
+    name: 'Netease',
+    adapter: neteaseProvider,
+    songPrefixes: ['netease-'],
+    albumPrefixes: ['netease-album-'],
+    artistPrefixes: ['netease-artist-'],
   },
   {
     name: 'Apple Preview',
@@ -223,6 +231,7 @@ export {
   qqMusicProvider,
   bilibiliProvider,
   invidiousProvider,
+  neteaseProvider,
   itunesProvider,
   deezerProvider,
   audiusProvider,

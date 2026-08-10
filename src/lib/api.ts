@@ -4,6 +4,7 @@ import {
   audiusProvider,
   bilibiliProvider,
   invidiousProvider,
+  neteaseProvider,
   ccmixterProvider,
   deezerProvider,
   fipProvider,
@@ -366,6 +367,9 @@ async function findFullTrackCandidates(
   }
   if (options.excludeProvider !== 'Invidious') {
     primarySources.push((query) => invidiousProvider.search(query, signal));
+  }
+  if (options.excludeProvider !== 'Netease') {
+    primarySources.push((query) => neteaseProvider.search(query, signal));
   }
   if (
     options.includeLx === true &&

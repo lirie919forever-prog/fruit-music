@@ -22,6 +22,7 @@ const PROVIDER_RELEVANCE: Record<MusicProviderName, number> = {
   'QQ Music': 72,
   Bilibili: 70,
   Invidious: 70,
+  Netease: 74,
   SomaFM: 12,
   'NTS Radio': 14,
   'Radio Paradise': 16,

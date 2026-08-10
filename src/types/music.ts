@@ -39,6 +39,7 @@ export type MusicProviderName =
   | 'Radio France'
   | 'Radio Browser'
   | 'Invidious'
+  | 'Netease'
   | 'Local file';
 
 export interface Song {

@@ -214,6 +214,15 @@ export const MUSIC_SOURCE_REGISTRY: readonly MusicSourceDefinition[] = [
     searchable: true,
   },
   {
+    name: 'Netease',
+    description: 'Netease Cloud Music catalog with strong Japanese, Korean, and Chinese coverage.',
+    homepage: 'https://music.163.com/',
+    capabilities: ['match'],
+    integration: 'active',
+    note: 'Full tracks via Netease outer URL; covers Japanese, Korean, and Chinese music',
+    searchable: true,
+  },
+  {
     name: 'LX Music',
     description: 'Optional operator-configured catalog adapter for additional discovery.',
     homepage: 'https://github.com/lyswhut/lx-music-desktop',
