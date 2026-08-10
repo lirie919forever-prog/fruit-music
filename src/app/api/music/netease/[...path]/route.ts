@@ -18,7 +18,7 @@ const NETEASE_HEADERS: Record<string, string> = {
   'Accept': 'application/json',
 };
 
-const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 120, maxEntries: 4_000 });
+const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 600, maxEntries: 8_000 });
 
 function metingStreamUrl(songId: string): string {
   return `https://api.injahow.cn/meting/?type=url&id=${songId}`;
