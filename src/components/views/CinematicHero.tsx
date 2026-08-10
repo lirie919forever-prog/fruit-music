@@ -8,6 +8,7 @@ import { CoverArt } from '@/components/ui/CoverArt';
 import { safeCoverArt } from '@/lib/coverArt';
 import { FavoriteButton } from './SongCard';
 import type { NavigationItem } from '@/lib/navigation';
+import { getSourceLinkLabel } from '@/lib/sourceLink';
 import type { Song, ViewType } from '@/types/music';
 
 interface CinematicHeroProps {
@@ -53,7 +54,7 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
     <motion.article
       variants={HERO_VARIANTS}
       aria-labelledby={headingId}
-      className="marea-cinematic-hero group relative isolate flex min-h-[220px] flex-col justify-between overflow-hidden rounded-2xl border bg-[var(--sea-abyss)] p-5 sm:min-h-[280px] sm:p-7 lg:min-h-[320px] lg:p-8"
+      className="marea-cinematic-hero marea-glass-hero group relative isolate flex min-h-[220px] flex-col justify-between overflow-hidden rounded-2xl border bg-[var(--sea-abyss)] p-5 sm:min-h-[280px] sm:p-7 lg:min-h-[320px] lg:p-8"
     >
       {/* Dynamic cover-colour field: the blurred, saturated cover art bleed. */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
@@ -101,7 +102,7 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
         </div>
       </div>
 
-      <div className="mt-5 flex items-center gap-1.5 sm:mt-7 sm:gap-2">
+      <div className="mt-5 flex flex-wrap items-center gap-1.5 sm:mt-7 sm:gap-2">
         {unavailable ? (
           <span className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white/15 px-3.5 text-xs font-semibold text-white backdrop-blur-sm sm:h-10 sm:px-4">
             <Lock className="h-3.5 w-3.5" aria-hidden />
@@ -112,7 +113,7 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
             <button
               type="button"
               onClick={() => playSong(song)}
-              className="marea-primary-action inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-semibold text-white sm:h-10 sm:px-5 sm:text-sm"
+              className="marea-primary-action inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-[13px] font-semibold text-white sm:px-5 sm:text-sm lg:h-9"
             >
               <Play className="h-4 w-4" aria-hidden />
               Play
@@ -123,7 +124,7 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
                 onClick={onQueue}
                 aria-label={`Add ${song.title} to queue`}
                 title="Add to queue"
-                className="flex h-9 w-9 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white sm:h-10 sm:w-10"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white lg:h-9 lg:w-9"
               >
                 <Plus className="h-4 w-4" aria-hidden />
               </button>
@@ -136,9 +137,9 @@ export function CinematicHero({ song, eyebrow, onQueue, onNavigateWithItem }: Ci
             href={song.sourceUrl}
             target="_blank"
             rel="noreferrer"
-            title={`${song.provider} · ${song.licenseName || 'Provider terms'}`}
-            aria-label={`Open on ${song.provider}`}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white sm:h-10 sm:w-10"
+            title={`${getSourceLinkLabel(song.sourceUrl)} · ${song.licenseName || 'Provider terms'}`}
+            aria-label={getSourceLinkLabel(song.sourceUrl)}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white lg:h-9 lg:w-9"
           >
             <ExternalLink className="h-4 w-4" aria-hidden />
           </a>

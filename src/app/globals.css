@@ -536,6 +536,55 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
   }
 }
 
+
+/* Glass shimmer keyframe: a soft diagonal light sweep on hover */
+@keyframes marea-glass-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Shimmer overlay on glass cards when hovered — adds a light sweep effect */
+@media (hover: hover) {
+  .marea-glass-card:hover::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      115deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.12) 45%,
+      rgba(255, 255, 255, 0.04) 55%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    animation: marea-glass-shimmer 1.2s ease-out;
+    pointer-events: none;
+    z-index: 1;
+  }
+}
+
+/* Ensure glass-card content is above the shimmer */
+.marea-glass-card > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Mobile: subtle pulse-glow on the player bar when playing */
+@keyframes marea-playing-glow {
+  0%, 100% { box-shadow: 0 -8px 24px rgba(13, 111, 168, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+  50% { box-shadow: 0 -8px 28px rgba(13, 111, 168, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.56); }
+}
+
+.marea-playing-glow {
+  animation: marea-playing-glow 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marea-playing-glow { animation: none; }
+  .marea-glass-card:hover::after { display: none; }
+}
+
 /* The ocean palette is the product identity. Midnight is an optional low-light
    surface that reuses the same blue vocabulary, so theme changes do not create
    a second visual language or remount the audio engine. */
