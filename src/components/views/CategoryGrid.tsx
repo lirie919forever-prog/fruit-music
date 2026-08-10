@@ -78,20 +78,26 @@ export function CategoryGrid({
     [failedProviders, degradedProviders],
   );
 
-  // When a chart promises full-length tracks but the resolver could not verify
-  // any, fall back to showing the official previews rather than a blank page.
-  // The listener can still browse chart rankings; the playback engine retries
-  // full-track resolution when a track is pressed.
+  // When a chart promises full-length tracks, show resolved full tracks first,
+  // then any remaining preview rows so the listener sees the complete chart
+  // ranking. Full tracks come from Netease, Invidious, Kuwo, QQ Music, Bilibili,
+  // or LX Music; rows that could not be verified stay as official Apple previews
+  // with a notice. The playback engine retries resolution on demand.
   const previewFallback = useMemo(
     () =>
-      config.requiresFullLength && !songs.length
-        ? allSongs.filter((song) => isPreviewSource(song.provider) && song.playbackUnavailable !== true)
+      config.requiresFullLength
+        ? allSongs.filter(
+            (song) =>
+              isPreviewSource(song.provider) &&
+              song.playbackUnavailable !== true &&
+              !songs.some((full) => full.id === song.id || full.albumId === song.albumId),
+          )
         : [],
-    [allSongs, config.requiresFullLength, songs.length],
+    [allSongs, config.requiresFullLength, songs],
   );
 
-  const displaySongs = songs.length > 0 ? songs : previewFallback;
-  const isShowingPreviews = songs.length === 0 && previewFallback.length > 0;
+  const displaySongs = useMemo(() => [...songs, ...previewFallback], [songs, previewFallback]);
+  const isShowingPreviews = previewFallback.length > 0 && config.requiresFullLength;
   const hasUnavailableTracks = useMemo(
     () => displaySongs.some((song) => song.playbackUnavailable),
     [displaySongs],
@@ -108,7 +114,7 @@ export function CategoryGrid({
       />
     );
   }
-  if (!songs?.length && !previewFallback.length) {
+  if (!songs?.length && previewFallback.length === 0) {
     return (
       <StatusPanel
         eyebrow={config.title}
@@ -127,9 +133,11 @@ export function CategoryGrid({
           provenance line only — track count and which source it came from. */}
       <div className="pb-3">
         <p className="text-[13px] text-[var(--salt-mist)]">
-          {isShowingPreviews
-            ? `${previewFallback.length} preview ${previewFallback.length === 1 ? 'track' : 'tracks'} — press any song and Marea will try to find a full recording.`
-            : `${songs.length} ${songs.length === 1 ? 'track' : 'tracks'} 路 ${config.description}`}
+          {isShowingPreviews && songs.length > 0
+            ? `${songs.length} full + ${previewFallback.length} preview — press any preview song and Marea will try to find a full recording.`
+            : isShowingPreviews
+              ? `${previewFallback.length} preview ${previewFallback.length === 1 ? 'track' : 'tracks'} — press any song and Marea will try to find a full recording.`
+              : `${songs.length} ${songs.length === 1 ? 'track' : 'tracks'} 路 ${config.description}`}
         </p>
         {unavailableProviders.length > 0 && (
           <p className="mt-1 text-xs text-[var(--salt-mist)]">
