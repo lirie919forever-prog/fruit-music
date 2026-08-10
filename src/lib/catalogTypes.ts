@@ -65,6 +65,13 @@ export interface MusicCatalog {
   getRecentReleases(limit?: number, signal?: AbortSignal): Promise<Song[]>;
   getTrending(limit?: number, signal?: AbortSignal): Promise<FederatedResult<Song>>;
   getChartSongs(chart: ChartKey, signal?: AbortSignal, options?: ChartFetchOptions): Promise<Song[]>;
+  /**
+   * Progressively resolves a single chart preview to a full-length track.
+   * Used by CategoryGrid for non-blocking chart hydration so the page renders
+   * instantly with Apple previews and full tracks are promoted in place as
+   * they are verified. Returns `null` when no verified full recording exists.
+   */
+  resolveChartTrack(song: Song, signal?: AbortSignal): Promise<Song | null>;
   getLyrics(song: Song, signal?: AbortSignal): Promise<LyricsResult | null>;
   resolveSong(songId: string, signal?: AbortSignal): Promise<Song | null>;
   getStreamUrl(song: Song, signal?: AbortSignal): Promise<string>;

@@ -1445,6 +1445,10 @@ export const api = {
     }
   },
 
+  resolveChartTrack(song: Song, signal?: AbortSignal): Promise<Song | null> {
+    return findFullTrackFallback(song, signal, CHART_FULL_TRACK_SEARCH_OPTIONS);
+  },
+
   isServerConfigured,
 } satisfies MusicCatalog;
 

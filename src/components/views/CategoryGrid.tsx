@@ -13,6 +13,7 @@ import type { FederatedResult, MusicCatalog } from '@/lib/catalogTypes';
 import type { Song, ViewType } from '@/types/music';
 import { VirtualList } from '@/components/ui/VirtualList';
 import { useMusicCatalog } from '@/lib/musicCatalog';
+import { useChartResolution, countChartProvenance } from './useChartResolution';
 
 export interface CategoryConfig {
   view: ViewType;
@@ -69,6 +70,8 @@ export function CategoryGrid({
     [failedProviders, degradedProviders],
   );
 
+  const resolvedSongs = useChartResolution(allSongs, config.requiresFullLength === true);
+
   // allSongs from resolveChartFullTracks already preserves chart ranking order:
   // full-track matches are in-place at their original chart position, and
   // unmatched positions remain as official Apple previews. Use allSongs
@@ -78,25 +81,25 @@ export function CategoryGrid({
   const displaySongs = useMemo(
     () =>
       config.requiresFullLength || config.includePreviews === true
-        ? allSongs
+        ? resolvedSongs
         : allSongs.filter(isDirectFullTrack),
-    [allSongs, config.requiresFullLength, config.includePreviews],
+    [resolvedSongs, allSongs, config.requiresFullLength, config.includePreviews],
   );
   const fullCount = useMemo(
     () =>
       config.requiresFullLength
-        ? allSongs.filter((song) => song.playbackUnavailable !== true && isFullTrack(song)).length
+        ? resolvedSongs.filter((song) => song.playbackUnavailable !== true && isFullTrack(song)).length
         : displaySongs.length,
-    [allSongs, config.requiresFullLength, displaySongs],
+    [resolvedSongs, config.requiresFullLength, displaySongs],
   );
   const previewCount = useMemo(
     () =>
       config.requiresFullLength
-        ? allSongs.filter(
+        ? resolvedSongs.filter(
             (song) => isPreviewSource(song.provider) && song.playbackUnavailable !== true,
           ).length
         : 0,
-    [allSongs, config.requiresFullLength],
+    [resolvedSongs, config.requiresFullLength],
   );
   const isShowingPreviews = previewCount > 0 && config.requiresFullLength;
   const hasUnavailableTracks = useMemo(
