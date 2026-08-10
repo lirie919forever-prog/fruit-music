@@ -4,6 +4,8 @@ import {
   archiveProvider,
   audiusProvider,
   bilibiliProvider,
+  invidiousProvider,
+  neteaseProvider,
   ccmixterProvider,
   deezerProvider,
   fipProvider,
@@ -108,6 +110,8 @@ beforeEach(() => {
   vi.spyOn(qqMusicProvider, 'getSongsByTag').mockResolvedValue([]);
   vi.spyOn(qqMusicProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
   vi.spyOn(bilibiliProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(invidiousProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(neteaseProvider, 'search').mockResolvedValue([]);
   vi.spyOn(lxmusicProvider, 'search').mockResolvedValue([]);
   vi.spyOn(lxmusicProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
   vi.spyOn(audiusProvider, 'search').mockResolvedValue([]);
@@ -210,7 +214,7 @@ describe('provider federation', () => {
 
     const defaultResults = await searchFederated('YOASOBI', undefined, 'all');
     expect(defaultResults.results).toEqual([lxResult]);
-    expect(defaultResults.providerCount).toBe(20);
+    expect(defaultResults.providerCount).toBe(22);
     expect(lxmusicProvider.search).toHaveBeenCalledTimes(1);
 
     await expect(searchFederated('YOASOBI', undefined, 'LX Music')).resolves.toEqual({
@@ -230,7 +234,7 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
     expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(19);
+    expect(state.providerCount).toBe(21);
   });
 
   it('distinguishes true empty results from total provider failure', async () => {
@@ -250,7 +254,7 @@ describe('provider federation', () => {
     await expect(searchFederated('missing')).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter', 'Archive'],
-      providerCount: 19,
+      providerCount: 21,
     });
   });
 
@@ -266,7 +270,7 @@ describe('provider federation', () => {
       results: [song('ccmixter-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 19,
+      providerCount: 21,
     });
   });
 

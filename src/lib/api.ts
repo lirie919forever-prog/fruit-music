@@ -939,6 +939,8 @@ export async function searchFederated(
     { name: 'Kuwo', get: async (sig) => ({ results: await kuwoProvider.search(query, sig) }) },
     { name: 'QQ Music', get: async (sig) => ({ results: await qqMusicProvider.search(query, sig) }) },
     { name: 'Bilibili', get: async (sig) => ({ results: await bilibiliProvider.search(query, sig) }) },
+    { name: 'Invidious', get: async (sig) => ({ results: await invidiousProvider.search(query, sig) }) },
+    { name: 'Netease', get: async (sig) => ({ results: await neteaseProvider.search(query, sig) }) },
   ];
   if (shouldIncludeOptionalLx(source)) {
     providers.push({ name: 'LX Music', get: async (sig) => ({ results: await lxmusicProvider.search(query, sig) }) });
