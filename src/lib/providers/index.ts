@@ -4,7 +4,10 @@ import { jamendoProvider } from './jamendoProvider';
 import { ccmixterProvider } from './ccmixterProvider';
 import { archiveProvider } from './archiveProvider';
 import { lxmusicProvider } from './lxmusicProvider';
-import { kuwoProvider } from './kuwoProvider';
+import { kuwoProvider, searchKuwo } from './kuwoProvider';
+import { qqMusicProvider } from './qqMusicProvider';
+import { bilibiliProvider } from './bilibiliProvider';
+import { invidiousProvider } from './invidiousProvider';
 import { itunesProvider } from './itunesProvider';
 import { deezerProvider } from './deezerProvider';
 import { audiusProvider } from './audiusProvider';
@@ -16,6 +19,7 @@ import { radioParadiseProvider } from './radioParadiseProvider';
 import { kexpProvider } from './kexpProvider';
 import { fipProvider } from './fipProvider';
 import { theCurrentProvider } from './theCurrentProvider';
+import { radioFranceProvider } from './radioFranceProvider';
 import { radioBrowserProvider } from './radioBrowserProvider';
 import { localProvider } from './localProvider';
 
@@ -68,6 +72,27 @@ export const MUSIC_PROVIDER_ADAPTERS: readonly ProviderRegistration[] = [
     songPrefixes: ['kuwo-'],
     albumPrefixes: ['kuwo-album-'],
     artistPrefixes: ['kuwo-artist-'],
+  },
+  {
+    name: 'QQ Music',
+    adapter: qqMusicProvider,
+    songPrefixes: ['qq-'],
+    albumPrefixes: ['qq-album-'],
+    artistPrefixes: ['qq-artist-'],
+  },
+  {
+    name: 'Bilibili',
+    adapter: bilibiliProvider,
+    songPrefixes: ['bilibili-'],
+    albumPrefixes: ['bilibili-album-'],
+    artistPrefixes: ['bilibili-artist-'],
+  },
+  {
+    name: 'Invidious',
+    adapter: invidiousProvider,
+    songPrefixes: ['invidious-'],
+    albumPrefixes: ['invidious-album-'],
+    artistPrefixes: ['invidious-artist-'],
   },
   {
     name: 'Apple Preview',
@@ -147,6 +172,13 @@ export const MUSIC_PROVIDER_ADAPTERS: readonly ProviderRegistration[] = [
     artistPrefixes: ['thecurrent-artist-'],
   },
   {
+    name: 'Radio France',
+    adapter: radioFranceProvider,
+    songPrefixes: ['radiofrance-'],
+    albumPrefixes: ['radiofrance-album-'],
+    artistPrefixes: ['radiofrance-artist-'],
+  },
+  {
     name: 'Radio Browser',
     adapter: radioBrowserProvider,
     songPrefixes: ['radio-'],
@@ -187,6 +219,10 @@ export {
   archiveProvider,
   lxmusicProvider,
   kuwoProvider,
+  searchKuwo,
+  qqMusicProvider,
+  bilibiliProvider,
+  invidiousProvider,
   itunesProvider,
   deezerProvider,
   audiusProvider,
@@ -198,6 +234,7 @@ export {
   kexpProvider,
   fipProvider,
   theCurrentProvider,
+  radioFranceProvider,
   radioBrowserProvider,
   localProvider,
 };

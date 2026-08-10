@@ -3,6 +3,7 @@ import type { Artist, Song } from '@/types/music';
 import {
   archiveProvider,
   audiusProvider,
+  bilibiliProvider,
   ccmixterProvider,
   deezerProvider,
   fipProvider,
@@ -18,7 +19,9 @@ import {
   localProvider,
   ntsProvider,
   openverseProvider,
+  qqMusicProvider,
   radioBrowserProvider,
+  radioFranceProvider,
   radioParadiseProvider,
   somaFmProvider,
   theCurrentProvider,
@@ -100,6 +103,11 @@ beforeEach(() => {
   vi.spyOn(kuwoProvider, 'getTrending').mockResolvedValue([]);
   vi.spyOn(kuwoProvider, 'getSongsByTag').mockResolvedValue([]);
   vi.spyOn(kuwoProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
+  vi.spyOn(qqMusicProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(qqMusicProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(qqMusicProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(qqMusicProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
+  vi.spyOn(bilibiliProvider, 'search').mockResolvedValue([]);
   vi.spyOn(lxmusicProvider, 'search').mockResolvedValue([]);
   vi.spyOn(lxmusicProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
   vi.spyOn(audiusProvider, 'search').mockResolvedValue([]);
@@ -148,8 +156,14 @@ beforeEach(() => {
   vi.spyOn(radioBrowserProvider, 'search').mockResolvedValue([]);
   vi.spyOn(radioBrowserProvider, 'getSongsByTag').mockResolvedValue([]);
   vi.spyOn(radioBrowserProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(radioBrowserProvider, 'getCountryStations').mockResolvedValue([]);
   vi.spyOn(radioBrowserProvider, 'getAlbums').mockResolvedValue([]);
   vi.spyOn(radioBrowserProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(radioFranceProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(radioFranceProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(radioFranceProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(radioFranceProvider, 'getAlbums').mockResolvedValue([]);
+  vi.spyOn(radioFranceProvider, 'getArtists').mockResolvedValue([]);
   vi.spyOn(jamendoProvider, 'search').mockResolvedValue([]);
   vi.spyOn(ccmixterProvider, 'search').mockResolvedValue([]);
   vi.spyOn(archiveProvider, 'search').mockResolvedValue([]);
@@ -182,6 +196,31 @@ describe('provider federation', () => {
     expect(itunesProvider.search).not.toHaveBeenCalled();
   });
 
+  it('includes configured LX in default search and allows explicit source search', async () => {
+    vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'true');
+    const lxResult = {
+      ...song('jamendo-lx-result'),
+      id: 'lxmusic-yoasobi-1',
+      provider: 'LX Music' as const,
+      title: '夜に駆ける',
+      artist: 'YOASOBI',
+      duration: 261,
+    };
+    vi.mocked(lxmusicProvider.search).mockResolvedValue([lxResult]);
+
+    const defaultResults = await searchFederated('YOASOBI', undefined, 'all');
+    expect(defaultResults.results).toEqual([lxResult]);
+    expect(defaultResults.providerCount).toBe(20);
+    expect(lxmusicProvider.search).toHaveBeenCalledTimes(1);
+
+    await expect(searchFederated('YOASOBI', undefined, 'LX Music')).resolves.toEqual({
+      results: [lxResult],
+      failedProviders: [],
+      providerCount: 1,
+    });
+    expect(lxmusicProvider.search).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps fallback results and reports a failed provider', async () => {
     vi.mocked(jamendoProvider.search).mockRejectedValue(new Error('unauthorized'));
     vi.mocked(ccmixterProvider.searchWithStatus).mockResolvedValue({ results: [song('ccmixter-1')] });
@@ -191,7 +230,7 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
     expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(16);
+    expect(state.providerCount).toBe(19);
   });
 
   it('distinguishes true empty results from total provider failure', async () => {
@@ -211,7 +250,7 @@ describe('provider federation', () => {
     await expect(searchFederated('missing')).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter', 'Archive'],
-      providerCount: 16,
+      providerCount: 19,
     });
   });
 
@@ -227,7 +266,7 @@ describe('provider federation', () => {
       results: [song('ccmixter-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 16,
+      providerCount: 19,
     });
   });
 
@@ -339,8 +378,12 @@ describe('provider federation', () => {
       { ...song('thecurrent-1'), provider: 'The Current', isLive: true },
       { ...song('thecurrent-2'), provider: 'The Current', isLive: true },
     ]);
+    vi.mocked(radioFranceProvider.getTrending).mockResolvedValue([
+      { ...song('radiofrance-1'), provider: 'Radio France', isLive: true },
+      { ...song('radiofrance-2'), provider: 'Radio France', isLive: true },
+    ]);
 
-    const state = await api.getLiveStations(7);
+    const state = await api.getLiveStations(8);
 
     expect(state.results.map(({ id }) => id)).toEqual([
       'somafm-1',
@@ -349,9 +392,10 @@ describe('provider federation', () => {
       'kexp-1',
       'fip-1',
       'thecurrent-1',
+      'radiofrance-1',
       'radio-1',
     ]);
-    expect(state.providerCount).toBe(7);
+    expect(state.providerCount).toBe(9);
   });
 
   it('preserves degradation for dedicated ccMixter categories', async () => {
@@ -434,6 +478,19 @@ describe('provider federation', () => {
     expect(state.failedProviders).toEqual([]);
     expect(state.providerCount).toBe(5);
   });
+
+  it('does not add the optional LX adapter to default genre shelves', async () => {
+    vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'true');
+    const lxGenreSearch = vi
+      .spyOn(lxmusicProvider, 'getSongsByTag')
+      .mockResolvedValue([{ ...song('jamendo-lx-genre'), id: 'lxmusic-genre-result', provider: 'LX Music' as const }]);
+
+    const state = await api.getGenreSongs('pop', 4);
+
+    expect(state.results.some((result) => result.provider === 'LX Music')).toBe(false);
+    expect(state.providerCount).toBe(5);
+    expect(lxGenreSearch).not.toHaveBeenCalled();
+  });
 });
 
 describe('album federation', () => {
@@ -497,6 +554,65 @@ describe('album federation', () => {
     });
   });
 
+  it('removes pseudo albums from browse results while retaining real releases', async () => {
+    const pseudoWikimediaAlbum = {
+      id: 'wikimedia-album-42',
+      name: 'Wikimedia Commons',
+      artist: 'Contributor',
+      artistId: 'wikimedia-artist-contributor',
+      coverArt: '/placeholder-album.svg',
+      songCount: 1,
+      duration: 180,
+      year: 2026,
+      genre: 'Music',
+    };
+    const genericJamendoAlbum = {
+      id: 'jamendo-unknown',
+      name: 'Unknown',
+      artist: 'Artist',
+      artistId: 'jamendo-artist-1',
+      coverArt: '/placeholder-album.svg',
+      songCount: 1,
+      duration: 180,
+      year: 2026,
+      genre: 'Pop',
+    };
+    const realAlbum = {
+      ...genericJamendoAlbum,
+      id: 'jamendo-real-release',
+      name: 'Real release',
+    };
+    vi.mocked(wikimediaProvider.getAlbums).mockResolvedValue([pseudoWikimediaAlbum]);
+    vi.mocked(jamendoProvider.getAlbums).mockResolvedValue([genericJamendoAlbum, realAlbum]);
+
+    await expect(api.getAlbums()).resolves.toMatchObject({
+      results: [realAlbum],
+      failedProviders: [],
+      providerCount: 6,
+    });
+  });
+
+  it('removes pseudo albums from album search without marking the provider unavailable', async () => {
+    const pseudoAlbum = {
+      id: 'wikimedia-album-84',
+      name: 'Wikimedia Commons',
+      artist: 'Contributor',
+      artistId: 'wikimedia-artist-contributor',
+      coverArt: '/placeholder-album.svg',
+      songCount: 1,
+      duration: 180,
+      year: 2026,
+      genre: 'Music',
+    };
+    vi.spyOn(wikimediaProvider, 'searchAlbums').mockResolvedValue([pseudoAlbum]);
+
+    await expect(api.searchAlbums('music', undefined, 'Wikimedia Commons')).resolves.toEqual({
+      results: [],
+      failedProviders: [],
+      providerCount: 1,
+    });
+  });
+
   it('reports all failed album providers instead of a silent empty state', async () => {
     vi.mocked(jamendoProvider.getAlbums).mockRejectedValue(new Error('down'));
     vi.mocked(ccmixterProvider.getAlbumsWithStatus).mockRejectedValue(new Error('down'));
@@ -526,6 +642,24 @@ describe('album federation', () => {
 
     await expect(api.resolveAlbum('jamendo-25')).resolves.toEqual(deepLinked);
     expect(jamendoProvider.getAlbums).not.toHaveBeenCalled();
+  });
+
+  it('keeps direct lookup available for an album hidden from browse', async () => {
+    const pseudoAlbum = {
+      id: 'wikimedia-album-42',
+      name: 'Wikimedia Commons',
+      artist: 'Contributor',
+      artistId: 'wikimedia-artist-contributor',
+      coverArt: '/placeholder-album.svg',
+      songCount: 1,
+      duration: 180,
+      year: 2026,
+      genre: 'Music',
+    };
+    vi.spyOn(wikimediaProvider, 'getAlbumById').mockResolvedValue(pseudoAlbum);
+
+    await expect(api.resolveAlbum('wikimedia-album-42')).resolves.toEqual(pseudoAlbum);
+    expect(wikimediaProvider.getAlbums).not.toHaveBeenCalled();
   });
 
   it('falls back to the catalog listing when direct album lookup finds nothing', async () => {
@@ -577,6 +711,34 @@ describe('album federation', () => {
     await expect(api.getPlaybackSource(preview)).resolves.toEqual({
       song: fullTrack,
       streamUrl: '/api/music/kuwo/url?rid=123456',
+    });
+  });
+
+  it('keeps the selected catalog artwork when a verified resolver match has only a placeholder cover', async () => {
+    const preview = {
+      ...song('itunes-artwork-preview'),
+      title: 'Artwork match',
+      artist: 'Artist',
+      duration: 30,
+      provider: 'Apple Preview' as const,
+      coverArt: 'https://is1-ssl.mzstatic.com/image/thumb/Music/artwork.jpg',
+    };
+    const fullTrack = {
+      ...song('kuwo-artwork-match'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 222,
+      provider: 'Kuwo' as const,
+      coverArt: '/placeholder-album.svg',
+    };
+    vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
+
+    const resolved = await api.getPlaybackSource(preview);
+
+    expect(resolved.song).toMatchObject({
+      id: fullTrack.id,
+      provider: 'Kuwo',
+      coverArt: preview.coverArt,
     });
   });
 
@@ -666,7 +828,29 @@ describe('album federation', () => {
     });
   });
 
-  it('does not promote a different-length resolver record over a known recording', async () => {
+  it('does not promote or play an arrangement whose artist only appears in the title', async () => {
+    const preview = {
+      ...song('itunes-arrangement-preview'),
+      title: '青と夏',
+      artist: 'Mrs. GREEN APPLE',
+      duration: 30,
+      recordingDuration: 271,
+      provider: 'Apple Preview' as const,
+    };
+    const arrangement = {
+      ...song('kuwo-arrangement'),
+      title: '青と夏 (Mrs. GREEN APPLE)',
+      artist: 'コロムビアオルゴール',
+      duration: 288,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(kuwoProvider.search).mockResolvedValue([arrangement]);
+
+    await expect(api.getPlaybackSource(preview)).rejects.toThrow('No verified full-length recording');
+    expect(kuwoProvider.getStreamUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not promote or play a different-length resolver record over a known recording', async () => {
     const preview = {
       ...song('itunes-duration-guard-preview'),
       title: 'Duration guarded title',
@@ -684,14 +868,11 @@ describe('album federation', () => {
     };
     vi.mocked(kuwoProvider.search).mockResolvedValue([wrongRecording]);
 
-    await expect(api.getPlaybackSource(preview)).resolves.toMatchObject({
-      song: preview,
-      streamUrl: preview.path,
-    });
+    await expect(api.getPlaybackSource(preview)).rejects.toThrow('No verified full-length recording');
     expect(kuwoProvider.getStreamUrl).not.toHaveBeenCalled();
   });
 
-  it('does not promote an unknown-duration resolver record over the official preview', async () => {
+  it('does not promote or play an unknown-duration resolver record over the official preview', async () => {
     const preview = {
       ...song('itunes-unknown-resolver-duration'),
       title: 'Unknown resolver duration',
@@ -709,11 +890,9 @@ describe('album federation', () => {
     vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'true');
     vi.mocked(lxmusicProvider.search).mockResolvedValue([unknownDuration]);
 
-    await expect(api.getPlaybackSource(preview)).resolves.toMatchObject({
-      song: preview,
-      streamUrl: preview.path,
-    });
+    await expect(api.getPlaybackSource(preview)).rejects.toThrow('No verified full-length recording');
     expect(lxmusicProvider.getStreamUrl).not.toHaveBeenCalled();
+    expect(lxmusicProvider.search).toHaveBeenCalled();
   });
 
   it('reuses a verified proxy decision instead of repeating resolver search and probe', async () => {
@@ -736,6 +915,42 @@ describe('album federation', () => {
     await api.getPlaybackSource(preview);
     await api.getPlaybackSource(preview);
 
+    expect(kuwoProvider.search).toHaveBeenCalledTimes(1);
+    expect(kuwoProvider.getStreamUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces concurrent preview resolution into one resolver search', async () => {
+    const preview = {
+      ...song('itunes-concurrent-resolution'),
+      title: 'Concurrent resolution',
+      artist: 'Artist',
+      duration: 30,
+      provider: 'Apple Preview' as const,
+    };
+    const fullTrack = {
+      ...song('kuwo-concurrent-resolution'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 212,
+      provider: 'Kuwo' as const,
+    };
+    let resolveSearch: (tracks: Song[]) => void = () => undefined;
+    vi.mocked(kuwoProvider.search).mockImplementation(
+      () =>
+        new Promise<Song[]>((resolve) => {
+          resolveSearch = resolve;
+        }),
+    );
+
+    const first = api.getPlaybackSource(preview);
+    const second = api.getPlaybackSource(preview);
+
+    await vi.waitFor(() => expect(kuwoProvider.search).toHaveBeenCalledTimes(1));
+    resolveSearch([fullTrack]);
+
+    const [firstSource, secondSource] = await Promise.all([first, second]);
+    expect(firstSource).toMatchObject({ song: fullTrack, streamUrl: fullTrack.path });
+    expect(secondSource).toMatchObject({ song: fullTrack, streamUrl: fullTrack.path });
     expect(kuwoProvider.search).toHaveBeenCalledTimes(1);
     expect(kuwoProvider.getStreamUrl).toHaveBeenCalledTimes(1);
   });
@@ -779,9 +994,83 @@ describe('album federation', () => {
       song: audius,
       streamUrl: audius.path,
     });
+    expect(kuwoProvider.search).not.toHaveBeenCalled();
   });
 
-  it('skips unavailable full-track candidates before falling back to the official preview', async () => {
+  it('recovers a failed explicit LX result through an exact Kuwo match', async () => {
+    const direct = {
+      ...song('jamendo-lx-dead'),
+      id: 'lxmusic-dead-result',
+      title: 'LX fallback title',
+      artist: 'Artist',
+      duration: 241,
+      provider: 'LX Music' as const,
+    };
+    const kuwo = {
+      ...song('kuwo-lx-fallback'),
+      title: direct.title,
+      artist: direct.artist,
+      duration: direct.duration,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(lxmusicProvider.getStreamUrl).mockRejectedValue(new Error('resolver unavailable'));
+    vi.mocked(kuwoProvider.search).mockResolvedValue([kuwo]);
+
+    await expect(api.getPlaybackSource(direct)).resolves.toEqual({
+      song: kuwo,
+      streamUrl: kuwo.path,
+    });
+    expect(lxmusicProvider.search).not.toHaveBeenCalled();
+  });
+
+  it('does not turn a failed resolver identity into an official preview', async () => {
+    const direct = {
+      ...song('jamendo-lx-preview-fallback'),
+      id: 'lxmusic-preview-fallback',
+      title: 'Preview fallback title',
+      artist: 'Preview artist',
+      duration: 241,
+      provider: 'LX Music' as const,
+    };
+    const preview = {
+      ...song('itunes-preview-fallback'),
+      title: direct.title,
+      artist: direct.artist,
+      duration: 30,
+      recordingDuration: direct.duration,
+      provider: 'Apple Preview' as const,
+    };
+    vi.mocked(lxmusicProvider.getStreamUrl).mockRejectedValue(new Error('resolver unavailable'));
+    vi.mocked(itunesProvider.search).mockResolvedValue([preview]);
+
+    await expect(api.getPlaybackSource(direct)).rejects.toThrow('resolver unavailable');
+    expect(itunesProvider.search).not.toHaveBeenCalled();
+  });
+
+  it('does not include official previews in resolver alternates', async () => {
+    const direct = {
+      ...song('jamendo-lx-late-preview'),
+      id: 'lxmusic-late-preview',
+      title: 'Late preview title',
+      artist: 'Late preview artist',
+      duration: 241,
+      provider: 'LX Music' as const,
+    };
+    const preview = {
+      ...song('itunes-late-preview'),
+      title: direct.title,
+      artist: direct.artist,
+      duration: 30,
+      recordingDuration: direct.duration,
+      provider: 'Apple Preview' as const,
+    };
+    vi.mocked(itunesProvider.search).mockResolvedValue([preview]);
+
+    await expect(api.getPlaybackAlternates(direct)).resolves.toEqual([]);
+    expect(itunesProvider.search).not.toHaveBeenCalled();
+  });
+
+  it('skips unavailable full-track candidates without falling back to the official preview', async () => {
     const preview = {
       ...song('itunes-1440872304'),
       title: 'Unavailable match',
@@ -798,13 +1087,10 @@ describe('album federation', () => {
     vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
     vi.mocked(kuwoProvider.getStreamUrl).mockRejectedValue(new Error('mobile only'));
 
-    await expect(api.getPlaybackSource(preview)).resolves.toEqual({
-      song: preview,
-      streamUrl: preview.path,
-    });
+    await expect(api.getPlaybackSource(preview)).rejects.toThrow('No verified full-length recording');
   });
 
-  it('keeps the official preview when no full-track match exists', async () => {
+  it('rejects playback when no full-track match exists', async () => {
     const preview = {
       ...song('itunes-1440872304'),
       title: 'Unindexed release',
@@ -812,10 +1098,7 @@ describe('album federation', () => {
       provider: 'Apple Preview' as const,
     };
 
-    await expect(api.getPlaybackSource(preview)).resolves.toEqual({
-      song: preview,
-      streamUrl: '/api/music/itunes/stream/1440872304',
-    });
+    await expect(api.getPlaybackSource(preview)).rejects.toThrow('No verified full-length recording');
   });
 
   it('hydrates chart rankings with verified full-track sources', async () => {
@@ -865,6 +1148,33 @@ describe('album federation', () => {
     await expect(api.getChartSongs('billboard')).resolves.toEqual([fullTrack]);
   });
 
+  it('hydrates Japanese chart rankings through configured LX full tracks', async () => {
+    vi.stubEnv('NEXT_PUBLIC_LX_ENABLED', 'true');
+    const preview = {
+      ...song('itunes-jp-chart-preview'),
+      title: 'Night Running',
+      artist: 'YOASOBI',
+      duration: 30,
+      recordingDuration: 261,
+      provider: 'Apple Preview' as const,
+    };
+    const fullTrack = {
+      ...song('lxmusic-wy_1-jp-chart'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 261,
+      provider: 'LX Music' as const,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ results: [preview] })),
+    );
+    vi.mocked(lxmusicProvider.search).mockResolvedValue([fullTrack]);
+
+    await expect(api.getChartSongs('jp')).resolves.toEqual([fullTrack]);
+    expect(lxmusicProvider.search).toHaveBeenCalled();
+  });
+
   it('hydrates a later chart row instead of limiting resolution to the first few entries', async () => {
     const previews = Array.from({ length: 5 }, (_, index) => ({
       ...song(`itunes-later-chart-${index + 1}`),
@@ -890,6 +1200,96 @@ describe('album federation', () => {
     );
 
     await expect(api.getChartSongs('billboard')).resolves.toEqual([...previews.slice(0, 4), fullTrack]);
+  });
+
+  it('keeps the home chart shelf on official previews until playback is requested', async () => {
+    const preview = {
+      ...song('itunes-home-chart-preview'),
+      title: 'Home chart song',
+      artist: 'Chart artist',
+      duration: 30,
+      recordingDuration: 240,
+      provider: 'Apple Preview' as const,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ results: [preview] })),
+    );
+
+    await expect(api.getChartSongs('billboard', undefined, { resolveFullTracks: false })).resolves.toEqual([preview]);
+    expect(vi.mocked(kuwoProvider.search)).not.toHaveBeenCalled();
+    expect(vi.mocked(qqMusicProvider.search)).not.toHaveBeenCalled();
+    expect(vi.mocked(lxmusicProvider.search)).not.toHaveBeenCalled();
+  });
+
+  it('attempts full-track hydration for every ranked chart row', async () => {
+    const previews = Array.from({ length: 13 }, (_, index) => ({
+      ...song(`itunes-chart-visible-${index + 1}`),
+      title: `Visible chart song ${index + 1}`,
+      artist: 'Chart artist',
+      duration: 30,
+      recordingDuration: 240,
+      provider: 'Apple Preview' as const,
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ results: previews })),
+    );
+
+    await expect(api.getChartSongs('billboard')).resolves.toEqual(previews);
+    expect(
+      vi.mocked(kuwoProvider.search).mock.calls.some(([query]) => query.includes('Visible chart song 13')),
+    ).toBe(true);
+  });
+
+  it('keeps a chart preview when the resolver only names the target artist in its title', async () => {
+    const preview = {
+      ...song('itunes-chart-explicit-artist'),
+      title: '青と夏',
+      artist: 'Mrs. GREEN APPLE',
+      duration: 30,
+      recordingDuration: 271,
+      provider: 'Apple Preview' as const,
+    };
+    const fullTrack = {
+      ...song('kuwo-chart-explicit-artist'),
+      title: 'Mrs. GREEN APPLE - 青と夏',
+      artist: 'Uploader',
+      duration: 279,
+      provider: 'Kuwo' as const,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ results: [preview] })),
+    );
+    vi.mocked(kuwoProvider.search).mockResolvedValue([fullTrack]);
+
+    await expect(api.getChartSongs('billboard')).resolves.toEqual([preview]);
+  });
+
+  it('keeps a chart preview when the explicit resolver match is an arrangement', async () => {
+    const preview = {
+      ...song('itunes-chart-arrangement'),
+      title: '青と夏',
+      artist: 'Mrs. GREEN APPLE',
+      duration: 30,
+      recordingDuration: 271,
+      provider: 'Apple Preview' as const,
+    };
+    const arrangement = {
+      ...song('kuwo-chart-arrangement'),
+      title: '青と夏 (Mrs. GREEN APPLE)',
+      artist: 'コロムビアオルゴール',
+      duration: 288,
+      provider: 'Kuwo' as const,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ results: [preview] })),
+    );
+    vi.mocked(kuwoProvider.search).mockResolvedValue([arrangement]);
+
+    await expect(api.getChartSongs('jp')).resolves.toEqual([preview]);
   });
 
   it('preserves unresolved Apple chart entries while replacing only verified matches', async () => {
@@ -931,6 +1331,7 @@ describe('album federation', () => {
     expect(getMusicProviderForSongId('archive-item')).toBe(archiveProvider);
     expect(getMusicProviderForSongId('itunes-1440872304')).toBe(itunesProvider);
     expect(getMusicProviderForSongId('deezer-3881984711')).toBe(deezerProvider);
+    expect(getMusicProviderForSongId('qq-003b34Vx21nbbp')).toBe(qqMusicProvider);
     expect(getMusicProviderForSongId('audius-Evw5wAJ')).toBe(audiusProvider);
     expect(getMusicProviderForSongId('openverse-9e755b4d-4f1f-42db-a841-b8b2ebb583be')).toBe(openverseProvider);
     expect(getMusicProviderForSongId('wikimedia-175624708')).toBe(wikimediaProvider);

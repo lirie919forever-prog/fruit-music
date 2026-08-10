@@ -3,7 +3,8 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SongCard } from './SongCard';
-import { isDirectFullTrack } from './newViewModel';
+import { isDirectFullTrack, isFullTrack } from './newViewModel';
+import { isPreviewSource } from '@/lib/sourceRegistry';
 import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
 import { providerErrorMessage } from '@/lib/providers/errors';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
@@ -20,6 +21,8 @@ export interface CategoryConfig {
   fetchFn: (catalog: MusicCatalog, signal?: AbortSignal) => Promise<Song[] | FederatedResult<Song>>;
   queryKey: string[];
   includePreviews?: boolean;
+  /** Omit catalog-only preview rows when a category promises playable tracks. */
+  requiresFullLength?: boolean;
 }
 
 export function getCategoryState(data: Song[] | FederatedResult<Song> | undefined) {
@@ -62,14 +65,37 @@ export function CategoryGrid({
     totalFailure: allProvidersFailed,
   } = getCategoryState(categoryState);
   const songs = useMemo(
-    () => (config.includePreviews === true ? allSongs : allSongs.filter(isDirectFullTrack)),
-    [config.includePreviews, allSongs],
+    () =>
+      config.requiresFullLength
+        ? allSongs.filter((song) => song.playbackUnavailable !== true && isFullTrack(song))
+        : config.includePreviews === true
+          ? allSongs
+          : allSongs.filter(isDirectFullTrack),
+    [allSongs, config.includePreviews, config.requiresFullLength],
   );
   const unavailableProviders = useMemo(
     () => [...new Set([...failedProviders, ...degradedProviders])],
     [failedProviders, degradedProviders],
   );
-  const hasUnavailableTracks = useMemo(() => songs.some((song) => song.playbackUnavailable), [songs]);
+
+  // When a chart promises full-length tracks but the resolver could not verify
+  // any, fall back to showing the official previews rather than a blank page.
+  // The listener can still browse chart rankings; the playback engine retries
+  // full-track resolution when a track is pressed.
+  const previewFallback = useMemo(
+    () =>
+      config.requiresFullLength && !songs.length
+        ? allSongs.filter((song) => isPreviewSource(song.provider) && song.playbackUnavailable !== true)
+        : [],
+    [allSongs, config.requiresFullLength, songs.length],
+  );
+
+  const displaySongs = songs.length > 0 ? songs : previewFallback;
+  const isShowingPreviews = songs.length === 0 && previewFallback.length > 0;
+  const hasUnavailableTracks = useMemo(
+    () => displaySongs.some((song) => song.playbackUnavailable),
+    [displaySongs],
+  );
 
   if (isLoading) return <TrackSkeleton />;
   if (isError || allProvidersFailed) {
@@ -82,7 +108,7 @@ export function CategoryGrid({
       />
     );
   }
-  if (!songs?.length) {
+  if (!songs?.length && !previewFallback.length) {
     return (
       <StatusPanel
         eyebrow={config.title}
@@ -101,7 +127,9 @@ export function CategoryGrid({
           provenance line only — track count and which source it came from. */}
       <div className="pb-3">
         <p className="text-[13px] text-[var(--salt-mist)]">
-          {songs.length} {songs.length === 1 ? 'track' : 'tracks'} · {config.description}
+          {isShowingPreviews
+            ? `${previewFallback.length} preview ${previewFallback.length === 1 ? 'track' : 'tracks'} — press any song and Marea will try to find a full recording.`
+            : `${songs.length} ${songs.length === 1 ? 'track' : 'tracks'} 路 ${config.description}`}
         </p>
         {unavailableProviders.length > 0 && (
           <p className="mt-1 text-xs text-[var(--salt-mist)]">
@@ -116,13 +144,13 @@ export function CategoryGrid({
         )}
       </div>
       <VirtualList
-        items={songs}
+        items={displaySongs}
         estimateSize={56}
         label={`${config.title} tracks`}
         getItemKey={(song, index) => `${song.id}-${index}`}
         className="border-y border-[var(--glass-border)]"
         renderItem={(song, index) => (
-          <SongCard song={song} index={index} tracks={songs} onNavigateWithItem={onNavigateWithItem} />
+          <SongCard song={song} index={index} tracks={displaySongs} onNavigateWithItem={onNavigateWithItem} />
         )}
       />
     </section>

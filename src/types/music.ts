@@ -23,6 +23,8 @@ export type MusicProviderName =
   | 'Archive'
   | 'LX Music'
   | 'Kuwo'
+  | 'QQ Music'
+  | 'Bilibili'
   | 'Apple Preview'
   | 'Deezer Preview'
   | 'Audius'
@@ -34,7 +36,9 @@ export type MusicProviderName =
   | 'KEXP'
   | 'FIP'
   | 'The Current'
+  | 'Radio France'
   | 'Radio Browser'
+  | 'Invidious'
   | 'Local file';
 
 export interface Song {

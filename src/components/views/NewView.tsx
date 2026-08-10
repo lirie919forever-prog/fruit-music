@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ChevronDown,
   ChevronRight,
   Heart,
   Lightbulb,
@@ -31,9 +32,11 @@ import { type NavigationItem } from '@/lib/navigation';
 import {
   buildDiscoveryMixForAccess,
   isDirectFullTrack,
+  isFullTrack,
   isCuratableTitle,
   playableSongs,
   selectSongsByAccess,
+  selectHeroSongs,
   uniqueSongs,
   type AudioAccessMode,
 } from './newViewModel';
@@ -41,11 +44,13 @@ import { useNewViewData } from './useNewViewData';
 import type { MusicProviderName, Song, ViewType } from '@/types/music';
 import { isPreviewSource } from '@/lib/sourceRegistry';
 import { useMusicCatalog } from '@/lib/musicCatalog';
+import { useNearViewport } from '@/hooks/useNearViewport';
 
 interface ShelfProps {
   title: string;
   view?: ViewType;
   action?: ReactNode;
+  stackActionOnMobile?: boolean;
   children: ReactNode;
 }
 
@@ -81,10 +86,10 @@ const STAGGER: Variants = {
 /**
  * A browse shelf: a 17px title that is itself the link into the full view, and
  * nothing else. Explanatory subtitles under every heading were costing a line of
- * vertical space per section for text nobody needs twice — a shelf called "Jazz"
+ * vertical space per section for text nobody needs twice —a shelf called "Jazz"
  * does not need to say it contains jazz.
  */
-function Shelf({ title, view, action, children }: ShelfProps) {
+function Shelf({ title, view, action, stackActionOnMobile = false, children }: ShelfProps) {
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
   const openSection = () => {
     if (!view) return;
@@ -94,28 +99,36 @@ function Shelf({ title, view, action, children }: ShelfProps) {
 
   return (
     <motion.section variants={SHELF_VARIANTS} className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        {view ? (
-          <button
-            type="button"
-            onClick={openSection}
-            className="group -mx-1 flex min-w-0 items-center gap-0.5 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
-          >
+      <div
+        className={
+          stackActionOnMobile
+            ? 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3'
+            : 'flex items-center justify-between gap-3'
+        }
+      >
+        <div className="min-w-0">
+          {view ? (
+            <button
+              type="button"
+              onClick={openSection}
+              className="group -mx-1 flex min-w-0 items-center gap-0.5 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
+            >
+              <h2 className="min-w-0 truncate font-headline text-[17px] font-semibold tracking-[-0.01em] text-[var(--salt-white)]">
+                {title}
+              </h2>
+              <ChevronRight
+                className="h-4 w-4 shrink-0 text-[var(--salt-mist)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--salt-primary)]"
+                aria-hidden
+              />
+              <span className="sr-only">See all</span>
+            </button>
+          ) : (
             <h2 className="min-w-0 truncate font-headline text-[17px] font-semibold tracking-[-0.01em] text-[var(--salt-white)]">
               {title}
             </h2>
-            <ChevronRight
-              className="h-4 w-4 shrink-0 text-[var(--salt-mist)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--salt-primary)]"
-              aria-hidden
-            />
-            <span className="sr-only">See all</span>
-          </button>
-        ) : (
-          <h2 className="min-w-0 truncate font-headline text-[17px] font-semibold tracking-[-0.01em] text-[var(--salt-white)]">
-            {title}
-          </h2>
-        )}
-        {action}
+          )}
+        </div>
+        {action && <div className={stackActionOnMobile ? 'min-w-0 sm:shrink-0' : 'shrink-0'}>{action}</div>}
       </div>
       {children}
     </motion.section>
@@ -170,7 +183,7 @@ function PlayShelfButton({ songs, label }: { songs: Song[]; label: string }) {
       onClick={() => playAlbum(readySongs, 0)}
       aria-label={label}
       title={label}
-      className="marea-primary-action inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-white"
+      className="marea-primary-action inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-white lg:h-8"
     >
       <Play className="h-3.5 w-3.5" aria-hidden />
       Play
@@ -264,9 +277,96 @@ function filterDiscoverySongs(
   );
 }
 
+function DiscoveryFilterFields({
+  source,
+  sourceOptions,
+  onSourceChange,
+  vibe,
+  onVibeChange,
+  onSearch,
+  onRetry,
+  sourceId,
+  stacked = false,
+}: {
+  source: DiscoverySource;
+  sourceOptions: MusicProviderName[];
+  onSourceChange: (source: DiscoverySource) => void;
+  vibe: DiscoveryVibe;
+  onVibeChange: (vibe: DiscoveryVibe) => void;
+  onSearch: () => void;
+  onRetry?: () => void;
+  sourceId: string;
+  stacked?: boolean;
+}) {
+  return (
+    <>
+      <label className="sr-only" htmlFor={sourceId}>
+        Filter by source
+      </label>
+      <select
+        id={sourceId}
+        value={source}
+        onChange={(event) => onSourceChange(event.target.value as DiscoverySource)}
+        className={`h-10 rounded-lg border border-[var(--glass-border)] bg-white px-2.5 text-xs font-semibold text-[var(--salt-white)] outline-none transition-colors hover:border-[var(--glass-border-active)] focus:border-[var(--salt-primary)] focus:ring-2 focus:ring-[var(--salt-primary)]/20 lg:h-8 ${stacked ? 'w-full' : 'max-w-full'}`}
+      >
+        <option value="all">All sources</option>
+        {sourceOptions.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <div
+        className={`flex gap-1 overflow-x-auto rounded-lg bg-[var(--salt-ghost)] p-1 ${stacked ? 'w-full' : 'max-w-full'}`}
+        role="tablist"
+        aria-label="Filter by vibe"
+      >
+        {VIBE_OPTIONS.map((option) => {
+          const selected = option.value === vibe;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => onVibeChange(option.value)}
+              className={`h-9 shrink-0 rounded-md px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] lg:h-6 ${selected ? 'bg-white text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className={`flex shrink-0 items-center gap-1.5 ${stacked ? 'justify-between' : ''}`}>
+        <button
+          type="button"
+          onClick={onSearch}
+          className="inline-flex h-10 items-center gap-1.5 rounded-full border border-[var(--glass-border)] px-3 text-xs font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] lg:h-8"
+        >
+          <Search className="h-3.5 w-3.5" aria-hidden />
+          Search catalog
+        </button>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            aria-label="Retry unavailable sources"
+            title="Retry unavailable sources"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--glass-border)] text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] lg:h-8 lg:w-8"
+          >
+            <RotateCw className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
 function DiscoveryMasthead({
   songs,
   mode,
+  isLoading,
+  hasCatalogData,
   onModeChange,
   sourceOptions,
   source,
@@ -278,6 +378,8 @@ function DiscoveryMasthead({
 }: {
   songs: Song[];
   mode: AudioAccessMode;
+  isLoading: boolean;
+  hasCatalogData: boolean;
   onModeChange: (mode: AudioAccessMode) => void;
   sourceOptions: MusicProviderName[];
   source: DiscoverySource;
@@ -294,7 +396,16 @@ function DiscoveryMasthead({
   const summary =
     songs.length > 0
       ? `${songs.length} ${songs.length === 1 ? 'track' : 'tracks'} from ${sourceCount} ${sourceCount === 1 ? 'source' : 'sources'} · ${fullTrackSourceCount} full-track ${fullTrackSourceCount === 1 ? 'source' : 'sources'}`
-      : 'Loading live catalog';
+      : isLoading
+        ? 'Loading live catalog'
+        : hasCatalogData
+          ? mode === 'full'
+            ? 'No full tracks in this selection'
+            : mode === 'preview'
+              ? 'No previews in this selection'
+              : 'No tracks in this selection'
+          : 'No catalog matches yet';
+  const activeFilterCount = Number(mode !== 'all') + Number(source !== 'all') + Number(vibe !== 'all');
 
   return (
     <motion.section variants={SHELF_VARIANTS} className="border-b border-[var(--glass-border)] pb-5 sm:pb-6">
@@ -308,72 +419,54 @@ function DiscoveryMasthead({
         </div>
         <PlayShelfButton songs={songs} label="Play fresh picks" />
       </div>
-      <div className="mt-4 flex flex-col gap-3 border-t border-[var(--glass-border)] pt-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <span className="inline-flex h-8 items-center gap-1.5 text-xs font-semibold text-[var(--salt-mist)]">
-            <SlidersHorizontal className="h-4 w-4" aria-hidden />
-            Refine
-          </span>
-          <label className="sr-only" htmlFor="discovery-source">
-            Filter by source
-          </label>
-          <select
-            id="discovery-source"
-            value={source}
-            onChange={(event) => onSourceChange(event.target.value as DiscoverySource)}
-            className="h-8 max-w-full rounded-lg border border-[var(--glass-border)] bg-white px-2.5 text-xs font-semibold text-[var(--salt-white)] outline-none transition-colors hover:border-[var(--glass-border-active)] focus:border-[var(--salt-primary)] focus:ring-2 focus:ring-[var(--salt-primary)]/20"
-          >
-            <option value="all">All sources</option>
-            {sourceOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-          <div
-            className="flex max-w-full gap-1 overflow-x-auto rounded-lg bg-[var(--salt-ghost)] p-1"
-            role="tablist"
-            aria-label="Filter by vibe"
-          >
-            {VIBE_OPTIONS.map((option) => {
-              const selected = option.value === vibe;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  onClick={() => onVibeChange(option.value)}
-                  className={`h-6 shrink-0 rounded-md px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${selected ? 'bg-white text-[var(--salt-white)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-white)]'}`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
+      <div className="mt-4 border-t border-[var(--glass-border)] pt-4">
+        <div className="hidden min-w-0 gap-3 lg:flex lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <span className="inline-flex h-8 items-center gap-1.5 text-xs font-semibold text-[var(--salt-mist)]">
+              <SlidersHorizontal className="h-4 w-4" aria-hidden />
+              Refine
+            </span>
+            <DiscoveryFilterFields
+              source={source}
+              sourceOptions={sourceOptions}
+              onSourceChange={onSourceChange}
+              vibe={vibe}
+              onVibeChange={onVibeChange}
+              onSearch={onSearch}
+              onRetry={onRetry}
+              sourceId="discovery-source-desktop"
+            />
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onSearch}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--glass-border)] px-3 text-xs font-semibold text-[var(--salt-primary)] transition-colors hover:bg-[var(--glass-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
-            >
-              <Search className="h-3.5 w-3.5" aria-hidden />
-              Search catalog
-            </button>
-            {onRetry && (
-              <button
-                type="button"
-                onClick={onRetry}
-                aria-label="Retry unavailable sources"
-                title="Retry unavailable sources"
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--glass-border)] text-[var(--salt-mist)] transition-colors hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"
-              >
-                <RotateCw className="h-3.5 w-3.5" aria-hidden />
-              </button>
-            )}
-          </div>
+          <AudioAccessControl mode={mode} onChange={onModeChange} label="Filter by playback access" />
         </div>
-        <AudioAccessControl mode={mode} onChange={onModeChange} label="Filter by playback access" />
+        <div className="lg:hidden">
+          <details className="marea-glass-control group rounded-lg border">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 text-xs font-semibold text-[var(--salt-white)] marker:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] [&::-webkit-details-marker]:hidden">
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 shrink-0 text-[var(--salt-primary)]" aria-hidden />
+                <span>{activeFilterCount > 0 ? `${activeFilterCount} filters active` : 'Refine discovery'}</span>
+              </span>
+              <ChevronDown
+                className="h-4 w-4 shrink-0 text-[var(--salt-mist)] transition-transform group-open:rotate-180"
+                aria-hidden
+              />
+            </summary>
+            <div className="grid gap-3 border-t border-[var(--glass-border)] p-3">
+              <DiscoveryFilterFields
+                source={source}
+                sourceOptions={sourceOptions}
+                onSourceChange={onSourceChange}
+                vibe={vibe}
+                onVibeChange={onVibeChange}
+                onSearch={onSearch}
+                onRetry={onRetry}
+                sourceId="discovery-source-mobile"
+                stacked
+              />
+              <AudioAccessControl mode={mode} onChange={onModeChange} label="Filter by playback access" />
+            </div>
+          </details>
+        </div>
       </div>
     </motion.section>
   );
@@ -770,8 +863,10 @@ function GenrePanel({
 }
 
 function ChartPreview({
+  mode,
   onNavigateWithItem,
 }: {
+  mode: AudioAccessMode;
   onNavigateWithItem: (view: ViewType, item: NavigationItem | null) => void;
 }) {
   const catalog = useMusicCatalog();
@@ -816,13 +911,26 @@ function ChartPreview({
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['new', 'chart', selected.key],
-    queryFn: ({ signal }) => catalog.getChartSongs(selected.key, signal),
+    // Keep regional chart tabs on the full-track cache. Preview identities are
+    // useful as metadata, but they must not become the default thing this
+    // discovery surface queues.
+    // The preview shelf has its own bounded hydration budget, distinct from
+    // both the home shelf and the dedicated chart page, so a slow upstream
+    // chart cannot freeze this shelf indefinitely.
+    queryKey: ['new', 'chart', selected.key, 'preview-shelf'],
+    queryFn: ({ signal }) =>
+      catalog.getChartSongs(selected.key, signal, { resolveFullTracks: true, rowLimit: 18 }),
     staleTime: catalogStaleTime(countListResults),
     retry: 1,
     enabled: isVisible,
   });
-  const songs = queriedSongs;
+  const songs = useMemo(
+    () =>
+      queriedSongs.filter((song) =>
+        mode === 'preview' ? isPreviewSource(song.provider) : song.playbackUnavailable !== true && isFullTrack(song),
+      ),
+    [mode, queriedSongs],
+  );
   const isPending = queryPending;
 
   return (
@@ -830,9 +938,10 @@ function ChartPreview({
       <Shelf
         title="Chart watch"
         view={selected.view}
+        stackActionOnMobile
         action={
           <div
-            className="inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-[var(--salt-ghost)] p-0.5"
+            className="inline-flex w-full max-w-full gap-1 overflow-x-auto rounded-full bg-[var(--salt-ghost)] p-0.5 sm:w-auto"
             role="tablist"
             aria-label="Choose chart"
           >
@@ -868,7 +977,9 @@ function ChartPreview({
               <p>
                 {isError
                   ? `${selected.label} is temporarily unavailable.`
-                  : `No ${selected.label} entries are available.`}
+                  : mode === 'preview'
+                    ? `No ${selected.label} preview entries are available.`
+                    : `No verified full-length ${selected.label} tracks are available.`}
               </p>
               <button
                 type="button"
@@ -895,12 +1006,15 @@ export function NewView({
   const favorites = usePlayerStore((state) => state.favorites);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
-  // The first listen should be dependable. Preview clips remain available via
-  // the explicit All audio control, but discovery starts with tracks that can
-  // play beyond a short licensed sample.
-  const [accessMode, setAccessMode] = useState<AudioAccessMode>('full');
+  // New music needs to show the mainstream catalog immediately. Every preview
+  // remains visibly labeled, while Full tracks is still one tap away for users
+  // who only want sources that can play beyond a licensed sample.
+  const [accessMode, setAccessMode] = useState<AudioAccessMode>('all');
   const [sourceFilter, setSourceFilter] = useState<DiscoverySource>('all');
   const [vibeFilter, setVibeFilter] = useState<DiscoveryVibe>('all');
+  const genreSectionRef = useRef<HTMLDivElement>(null);
+  const [genreObservationReady, setGenreObservationReady] = useState(false);
+  const genreSectionIsNear = useNearViewport(genreSectionRef, '480px 0px', genreObservationReady);
 
   const {
     genres,
@@ -911,9 +1025,10 @@ export function NewView({
     mainstreamSongs: chartSongs,
     hasCatalogFailure,
     isLoading: discoveryLoading,
+    primaryDiscoveryReady,
     retry: retrySources,
     sections,
-  } = useNewViewData();
+  } = useNewViewData({ enableGenres: genreSectionIsNear });
 
   const catalogSongs = useMemo(
     () =>
@@ -942,6 +1057,17 @@ export function NewView({
     () => filterDiscoverySongs(releaseSongs, accessMode, activeSourceFilter, vibeFilter).slice(0, 10),
     [accessMode, activeSourceFilter, releaseSongs, vibeFilter],
   );
+  const chartSongsForAccess = useMemo(
+    () =>
+      accessMode === 'preview'
+        ? chartSongs.filter((song) => isPreviewSource(song.provider))
+        : chartSongs.filter((song) => song.playbackUnavailable !== true && isFullTrack(song)),
+    [accessMode, chartSongs],
+  );
+  const filteredMainstreamSongs = useMemo(
+    () => filterDiscoverySongs(chartSongsForAccess, accessMode, activeSourceFilter, vibeFilter).slice(0, 12),
+    [accessMode, activeSourceFilter, chartSongsForAccess, vibeFilter],
+  );
   const officialPreviewSongs = useMemo(
     () =>
       filterDiscoverySongs(
@@ -952,26 +1078,39 @@ export function NewView({
       ).slice(0, 12),
     [accessMode, activeSourceFilter, releaseSongs, vibeFilter],
   );
-  const filteredMainstreamSongs = useMemo(
-    () => filterDiscoverySongs(chartSongs, accessMode, activeSourceFilter, vibeFilter).slice(0, 12),
-    [accessMode, activeSourceFilter, chartSongs, vibeFilter],
-  );
   const liveAccessMode: AudioAccessMode = accessMode === 'preview' ? 'preview' : 'all';
   const filteredLiveStations = useMemo(
     () => filterDiscoverySongs(liveStations, liveAccessMode, activeSourceFilter, vibeFilter).slice(0, 12),
     [activeSourceFilter, liveAccessMode, liveStations, vibeFilter],
   );
   const heroSongs = useMemo(
-    () => (filteredSpotlightSongs.length > 0 ? filteredSpotlightSongs : filteredReleaseSongs.slice(0, 2)),
-    [filteredReleaseSongs, filteredSpotlightSongs],
+    () => selectHeroSongs(filteredMainstreamSongs, filteredSpotlightSongs, filteredReleaseSongs),
+    [filteredMainstreamSongs, filteredReleaseSongs, filteredSpotlightSongs],
   );
   const heroSongIds = useMemo(() => new Set(heroSongs.map((song) => song.id)), [heroSongs]);
   const mixCandidates = useMemo(
     () =>
       uniqueSongs(
-        [bestNewSongs, chartSongs, genres.pop, genres.jazz, genres.remix, genres.classical, liveStations].flat(),
+        [
+          bestNewSongs,
+          chartSongsForAccess,
+          genres.pop,
+          genres.jazz,
+          genres.remix,
+          genres.classical,
+          liveStations,
+        ].flat(),
       ).filter((song) => !heroSongIds.has(song.id)),
-    [bestNewSongs, chartSongs, genres.classical, genres.jazz, genres.pop, genres.remix, heroSongIds, liveStations],
+    [
+      bestNewSongs,
+      chartSongsForAccess,
+      genres.classical,
+      genres.jazz,
+      genres.pop,
+      genres.remix,
+      heroSongIds,
+      liveStations,
+    ],
   );
   const hasListeningSignals = history.length > 0 || favorites.length > 0;
   const smartMixes = useMemo<SmartMix[]>(() => {
@@ -1035,6 +1174,15 @@ export function NewView({
   const mastheadSongs = filteredBestNewSongs.length > 0 ? filteredBestNewSongs : heroSongs;
 
   useEffect(() => {
+    if (!primaryDiscoveryReady) return;
+    // Wait for the primary shelves to commit before measuring the lower-page
+    // sentinel. This avoids an observer pass against the compact loading
+    // layout without forcing a synchronous state update from the effect.
+    const frame = requestAnimationFrame(() => setGenreObservationReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, [primaryDiscoveryReady]);
+
+  useEffect(() => {
     if (spotlightRailRef.current) spotlightRailRef.current.scrollLeft = 0;
   }, [spotlightOrder]);
 
@@ -1093,6 +1241,8 @@ export function NewView({
       <DiscoveryMasthead
         songs={mastheadSongs}
         mode={accessMode}
+        isLoading={discoveryLoading && catalogSongs.length === 0}
+        hasCatalogData={catalogSongs.length > 0}
         onModeChange={setAccessMode}
         sourceOptions={sourceOptions}
         source={activeSourceFilter}
@@ -1129,11 +1279,12 @@ export function NewView({
           {heroSongs.length > 1 && (
             <Shelf title="Also in the spotlight">
               <div className="rail-scroll flex snap-x snap-mandatory scroll-pl-0 gap-3 overflow-x-auto [overflow-anchor:none] lg:grid lg:grid-cols-2 lg:gap-4 lg:overflow-visible">
-                {heroSongs.slice(1).map((song) => (
+                {heroSongs.slice(1).map((song, index) => (
                   <div key={song.id} className="w-[88%] max-w-[480px] shrink-0 snap-start lg:w-auto lg:max-w-none">
                     <EditorialBanner
                       song={song}
                       eyebrow={song.metadataVerified ? 'New release' : 'Chart watch'}
+                      eager={index < 2}
                       onQueue={song.playbackUnavailable ? undefined : () => addToQueue(song)}
                       onNavigateWithItem={onNavigateWithItem}
                     />
@@ -1143,7 +1294,7 @@ export function NewView({
             </Shelf>
           )}
         </div>
-      ) : discoveryLoading ? (
+      ) : discoveryLoading && !hasAnyDiscovery ? (
         <Shelf title="In the spotlight">
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="h-[184px] animate-pulse rounded-xl bg-[var(--salt-ghost)]" />
@@ -1217,27 +1368,29 @@ export function NewView({
         </Shelf>
       )}
 
-      {genrePanels.length > 0 ? (
-        <Shelf title="Fresh by genre">
-          {/* Four columns at the widest size because there are four genres: at
-              three, Classical drops onto a row of its own beside two empty
-              thirds. */}
-          <div className="grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-4">
-            {genrePanels.map((panel) => (
-              <GenrePanel key={panel.view} {...panel} onNavigateWithItem={onNavigateWithItem} />
-            ))}
-          </div>
-        </Shelf>
-      ) : sections.pop.isFetching ||
-        sections.jazz.isFetching ||
-        sections.remix.isFetching ||
-        sections.classical.isFetching ? (
-        <Shelf title="Fresh by genre">
-          <SectionLoading rows={4} />
-        </Shelf>
-      ) : null}
+      <div ref={genreSectionRef} className="min-h-px">
+        {genrePanels.length > 0 ? (
+          <Shelf title="Fresh by genre">
+            {/* Four columns at the widest size because there are four genres: at
+                three, Classical drops onto a row of its own beside two empty
+                thirds. */}
+            <div className="grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-4">
+              {genrePanels.map((panel) => (
+                <GenrePanel key={panel.view} {...panel} onNavigateWithItem={onNavigateWithItem} />
+              ))}
+            </div>
+          </Shelf>
+        ) : sections.pop.isFetching ||
+          sections.jazz.isFetching ||
+          sections.remix.isFetching ||
+          sections.classical.isFetching ? (
+          <Shelf title="Fresh by genre">
+            <SectionLoading rows={4} />
+          </Shelf>
+        ) : null}
+      </div>
 
-      {accessMode !== 'full' && <ChartPreview onNavigateWithItem={onNavigateWithItem} />}
+      {accessMode !== 'full' && <ChartPreview mode={accessMode} onNavigateWithItem={onNavigateWithItem} />}
 
       <Shelf title="Explore Marea">
         <ExploreGrid />

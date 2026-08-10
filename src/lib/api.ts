@@ -1,7 +1,9 @@
-import type { Album, Artist, Song } from '@/types/music';
+import type { Album, Artist, MusicProviderName, Song } from '@/types/music';
 import {
   archiveProvider,
   audiusProvider,
+  bilibiliProvider,
+  invidiousProvider,
   ccmixterProvider,
   deezerProvider,
   fipProvider,
@@ -20,6 +22,8 @@ import {
   radioBrowserProvider,
   somaFmProvider,
   theCurrentProvider,
+  radioFranceProvider,
+  qqMusicProvider,
   wikimediaProvider,
 } from '@/lib/providers';
 import type { ProviderCatalogResult } from '@/lib/providers/types';
@@ -28,7 +32,9 @@ import { isLyricsResult, type LyricsResult } from '@/lib/lyrics/lrclib';
 import { getPlaybackResolution, setPlaybackResolution } from '@/lib/playbackResolutionCache';
 import { isSong } from '@/lib/songShape';
 import { isPreviewSource, isResolverSource } from '@/lib/sourceRegistry';
+import { NO_VERIFIED_FULL_TRACK_MESSAGE } from '@/lib/catalogTypes';
 import type {
+  ChartFetchOptions,
   ChartKey,
   FederatedResult,
   FederatedSearchResult,
@@ -70,6 +76,29 @@ function interleaveEntities<T extends { id: string }>(groups: T[][], limit: numb
   return results;
 }
 
+// Track-oriented providers sometimes have to synthesize an album record so a
+// song can still carry album-shaped metadata. Those records are useful for
+// playback and deep links, but they make the browse view look like an archive
+// file listing rather than a catalog of releases.
+const PSEUDO_ALBUM_NAMES = new Set([
+  'internet archive',
+  'no album',
+  'unknown',
+  'unknown album',
+  'untitled',
+  'untitled album',
+  'wikimedia commons',
+]);
+
+function isBrowsableAlbum(album: Album): boolean {
+  const normalizedName = album.name.trim().toLocaleLowerCase();
+  return !album.id.startsWith('wikimedia-album-') && !PSEUDO_ALBUM_NAMES.has(normalizedName);
+}
+
+function filterBrowsableAlbums(catalog: FederatedResult<Album>): FederatedResult<Album> {
+  return { ...catalog, results: catalog.results.filter(isBrowsableAlbum) };
+}
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError');
 }
@@ -90,7 +119,43 @@ function isPreviewSong(song: Song): boolean {
 const MIN_RELIABLE_FULL_TRACK_SECONDS = 45;
 const MAX_PLAYBACK_CANDIDATES = 8;
 const PLAYBACK_PROBE_WORKERS = 3;
-const VERSION_MARKERS = ['remix', 'live', 'instrumental', 'karaoke', 'cover', 'acoustic', 'sped up', 'slowed'];
+const PLAYBACK_PROBE_TIMEOUT_MS = 4_500;
+const PLAYBACK_RESOLUTION_TIMEOUT_MS = 8_000;
+const VERSION_MARKERS = [
+  'remix',
+  'live',
+  'instrumental',
+  'karaoke',
+  'cover',
+  'acoustic',
+  'music box',
+  'piano',
+  'guitar',
+  'orchestra',
+  'acapella',
+  'a cappella',
+  'sped up',
+  'slowed',
+  'preview',
+  'version',
+  'ver.',
+  'edit',
+  'movie',
+  '\u8bd5\u542c',
+  '\u8a66\u8074',
+  '\u73b0\u573a',
+  '\u73fe\u5834',
+  '\u5267\u573a\u7248',
+  '\u5287\u5834\u7248',
+  '\u4f34\u594f',
+  '\u30aa\u30eb\u30b4\u30fc\u30eb',
+  '\u30ab\u30e9\u30aa\u30b1',
+  '\u30ab\u30d0\u30fc',
+  '\u6b4c\u3063\u3066\u307f\u305f',
+  '\u30d4\u30a2\u30ce',
+  '\u30ae\u30bf\u30fc',
+  '\u30aa\u30fc\u30b1\u30b9\u30c8\u30e9',
+];
 
 function normalizedTokens(value: string): string[] {
   return normalizePlaybackText(value)
@@ -99,7 +164,8 @@ function normalizedTokens(value: string): string[] {
 }
 
 function hasVersionMarker(value: string): boolean {
-  return VERSION_MARKERS.some((marker) => value.includes(marker));
+  const normalizedValue = normalizePlaybackText(value);
+  return VERSION_MARKERS.some((marker) => normalizedValue.includes(normalizePlaybackText(marker)));
 }
 
 function primaryArtist(value: string): string {
@@ -120,6 +186,22 @@ function expectedPlaybackDuration(song: Pick<Song, 'provider' | 'duration' | 're
   return recordingDuration(song);
 }
 
+function needsCatalogArtwork(song: Pick<Song, 'coverArt'>): boolean {
+  return !song.coverArt || song.coverArt === '/placeholder-album.svg' || song.coverArt.startsWith('data:image/svg+xml');
+}
+
+/**
+ * Exact resolver matches can be the real recording while still lacking a
+ * public cover image. Keep their source attribution and stream identity, but
+ * retain the selected catalog artwork when it is the only listener-friendly
+ * image available. This matters most in the full player, where a generated
+ * initial would otherwise become the dominant visual after a successful swap.
+ */
+function withCatalogArtwork(candidate: Song, catalogSong: Song): Song {
+  if (!needsCatalogArtwork(candidate) || needsCatalogArtwork(catalogSong)) return candidate;
+  return { ...candidate, coverArt: catalogSong.coverArt };
+}
+
 function hasCompatibleDuration(candidateDuration: number, expectedDuration: number): boolean {
   if (candidateDuration <= 0 || expectedDuration <= 0) return true;
   return Math.abs(candidateDuration - expectedDuration) <= Math.max(15, expectedDuration * 0.2);
@@ -131,6 +213,7 @@ function matchingFullTracks(
   artist: string,
   requireDuration = true,
   expectedDuration = 0,
+  allowExplicitArtistTitleMatch = false,
 ): Song[] {
   const targetTitleTokens = normalizedTokens(title);
   const targetArtistTokens = normalizedTokens(artist);
@@ -144,21 +227,33 @@ function matchingFullTracks(
     const sharedTitleTokens = targetTitleTokens.filter((token) => candidateTitleTokens.includes(token)).length;
     const sharedArtistTokens = targetArtistTokens.filter((token) => candidateArtistTokens.includes(token)).length;
     const artistMentionedInTitle = targetArtistTokens.filter((token) => candidateTitle.includes(token)).length;
-    const artistMatch =
-      candidateArtist === normalizePlaybackText(artist) ||
-      sharedArtistTokens > 0 ||
-      artistMentionedInTitle >= Math.min(2, targetArtistTokens.length);
+    const candidateArtistIsUnknown = !candidateArtist || candidateArtist === 'unknown';
     const titleTokenMatch =
       targetTitleTokens.length > 1 &&
       sharedTitleTokens === targetTitleTokens.length &&
       candidateTitleTokens.length <= targetTitleTokens.length + 2;
     const titleMatch =
       candidateTitle === title || candidateTitle.includes(title) || title.includes(candidateTitle) || titleTokenMatch;
-    const candidateHasVersionMarker = hasVersionMarker(candidateTitle);
+    const explicitArtistTitleMatch =
+      titleMatch && targetArtistTokens.length > 0 && artistMentionedInTitle >= targetArtistTokens.length;
+    const artistMatch =
+      candidateArtist === normalizePlaybackText(artist) ||
+      sharedArtistTokens > 0 ||
+      (candidateArtistIsUnknown && artistMentionedInTitle >= Math.min(2, targetArtistTokens.length)) ||
+      (allowExplicitArtistTitleMatch && explicitArtistTitleMatch);
+    // Resolver catalogs frequently put the arrangement label in the artist or
+    // album field instead of the title (for example a Japanese "music box"
+    // artist whose title only repeats the original artist and track). Treat all
+    // three fields as recording-version evidence so chart hydration cannot
+    // promote an instrumental cover as the mainstream recording.
+    const candidateHasVersionMarker = hasVersionMarker(
+      `${candidateTitle} ${candidateArtist} ${normalizePlaybackText(candidate.album)}`,
+    );
     const candidateDuration = recordingDuration(candidate);
     const suspiciousShortClip = candidateDuration > 0 && candidateDuration < MIN_RELIABLE_FULL_TRACK_SECONDS;
     const missingDuration = candidateDuration <= 0;
     if (
+      candidate.playbackUnavailable === true ||
       !artistMatch ||
       !titleMatch ||
       suspiciousShortClip ||
@@ -185,6 +280,14 @@ type FullTrackSearchSource = (query: string) => Promise<Song[]>;
 interface FullTrackSearchOptions {
   queryLimit?: number;
   includeOpenSources?: boolean;
+  includeAudius?: boolean;
+  /** Background chart hydration should degrade quietly when Kuwo is unavailable. */
+  softResolverSearch?: boolean;
+  /** Optional resolver search is opt-in; implicit recovery must stay reliable. */
+  includeLx?: boolean;
+  excludeProvider?: MusicProviderName;
+  /** Chart hydration may accept a record that names the target artist in its title. */
+  allowExplicitArtistTitleMatch?: boolean;
 }
 
 async function searchFullTrackSources(
@@ -195,14 +298,20 @@ async function searchFullTrackSources(
   expectedDuration: number,
   signal?: AbortSignal,
   excludedIds: ReadonlySet<string> = new Set(),
+  allowExplicitArtistTitleMatch = false,
 ): Promise<Song[]> {
   const providerResults = await Promise.allSettled(
     sources.map(async (search) => {
       for (const query of queries) {
         throwIfAborted(signal);
-        const matches = matchingFullTracks(await search(query), title, artist, true, expectedDuration).filter(
-          (candidate) => !excludedIds.has(candidate.id),
-        );
+        const matches = matchingFullTracks(
+          await search(query),
+          title,
+          artist,
+          true,
+          expectedDuration,
+          allowExplicitArtistTitleMatch,
+        ).filter((candidate) => !excludedIds.has(candidate.id));
         if (matches.length > 0) return matches;
       }
       return [];
@@ -230,10 +339,12 @@ async function findFullTrackCandidates(
     return cached.candidates.filter((candidate) => !excludedIds.has(candidate.id)).slice(0, MAX_PLAYBACK_CANDIDATES);
   }
 
-  // Kuwo is the primary mainstream matcher. Audius is a public full-track
-  // catalog and is useful when Kuwo returns a mobile-only item; LX remains an
-  // optional operator-configured adapter. Each source gets a small query ladder
-  // because some catalog search endpoints rank the artist before the title.
+  // Kuwo and QQ Music are mainstream matchers. QQ returns an explicit public
+  // signed URL only for records it permits on the web, and that URL is probed
+  // before it can replace an official preview. Audius is a public full-track
+  // catalog and is useful when a mainstream resolver has no web playback; LX
+  // remains an optional operator-configured adapter. Each source gets a small
+  // query ladder because catalog endpoints rank artist and title differently.
   const queries = [
     ...new Set(
       [`${song.artist} ${song.title}`, `${song.title} ${primaryArtist(song.artist)}`, song.title]
@@ -241,11 +352,31 @@ async function findFullTrackCandidates(
         .filter(Boolean),
     ),
   ].slice(0, Math.max(1, Math.min(options.queryLimit ?? 3, 3)));
-  const primarySources: FullTrackSearchSource[] = [(query) => kuwoProvider.search(query, signal)];
-  if (process.env.NEXT_PUBLIC_LX_ENABLED === 'true') {
+  const primarySources: FullTrackSearchSource[] = [];
+  if (options.excludeProvider !== 'Kuwo') {
+    primarySources.push((query) =>
+      kuwoProvider.search(query, signal, options.softResolverSearch ? { soft: true } : undefined),
+    );
+  }
+  if (options.excludeProvider !== 'QQ Music') {
+    primarySources.push((query) => qqMusicProvider.search(query, signal));
+  }
+  if (options.excludeProvider !== 'Bilibili') {
+    primarySources.push((query) => bilibiliProvider.search(query, signal));
+  }
+  if (options.excludeProvider !== 'Invidious') {
+    primarySources.push((query) => invidiousProvider.search(query, signal));
+  }
+  if (
+    options.includeLx === true &&
+    options.excludeProvider !== 'LX Music' &&
+    process.env.NEXT_PUBLIC_LX_ENABLED === 'true'
+  ) {
     primarySources.push((query) => lxmusicProvider.search(query, signal));
   }
-  primarySources.push((query) => audiusProvider.search(query, signal));
+  if (options.includeAudius !== false && options.excludeProvider !== 'Audius') {
+    primarySources.push((query) => audiusProvider.search(query, signal));
+  }
 
   let candidates = await searchFullTrackSources(
     primarySources,
@@ -255,6 +386,7 @@ async function findFullTrackCandidates(
     expectedDuration,
     signal,
     excludedIds,
+    options.allowExplicitArtistTitleMatch,
   );
   if (candidates.length === 0 && options.includeOpenSources !== false) {
     // A mainstream resolver is not the only useful recovery path. These
@@ -276,6 +408,7 @@ async function findFullTrackCandidates(
       expectedDuration,
       signal,
       excludedIds,
+      options.allowExplicitArtistTitleMatch,
     );
   }
 
@@ -293,7 +426,12 @@ async function findFullTrackCandidates(
 
 async function getVerifiedStreamUrl(song: Song, signal?: AbortSignal): Promise<string | null> {
   try {
-    const streamUrl = await getMusicProviderForName(song.provider).getStreamUrl(song, signal);
+    const streamUrl = await withPlaybackDeadline(
+      (probeSignal) => getMusicProviderForName(song.provider).getStreamUrl(song, probeSignal),
+      signal,
+      PLAYBACK_PROBE_TIMEOUT_MS,
+    );
+    throwIfAborted(signal);
     return streamUrl || null;
   } catch {
     throwIfAborted(signal);
@@ -327,6 +465,32 @@ function createLinkedAbortController(parent?: AbortSignal): {
     controller,
     dispose: () => parent.removeEventListener('abort', onAbort),
   };
+}
+
+async function withPlaybackDeadline<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  parent: AbortSignal | undefined,
+  timeoutMs: number,
+): Promise<T> {
+  const linked = createLinkedAbortController(parent);
+  const timeoutError = new DOMException('Playback resolution timed out', 'TimeoutError');
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      linked.controller.abort(timeoutError);
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([operation(linked.controller.signal), timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (!linked.controller.signal.aborted) {
+      linked.controller.abort(new DOMException('Playback resolution complete', 'AbortError'));
+    }
+    linked.dispose();
+  }
 }
 
 /**
@@ -392,6 +556,136 @@ async function findFirstVerifiedCandidate(
   }
 }
 
+async function resolvePreviewPlaybackSource(song: Song, signal: AbortSignal): Promise<PlaybackSource | null> {
+  // A preview is a catalog identity, not a playable fallback. Resolve it to a
+  // verified full recording before allowing a play request to reach audio.
+  const candidates = (
+    await findFullTrackCandidates(song, signal, new Set(), {
+      includeLx: true,
+      includeOpenSources: false,
+    })
+  ).map((candidate) => withCatalogArtwork(candidate, song));
+  const cached = getPlaybackResolution(song);
+  const cachedIndex = cached?.selectedId ? candidates.findIndex((candidate) => candidate.id === cached.selectedId) : -1;
+  const verified =
+    cachedIndex >= 0 && cached?.streamUrl
+      ? { index: cachedIndex, streamUrl: cached.streamUrl }
+      : await findFirstVerifiedCandidate(candidates, signal);
+  if (!verified) return null;
+
+  setPlaybackResolution(song, {
+    candidates,
+    selectedId: candidates[verified.index].id,
+    ...(isReusablePlaybackUrl(verified.streamUrl) ? { streamUrl: verified.streamUrl } : {}),
+  });
+  const resolved: PlaybackCandidate[] = candidates.map((item, candidateIndex) =>
+    candidateIndex === verified.index ? { song: item, streamUrl: verified.streamUrl } : { song: item },
+  );
+  const first: PlaybackSource = { song: candidates[verified.index], streamUrl: verified.streamUrl };
+  const alternates = resolved.slice(verified.index + 1);
+  return alternates.length > 0 ? { ...first, candidates: [first, ...alternates] } : first;
+}
+
+interface SharedPreviewSourceRequest {
+  controller: AbortController;
+  promise: Promise<PlaybackSource | null>;
+  consumers: number;
+  settled: boolean;
+  abortTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const previewSourceRequests = new Map<string, SharedPreviewSourceRequest>();
+
+function previewSourceRequestKey(song: Pick<Song, 'id' | 'provider'>): string {
+  return `${song.provider}|${song.id}`;
+}
+
+function abortedRequestReason(signal?: AbortSignal): Error {
+  return signal?.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError');
+}
+
+function releasePreviewSourceRequest(request: SharedPreviewSourceRequest): void {
+  request.consumers = Math.max(0, request.consumers - 1);
+  if (request.consumers > 0 || request.settled || request.controller.signal.aborted || request.abortTimer) return;
+
+  // React's development effect replay cleans up and starts the same playback
+  // request within one task. Giving it that brief handoff keeps normal
+  // cancellation while avoiding a second resolver fan-out for one Play press.
+  request.abortTimer = setTimeout(() => {
+    request.abortTimer = null;
+    if (request.consumers === 0 && !request.settled && !request.controller.signal.aborted) {
+      request.controller.abort(new DOMException('Playback request no longer needed', 'AbortError'));
+    }
+  }, 0);
+}
+
+function waitForPreviewSourceRequest(
+  request: SharedPreviewSourceRequest,
+  signal?: AbortSignal,
+): Promise<PlaybackSource | null> {
+  throwIfAborted(signal);
+  if (request.abortTimer) {
+    clearTimeout(request.abortTimer);
+    request.abortTimer = null;
+  }
+  request.consumers += 1;
+
+  return new Promise((resolve, reject) => {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      signal?.removeEventListener('abort', onAbort);
+      releasePreviewSourceRequest(request);
+    };
+    const onAbort = () => {
+      release();
+      reject(abortedRequestReason(signal));
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+    request.promise.then(
+      (source) => {
+        release();
+        resolve(source);
+      },
+      (error) => {
+        release();
+        reject(error);
+      },
+    );
+  });
+}
+
+function getSharedPreviewPlaybackSource(song: Song, signal?: AbortSignal): Promise<PlaybackSource | null> {
+  throwIfAborted(signal);
+  const key = previewSourceRequestKey(song);
+  let request = previewSourceRequests.get(key);
+  if (!request || request.controller.signal.aborted) {
+    const controller = new AbortController();
+    request = {
+      controller,
+      promise: Promise.resolve(null),
+      consumers: 0,
+      settled: false,
+      abortTimer: null,
+    };
+    request.promise = withPlaybackDeadline(
+      (resolutionSignal) => resolvePreviewPlaybackSource(song, resolutionSignal),
+      controller.signal,
+      PLAYBACK_RESOLUTION_TIMEOUT_MS,
+    ).finally(() => {
+      request!.settled = true;
+      if (request!.abortTimer) clearTimeout(request!.abortTimer);
+      request!.abortTimer = null;
+      if (previewSourceRequests.get(key) === request) previewSourceRequests.delete(key);
+    });
+    previewSourceRequests.set(key, request);
+  }
+
+  return waitForPreviewSourceRequest(request, signal);
+}
+
 async function findFullTrackFallback(
   song: Song,
   signal?: AbortSignal,
@@ -399,7 +693,7 @@ async function findFullTrackFallback(
 ): Promise<Song | null> {
   try {
     for (const candidate of await findFullTrackCandidates(song, signal, new Set(), options)) {
-      if (await getVerifiedStreamUrl(candidate, signal)) return candidate;
+      if (await getVerifiedStreamUrl(candidate, signal)) return withCatalogArtwork(candidate, song);
     }
     return null;
   } catch {
@@ -408,35 +702,66 @@ async function findFullTrackFallback(
   }
 }
 
-const CHART_FULL_TRACK_LIMIT = 12;
-const CHART_FULL_TRACK_WORKERS = 3;
-const CHART_FULL_TRACK_TIMEOUT_MS = 4_500;
+// Warm the complete ranked chart with a bounded resolver pass. A chart row is
+// allowed to remain visibly marked as a preview when no verified full source
+// exists, but the resolver must have had a chance to inspect every ranked row
+// before the UI presents it as playable.
+const CHART_FULL_TRACK_LIMIT = 50;
+const CHART_SHELF_TRACK_LIMIT = 18;
+const CHART_FULL_TRACK_WORKERS = 4;
+const CHART_SHELF_WORKERS = 2;
+const CHART_FULL_TRACK_TIMEOUT_MS = PLAYBACK_RESOLUTION_TIMEOUT_MS + 12_000;
+const CHART_SHELF_TIMEOUT_MS = PLAYBACK_RESOLUTION_TIMEOUT_MS + 5_000;
+
+// Audius rate-limits aggressively (429) when hit in a background fan-out.
+// Disabling it for chart hydration eliminates the most common resolver
+// noise source while keeping it available for user-initiated playback.
 const CHART_FULL_TRACK_SEARCH_OPTIONS: FullTrackSearchOptions = {
+  // Use the same query ladder as an explicit Play action. The matcher still
+  // requires title, artist, duration, and version compatibility, so this does
+  // not promote a merely similar cover to a chart recording.
   queryLimit: 3,
   includeOpenSources: false,
+  includeAudius: false,
+  includeLx: true,
+  softResolverSearch: true,
 };
 
-async function resolveChartFullTracks(songs: Song[], signal?: AbortSignal): Promise<Song[]> {
+async function resolveChartFullTracks(
+  songs: Song[],
+  signal: AbortSignal | undefined,
+  options: ChartFetchOptions = {},
+): Promise<Song[]> {
+  const rowLimit = options.rowLimit ?? CHART_FULL_TRACK_LIMIT;
+  const workers = rowLimit <= CHART_SHELF_TRACK_LIMIT ? CHART_SHELF_WORKERS : CHART_FULL_TRACK_WORKERS;
+  const timeoutMs = rowLimit <= CHART_SHELF_TRACK_LIMIT ? CHART_SHELF_TIMEOUT_MS : CHART_FULL_TRACK_TIMEOUT_MS;
+  const searchOptions: FullTrackSearchOptions = {
+    ...CHART_FULL_TRACK_SEARCH_OPTIONS,
+    includeAudius: options.includeAudius === true,
+  };
+
   const resolved = songs.slice();
   let nextIndex = 0;
-  const candidates = songs.slice(0, CHART_FULL_TRACK_LIMIT);
+  const chartCandidates = songs.slice(0, Math.min(rowLimit, songs.length));
   const linked = createLinkedAbortController(signal);
   const resolutionSignal = linked.controller.signal;
 
-  const workers = Promise.all(
-    Array.from({ length: Math.min(CHART_FULL_TRACK_WORKERS, candidates.length) }, async () => {
-      while (nextIndex < candidates.length) {
+  const workerPromises = Promise.all(
+    Array.from({ length: Math.min(workers, chartCandidates.length) }, async () => {
+      while (nextIndex < chartCandidates.length) {
         const index = nextIndex;
         nextIndex += 1;
         try {
           const fullTrack = await findFullTrackFallback(
-            candidates[index],
+            chartCandidates[index],
             resolutionSignal,
-            CHART_FULL_TRACK_SEARCH_OPTIONS,
+            searchOptions,
           );
           if (fullTrack) {
             resolved[index] =
-              fullTrack.duration > 0 ? fullTrack : { ...fullTrack, duration: candidates[index].duration };
+              fullTrack.duration > 0
+                ? withCatalogArtwork(fullTrack, chartCandidates[index])
+                : withCatalogArtwork({ ...fullTrack, duration: chartCandidates[index].duration }, chartCandidates[index]);
           }
         } catch {
           // A chart row remains usable as Apple's official preview when the
@@ -450,9 +775,9 @@ async function resolveChartFullTracks(songs: Song[], signal?: AbortSignal): Prom
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      workers,
+      workerPromises,
       new Promise<void>((resolve) => {
-        timeoutId = setTimeout(resolve, CHART_FULL_TRACK_TIMEOUT_MS);
+        timeoutId = setTimeout(resolve, timeoutMs);
       }),
     ]);
   } finally {
@@ -460,7 +785,7 @@ async function resolveChartFullTracks(songs: Song[], signal?: AbortSignal): Prom
     if (!resolutionSignal.aborted) {
       linked.controller.abort(new DOMException('Chart hydration complete', 'AbortError'));
     }
-    await Promise.allSettled([workers]);
+    await Promise.allSettled([workerPromises]);
     linked.dispose();
   }
 
@@ -476,6 +801,15 @@ type CatalogProvider<T> = {
 function scopeCatalogProviders<T>(providers: Array<CatalogProvider<T>>, source?: string): Array<CatalogProvider<T>> {
   if (!source || source === 'all') return providers;
   return providers.filter((provider) => provider.name === source);
+}
+
+/**
+ * LX is optional at deployment time, but once configured it belongs in the
+ * normal catalog and exact-match recovery path. The source picker can still
+ * scope the request to one provider without paying for the other adapters.
+ */
+function shouldIncludeOptionalLx(source?: string): boolean {
+  return process.env.NEXT_PUBLIC_LX_ENABLED === 'true' && (!source || source === 'all' || source === 'LX Music');
 }
 
 const CATALOG_PROVIDER_TIMEOUT_MS = 5_000;
@@ -576,8 +910,7 @@ export async function searchFederated(
   source?: string,
 ): Promise<FederatedSearchResult> {
   // Apple leads the list because it is the only source here that can answer a
-  // search for a mainstream release. The Creative Commons providers still run —
-  // they carry the full-length recordings Apple only previews — but a query for
+  // search for a mainstream release. The Creative Commons providers still run —  // they carry the full-length recordings Apple only previews —but a query for
   // a song everybody knows used to return nothing at all.
   const providers: Array<CatalogProvider<Song>> = [
     { name: 'Audius', get: async (sig) => ({ results: await audiusProvider.search(query, sig) }) },
@@ -595,13 +928,15 @@ export async function searchFederated(
     { name: 'KEXP', get: async (sig) => ({ results: await kexpProvider.search(query, sig) }) },
     { name: 'FIP', get: async (sig) => ({ results: await fipProvider.search(query, sig) }) },
     { name: 'The Current', get: async (sig) => ({ results: await theCurrentProvider.search(query, sig) }) },
+    { name: 'Radio France', get: async (sig) => ({ results: await radioFranceProvider.search(query, sig) }) },
     { name: 'Radio Browser', get: async (sig) => ({ results: await radioBrowserProvider.search(query, sig) }) },
     { name: 'Apple Preview', get: async (sig) => ({ results: await itunesProvider.search(query, sig) }) },
     { name: 'Deezer Preview', get: async (sig) => ({ results: await deezerProvider.search(query, sig) }) },
     { name: 'Kuwo', get: async (sig) => ({ results: await kuwoProvider.search(query, sig) }) },
+    { name: 'QQ Music', get: async (sig) => ({ results: await qqMusicProvider.search(query, sig) }) },
+    { name: 'Bilibili', get: async (sig) => ({ results: await bilibiliProvider.search(query, sig) }) },
   ];
-  const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
-  if (lxEnabled) {
+  if (shouldIncludeOptionalLx(source)) {
     providers.push({ name: 'LX Music', get: async (sig) => ({ results: await lxmusicProvider.search(query, sig) }) });
   }
   return federateCatalog(scopeCatalogProviders(providers, source), signal);
@@ -644,13 +979,6 @@ export async function getGenreSongs(tag: string, limit = 50, signal?: AbortSigna
       get: async (sig) => ({ results: await openverseProvider.getSongsByTag(normalizedTag, perProviderLimit, sig) }),
     },
   ];
-  const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
-  if (lxEnabled) {
-    providers.push({
-      name: 'LX Music',
-      get: async (sig) => ({ results: await lxmusicProvider.getSongsByTag(normalizedTag, perProviderLimit, sig) }),
-    });
-  }
   if (normalizedTag.toLowerCase() === 'classical') {
     providers.push({
       name: 'Archive',
@@ -696,8 +1024,16 @@ export async function getLiveStations(limit = 12, signal?: AbortSignal): Promise
       get: async (sig) => ({ results: await theCurrentProvider.getTrending(perProviderLimit, sig) }),
     },
     {
+      name: 'Radio France',
+      get: async (sig) => ({ results: await radioFranceProvider.getTrending(perProviderLimit, sig) }),
+    },
+    {
       name: 'Radio Browser',
       get: async (sig) => ({ results: await radioBrowserProvider.getTrending(perProviderLimit, sig) }),
+    },
+    {
+      name: 'Japan FM',
+      get: async (sig) => ({ results: await radioBrowserProvider.getCountryStations('JP', perProviderLimit, sig) }),
     },
   ];
   const perProviderLimit = Math.min(20, Math.max(4, Math.ceil(cappedLimit / providers.length)));
@@ -706,7 +1042,11 @@ export async function getLiveStations(limit = 12, signal?: AbortSignal): Promise
   return {
     ...catalog,
     results: interleaveEntities(
-      providers.map(({ name }) => catalog.results.filter((song) => song.provider === name)),
+      providers.map(({ name }) =>
+        name === 'Japan FM'
+          ? catalog.results.filter((song) => song.provider === 'Radio Browser' && song.artistId === 'radio-artist-JP')
+          : catalog.results.filter((song) => song.provider === name),
+      ),
       cappedLimit,
     ),
   };
@@ -737,7 +1077,7 @@ export async function searchAlbumsFederated(
     { name: 'Apple Preview', get: async (sig) => ({ results: await itunesProvider.searchAlbums(query, sig) }) },
     { name: 'Deezer Preview', get: async (sig) => ({ results: await deezerProvider.searchAlbums(query, sig) }) },
   ];
-  return federateCatalog(scopeCatalogProviders(providers, source), signal);
+  return filterBrowsableAlbums(await federateCatalog(scopeCatalogProviders(providers, source), signal));
 }
 
 export async function searchArtistsFederated(
@@ -772,7 +1112,7 @@ export const api = {
       { name: 'Apple Preview', get: async (sig) => ({ results: await itunesProvider.getAlbums(sig) }) },
       { name: 'Deezer Preview', get: async (sig) => ({ results: await deezerProvider.getAlbums(sig) }) },
     ];
-    return federateCatalog(providers, signal);
+    return filterBrowsableAlbums(await federateCatalog(providers, signal));
   },
 
   async getArtists(signal?: AbortSignal): Promise<FederatedResult<Artist>> {
@@ -827,7 +1167,8 @@ export const api = {
   // belongs under this id.
   async getArtistAlbums(artistId: string, signal?: AbortSignal): Promise<Album[]> {
     const provider = getMusicProviderForArtistId(artistId);
-    return provider.getArtistAlbums ? provider.getArtistAlbums(artistId, signal) : [];
+    const albums = provider.getArtistAlbums ? await provider.getArtistAlbums(artistId, signal) : [];
+    return albums.filter(isBrowsableAlbum);
   },
 
   search: searchFederated,
@@ -878,13 +1219,6 @@ export const api = {
         get: async (sig) => ({ results: await deezerProvider.getTrending(requestedLimit, sig) }),
       },
     ];
-    const lxEnabled = process.env.NEXT_PUBLIC_LX_ENABLED === 'true';
-    if (lxEnabled) {
-      providers.push({
-        name: 'LX Music',
-        get: async (sig) => ({ results: await lxmusicProvider.getTrending(requestedLimit, sig) }),
-      });
-    }
     const catalog = await federateCatalog(providers, signal);
 
     return {
@@ -896,14 +1230,18 @@ export const api = {
     };
   },
 
-  async getChartSongs(chart: ChartKey, signal?: AbortSignal): Promise<Song[]> {
+  async getChartSongs(chart: ChartKey, signal?: AbortSignal, options: ChartFetchOptions = {}): Promise<Song[]> {
     const data = await providerFetch<{ results?: unknown; error?: string; unavailable?: boolean }>(
       'Apple Preview',
       'chart',
       '/api/music/charts',
       { chart },
       signal,
-      { timeoutMs: 15_000 },
+      // The route has an official RSS fallback and may need one upstream
+      // retry before returning a chart. Keep the client window above that
+      // bounded server path so a transient Apple delay does not look like an
+      // empty Japanese catalog.
+      { timeoutMs: 30_000 },
     );
     if (data.error) {
       throw new ProviderError('Apple Preview', 'chart', 'upstream', 502, data.error);
@@ -922,16 +1260,17 @@ export const api = {
       throw new ProviderError('Apple Preview', 'chart', 'invalid_response');
     }
     // Keep the Apple ranking intact when a resolver cannot verify a matching
-    // full recording. Verified replacements are an enhancement, not a reason
-    // to delete mainstream chart entries or surface an empty chart.
-    return resolveChartFullTracks(results, signal);
+    // full recording. The home shelf defers that optional resolver fan-out
+    // until a listener presses play; dedicated charts can still enrich their
+    // visible rows ahead of time.
+    return options.resolveFullTracks === false ? results : resolveChartFullTracks(results, signal, options);
   },
 
   /**
    * Lyrics for a track, or `null` when nobody has them.
    *
-   * "Nobody has them" is the common answer — most of this catalog is Creative
-   * Commons music that LRCLIB has never been asked about — so a miss is a
+   * "Nobody has them" is the common answer —most of this catalog is Creative
+   * Commons music that LRCLIB has never been asked about —so a miss is a
    * normal result rather than an error. Only a server that could not answer at
    * all throws, which is what lets the panel tell "no lyrics exist" apart from
    * "the lookup is broken".
@@ -968,37 +1307,41 @@ export const api = {
    */
   async getPlaybackAlternates(song: Song, signal?: AbortSignal): Promise<PlaybackCandidate[]> {
     if (!isResolverSource(song.provider)) return [];
-    return (await findFullTrackCandidates(song, signal, new Set([song.id]))).map((candidate) => ({ song: candidate }));
+    try {
+      const candidates = await withPlaybackDeadline(
+        async (resolutionSignal) => {
+          const fullCandidates = (
+            await findFullTrackCandidates(song, resolutionSignal, new Set([song.id]), {
+              excludeProvider: song.provider,
+              includeLx: true,
+              queryLimit: 2,
+              includeOpenSources: false,
+            })
+          ).map((candidate) => withCatalogArtwork(candidate, song));
+          // Resolver selections promise a full recording. An Apple/Deezer
+          // preview is an explicit catalog choice, not a valid recovery for a
+          // resolver failure, so it must never enter this candidate ladder.
+          return fullCandidates;
+        },
+        signal,
+        PLAYBACK_RESOLUTION_TIMEOUT_MS,
+      );
+      return candidates.map((candidate) => ({ song: candidate }));
+    } catch {
+      throwIfAborted(signal);
+      return [];
+    }
   },
 
   async getPlaybackSource(song: Song, signal?: AbortSignal): Promise<PlaybackSource> {
     if (isPreviewSong(song)) {
       try {
-        const candidates = await findFullTrackCandidates(song, signal);
-        const cached = getPlaybackResolution(song);
-        const cachedIndex = cached?.selectedId
-          ? candidates.findIndex((candidate) => candidate.id === cached.selectedId)
-          : -1;
-        const verified =
-          cachedIndex >= 0 && cached?.streamUrl
-            ? { index: cachedIndex, streamUrl: cached.streamUrl }
-            : await findFirstVerifiedCandidate(candidates, signal);
-        if (verified) {
-          setPlaybackResolution(song, {
-            candidates,
-            selectedId: candidates[verified.index].id,
-            ...(isReusablePlaybackUrl(verified.streamUrl) ? { streamUrl: verified.streamUrl } : {}),
-          });
-          const resolved: PlaybackCandidate[] = candidates.map((item, candidateIndex) =>
-            candidateIndex === verified.index ? { song: item, streamUrl: verified.streamUrl } : { song: item },
-          );
-          const first: PlaybackSource = { song: candidates[verified.index], streamUrl: verified.streamUrl };
-          const alternates = resolved.slice(verified.index + 1);
-          return alternates.length > 0 ? { ...first, candidates: [first, ...alternates] } : first;
-        }
+        const resolvedSource = await getSharedPreviewPlaybackSource(song, signal);
+        if (resolvedSource) return resolvedSource;
       } catch {
         throwIfAborted(signal);
       }
+      throw new Error(NO_VERIFIED_FULL_TRACK_MESSAGE);
     }
     try {
       const streamUrl = await this.getStreamUrl(song, signal);
@@ -1013,11 +1356,35 @@ export const api = {
       // permits the mobile app. Give the same exact-match recovery path a
       // chance to find a public full recording before surfacing the failure.
       if (!isResolverSource(song.provider)) throw error;
-      const fallbackCandidates = await this.getPlaybackAlternates(song, signal);
-      const verified = await findFirstVerifiedCandidate(
-        fallbackCandidates.map((candidate) => candidate.song),
-        signal,
-      );
+      let fallback: { fallbackCandidates: Song[]; verified: VerifiedPlaybackCandidate | null } | null = null;
+      try {
+        fallback = await withPlaybackDeadline(
+          async (resolutionSignal) => {
+            const fallbackCandidates = (
+              await findFullTrackCandidates(song, resolutionSignal, new Set([song.id]), {
+                excludeProvider: song.provider,
+                includeLx: true,
+                queryLimit: 2,
+                includeOpenSources: false,
+              })
+            ).map((candidate) => withCatalogArtwork(candidate, song));
+            const verified = await findFirstVerifiedCandidate(fallbackCandidates, resolutionSignal);
+            if (verified) return { fallbackCandidates, verified };
+
+            // A resolver selection promises a full recording. Falling back to
+            // an official preview here would silently turn a failed full-track
+            // request into a 30-second playback session.
+            return { fallbackCandidates, verified: null };
+          },
+          signal,
+          PLAYBACK_RESOLUTION_TIMEOUT_MS,
+        );
+      } catch {
+        throwIfAborted(signal);
+      }
+      if (!fallback) throw error;
+      const fallbackCandidates = fallback.fallbackCandidates.map((candidate) => ({ song: candidate }));
+      const verified = fallback.verified;
       if (verified) {
         setPlaybackResolution(song, {
           candidates: fallbackCandidates.map((candidate) => candidate.song),

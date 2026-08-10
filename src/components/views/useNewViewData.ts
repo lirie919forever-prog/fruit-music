@@ -5,8 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { FederatedResult, MusicCatalog } from '@/lib/catalogTypes';
 import { useMusicCatalog } from '@/lib/musicCatalog';
 import { catalogStaleTime, countListResults } from '@/lib/catalogFreshness';
-import { interleaveSongGroups, interleaveSongsByProvider,
-  isCuratableTitle, uniqueAlbumSongs } from './newViewModel';
+import { interleaveSongGroups, interleaveSongsByProvider, isCuratableTitle, uniqueAlbumSongs } from './newViewModel';
 import type { Song } from '@/types/music';
 
 const shared = {
@@ -31,18 +30,23 @@ function useTrending(catalog: MusicCatalog) {
   });
 }
 
-function useRecentReleases(catalog: MusicCatalog) {
+function useRecentReleases(catalog: MusicCatalog, enabled = true) {
   return useQuery({
     queryKey: ['new', 'recent-releases'],
-    queryFn: ({ signal }): Promise<Song[]> => catalog.getRecentReleases(24, signal),
+    queryFn: ({ signal }): Promise<Song[]> => catalog.getRecentReleases(12, signal),
+    enabled,
     ...shared,
   });
 }
 
 function useMainstreamChart(catalog: MusicCatalog, enabled = true) {
   return useQuery({
-    queryKey: ['new', 'chart', 'billboard'],
-    queryFn: ({ signal }): Promise<Song[]> => catalog.getChartSongs('billboard', signal),
+    // The home shelf has its own bounded hydration budget so it does not
+    // share the expensive 50-row dedicated-chart request and can resolve
+    // quickly enough for the first paint.
+    queryKey: ['new', 'chart', 'billboard', 'shelf'],
+    queryFn: ({ signal }): Promise<Song[]> =>
+      catalog.getChartSongs('billboard', signal, { resolveFullTracks: true, rowLimit: 18 }),
     enabled,
     ...shared,
   });
@@ -94,6 +98,7 @@ export interface NewViewData {
   mainstreamSongs: Song[];
   hasCatalogFailure: boolean;
   isLoading: boolean;
+  primaryDiscoveryReady: boolean;
   retry: () => void;
   sections: {
     trending: NewViewSectionState;
@@ -126,31 +131,27 @@ function sectionState(query: QueryStateLike): NewViewSectionState {
   };
 }
 
-export function useNewViewData(): NewViewData {
+export function useNewViewData({ enableGenres = true }: { enableGenres?: boolean } = {}): NewViewData {
   const catalog = useMusicCatalog();
-  // Every section starts in parallel. Trending no longer gates the rest:
-  // live stations and each genre shelf load concurrently, so the first
-  // meaningful content paints as soon as any provider responds rather than
-  // waiting for the slowest trending seed to finish first.
+  // Start the first listening shelf immediately, then introduce lower-page
+  // federation in small waves. This keeps a cold mobile load from launching
+  // every source, genre, chart resolver, and recent-release seed at once.
   const trending = useTrending(catalog);
-  const liveStations = useLiveStations(catalog);
-  const recentReleases = useRecentReleases(catalog);
-  // The chart resolver is deliberately delayed until the first discovery
-  // shelves have started painting. It is the strongest mainstream signal, but
-  // its full-track matching fans out to several upstream lookups.
-  const chartEnabled = useDelayedEnable(850);
+  const liveStationsEnabled = useDelayedEnable(350);
+  const recentReleasesEnabled = useDelayedEnable(900);
+  const liveStations = useLiveStations(catalog, liveStationsEnabled);
+  const recentReleases = useRecentReleases(catalog, recentReleasesEnabled);
+  // Chart resolution has the broadest matching path, so it waits until the
+  // initial discovery and live shelves have had room to paint.
+  const chartEnabled = useDelayedEnable(1_500);
   const mainstreamChart = useMainstreamChart(catalog, chartEnabled);
-  // Keep the first viewport responsive on a cold load. Each genre still has an
-  // independent cache entry, but its federation starts in a small stagger so
-  // four shelves cannot create a 20+ request burst at the same moment.
-  const popEnabled = useDelayedEnable(250);
-  const jazzEnabled = useDelayedEnable(400);
-  const remixEnabled = useDelayedEnable(550);
-  const classicalEnabled = useDelayedEnable(700);
-  const pop = useGenre(catalog, ['new', 'genre', 'pop'], 'pop', popEnabled);
-  const jazz = useGenre(catalog, ['new', 'genre', 'jazz'], 'jazz', jazzEnabled);
-  const remix = useGenre(catalog, ['new', 'genre', 'remix'], 'remix', remixEnabled);
-  const classical = useGenre(catalog, ['new', 'genre', 'classical'], 'classical', classicalEnabled);
+  // Genre shelves are below the primary listening choices. The view activates
+  // them near the shelf instead of spending a cold mobile load on music the
+  // listener has not reached yet.
+  const pop = useGenre(catalog, ['new', 'genre', 'pop'], 'pop', enableGenres);
+  const jazz = useGenre(catalog, ['new', 'genre', 'jazz'], 'jazz', enableGenres);
+  const remix = useGenre(catalog, ['new', 'genre', 'remix'], 'remix', enableGenres);
+  const classical = useGenre(catalog, ['new', 'genre', 'classical'], 'classical', enableGenres);
 
   const popData = pop.data?.results;
   const trendingData = trending.data?.results;
@@ -165,11 +166,17 @@ export function useNewViewData(): NewViewData {
     [popData, trendingData, jazzData, remixData, classicalData],
   );
   const spotlightSongs = useMemo(
-    () => uniqueAlbumSongs(interleaveSongsByProvider([trendingData, popData, jazzData, remixData], 48), 12).filter(isCuratableTitle),
+    () =>
+      uniqueAlbumSongs(interleaveSongsByProvider([trendingData, popData, jazzData, remixData], 48), 12).filter(
+        isCuratableTitle,
+      ),
     [trendingData, popData, jazzData, remixData],
   );
   const bestNewSongs = useMemo(
-    () => interleaveSongsByProvider([trendingData, popData, jazzData, remixData, classicalData], 48).filter(isCuratableTitle),
+    () =>
+      interleaveSongsByProvider([trendingData, popData, jazzData, remixData, classicalData], 48).filter(
+        isCuratableTitle,
+      ),
     [trendingData, popData, jazzData, remixData, classicalData],
   );
   const releaseSongs = useMemo(
@@ -183,6 +190,14 @@ export function useNewViewData(): NewViewData {
     recentReleases.isError ||
     mainstreamChart.isError ||
     federatedQueries.some((query) => query.isError || hasFailedProvider(query.data));
+  const hasSettledCatalogQuery = [recentReleases, mainstreamChart, ...federatedQueries].some(
+    (query) => query.isFetched,
+  );
+  const isInitialLoading =
+    !hasSettledCatalogQuery &&
+    (recentReleases.isFetching || mainstreamChart.isFetching || federatedQueries.some((query) => query.isFetching));
+  const primaryDiscoveryReady =
+    trending.isFetched && liveStations.isFetched && recentReleases.isFetched && mainstreamChart.isFetched;
 
   return {
     genres: {
@@ -196,8 +211,8 @@ export function useNewViewData(): NewViewData {
     liveStations: liveStationData ?? [],
     releaseSongs,
     hasCatalogFailure,
-    isLoading:
-      recentReleases.isFetching || mainstreamChart.isFetching || federatedQueries.some((query) => query.isFetching),
+    isLoading: isInitialLoading,
+    primaryDiscoveryReady,
     retry: () => {
       const retryable = federatedQueries.filter(
         (query) =>

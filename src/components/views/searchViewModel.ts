@@ -1,36 +1,63 @@
 import type { Album, Artist, MusicProviderName, Song } from '@/types/music';
 import { filterSongsByAccess, isDirectFullTrack, isSearchableSong, type AudioAccessMode } from './newViewModel';
-import { isResolverSource } from '@/lib/sourceRegistry';
+import { isPreviewSource, isResolverSource } from '@/lib/sourceRegistry';
 
 const PROVIDER_RELEVANCE: Record<MusicProviderName, number> = {
-  'Apple Preview': 55,
-  'Deezer Preview': 50,
+  // Official previews are the strongest mainstream identity signal in All
+  // audio mode. They remain visibly labeled as previews and never become
+  // full-track results through this score.
+  'Apple Preview': 90,
+  'Deezer Preview': 85,
   Jamendo: 42,
   'Wikimedia Commons': 39,
-  Archive: 37,
+  Archive: 32,
   ccMixter: 35,
   Openverse: 32,
   Audius: 24,
   'LX Music': 16,
-  Kuwo: 45,
+  // Resolver matches are still probed before playback, but an exact
+  // mainstream identity is more useful than an open upload that merely has
+  // verified metadata.
+  Kuwo: 58,
+  'QQ Music': 72,
+  Bilibili: 70,
+  Invidious: 70,
   SomaFM: 12,
   'NTS Radio': 14,
   'Radio Paradise': 16,
   KEXP: 15,
   FIP: 15,
   'The Current': 15,
+  'Radio France': 15,
   'Radio Browser': 10,
   'Local file': 100,
 };
 
 const LOW_SIGNAL_TITLE =
   /\b(official (audio|video)|lyrics?|extended|nightcore|slowed|reverb|type beat|karaoke)\b|\[[a-z0-9_-]{8,}\]/i;
+const NON_STUDIO_TITLE =
+  /\b(remix|live|cover|instrumental|karaoke|acoustic|sped up|slowed|preview|version|ver\.?|edit|movie|interlude|intro|outro|skit|overture|rehearsal|festival|concert|tour|stage|first take|interview|podcast|episode|ep\s*\d+|orchestral|orchestra|music box|a cappella|acapella|piano (?:cover|version)|instrumental version)\b|(?:\u73b0\u573a|\u73fe\u5834|\u7ffb\u5531|\u7ffb\u81ea|\u7ffb\u594f|\u7ffb\u5531\u7248|\u7ffb\u594f\u7248|\u8bd5\u542c|\u8a66\u8074|\u4f34\u594f|\u5267\u573a\u7248|\u5287\u5834\u7248|\u76f4\u64ad|\u7247\u6bb5|\u97f3\u4e50\u8282|\u97f3\u6a02\u7bc0|\u97f3\u4e50\u4f1a|\u97f3\u6a02\u6703|\u94a2\u7434|\u92fc\u7434|\u7ba1\u5f26|\u4ea4\u54cd|\u7eaf\u97f3\u4e50|\u7d14\u97f3\u6a02|\u6f14\u594f)/iu;
+const LOCALIZED_ALT_TITLE = /\([^)]*[\u3400-\u9fff][^)]*\)/u;
+const SHORT_FORM_TITLE = /\b(interlude|intro|outro|skit|overture|rehearsal)\b/i;
 const TRAILING_UPLOAD_ID = /\s*\[[a-z0-9_-]{8,}\]\s*$/i;
+
+function isArtistIntent(exactArtistMatches: number, query: string): boolean {
+  return exactArtistMatches >= 2 && query.split(' ').filter(Boolean).length <= 3;
+}
+
+function matchesArtistIdentity(artist: string, query: string): boolean {
+  return artist === query || artist.startsWith(`${query} `);
+}
+
+function isMainstreamPreview(song: Song): boolean {
+  return song.provider === 'Apple Preview' || song.provider === 'Deezer Preview';
+}
 
 const ENTITY_PROVIDER_RELEVANCE: Record<string, number> = {
   itunes: 90,
   deezer: 85,
   kuwo: 78,
+  bilibili: 74,
   audius: 70,
   jamendo: 64,
   ccmixter: 58,
@@ -61,10 +88,124 @@ function tokenScore(value: string, query: string): number {
   return tokens.reduce((score, token) => score + (value.includes(token) ? 18 : 0), 0);
 }
 
-function score(song: Song, query: string): number {
+/**
+ * A common Japanese search combines a romanized artist and a native-language
+ * title, for example "YOASOBI 夜に駆ける". Neither field equals the combined
+ * query, so ordinary phrase matching let covers with the same title outrank
+ * the original. Reward a query that independently matches both fields.
+ */
+function combinedArtistTitleScore(title: string, artist: string, query: string): number {
+  const titleMatches = title.length > 1 && query.includes(title);
+  const artistMatches = artist.length > 1 && query.includes(artist);
+  return titleMatches && artistMatches ? 1_060 : 0;
+}
+
+function exactArtistMatchCount(songs: readonly Song[], query: string): number {
+  return songs.reduce((count, song) => count + (normalize(song.artist) === query ? 1 : 0), 0);
+}
+
+interface SearchIdentityEvidence {
+  providers: Set<MusicProviderName>;
+  verifiedProviders: Set<MusicProviderName>;
+}
+
+interface TitleArtistSignal {
+  artist: string;
+  providers: Set<MusicProviderName>;
+  firstIndex: number;
+}
+
+function buildIdentityEvidence(songs: readonly Song[]): Map<string, SearchIdentityEvidence> {
+  const evidence = new Map<string, SearchIdentityEvidence>();
+  for (const song of songs) {
+    if (!isSearchableSong(song)) continue;
+    const key = identity(song);
+    const existing = evidence.get(key) ?? { providers: new Set(), verifiedProviders: new Set() };
+    existing.providers.add(song.provider);
+    if (song.metadataVerified) existing.verifiedProviders.add(song.provider);
+    evidence.set(key, existing);
+  }
+  return evidence;
+}
+
+function corroborationScore(song: Song, evidence: Map<string, SearchIdentityEvidence>): number {
+  const identityEvidence = evidence.get(identity(song));
+  if (!identityEvidence || identityEvidence.providers.size < 2) return 0;
+
+  // A same-title result from one provider can be an upload or an alternate
+  // recording. Independent provider agreement is useful evidence, especially
+  // when the agreeing records are metadata-verified previews that full-track
+  // filtering would otherwise remove before ranking.
+  const providerBonus = (identityEvidence.providers.size - 1) * 54;
+  const verifiedBonus = Math.min(2, identityEvidence.verifiedProviders.size) * 12;
+  return providerBonus + verifiedBonus;
+}
+
+/**
+ * Preview catalogs are the only federated sources that consistently expose a
+ * mainstream recording identity. Preserve that signal when full-track mode
+ * removes the previews themselves: an exact-title cover should not outrank a
+ * creator upload that explicitly names the known artist in its title.
+ */
+function buildTitleArtistEvidence(songs: readonly Song[]): Map<string, TitleArtistSignal[]> {
+  const evidence = new Map<string, Map<string, TitleArtistSignal>>();
+  songs.forEach((song, index) => {
+    if (!isSearchableSong(song) || !isPreviewSource(song.provider)) return;
+    const title = normalize(song.title);
+    const artist = normalize(song.artist);
+    if (!title || !artist) return;
+
+    const artists = evidence.get(title) ?? new Map<string, TitleArtistSignal>();
+    const existing = artists.get(artist);
+    if (existing) existing.providers.add(song.provider);
+    else artists.set(artist, { artist, providers: new Set([song.provider]), firstIndex: index });
+    evidence.set(title, artists);
+  });
+
+  return new Map(
+    [...evidence.entries()].map(([title, artists]) => [
+      title,
+      [...artists.values()].sort(
+        (left, right) => right.providers.size - left.providers.size || left.firstIndex - right.firstIndex,
+      ),
+    ]),
+  );
+}
+
+function titleArtistScore(song: Song, query: string, evidence: Map<string, TitleArtistSignal[]>): number {
+  const signals = evidence.get(query);
+  if (!signals?.length) return 0;
+
+  const trustedSignals = signals.slice(0, 3);
+  const candidateArtist = normalize(song.artist);
+  const candidateTitle = normalize(song.title);
+  const artistMatch = trustedSignals.find((signal) => signal.artist === candidateArtist);
+  if (artistMatch) return 320 + artistMatch.providers.size * 60;
+
+  if (trustedSignals.some((signal) => candidateTitle.includes(signal.artist))) return 220;
+
+  // An exact title with a different artist is usually a cover/alternate in a
+  // resolver catalog. Keep it discoverable, but place it below an identity
+  // that has explicit mainstream corroboration.
+  if (candidateTitle === query && !isPreviewSource(song.provider)) return -320;
+  return 0;
+}
+
+function score(
+  song: Song,
+  query: string,
+  evidence: Map<string, SearchIdentityEvidence>,
+  titleArtistEvidence: Map<string, TitleArtistSignal[]>,
+  exactArtistMatches: number,
+  hasOfficialArtistEvidence: boolean,
+  accessMode?: AudioAccessMode,
+): number {
   const title = normalize(song.title);
   const artist = normalize(song.artist);
+  const artistIntent = isArtistIntent(exactArtistMatches, query);
+  const artistIdentityMatch = matchesArtistIdentity(artist, query);
   const relevance =
+    combinedArtistTitleScore(title, artist, query) +
     // An exact title is the strongest signal for a track search. Keep an
     // exact artist match close behind so a song named after the artist still
     // loses to the actual artist record when provider quality differs.
@@ -73,20 +214,47 @@ function score(song: Song, query: string): number {
     // A one-word artist query often appears at the start of noisy upload
     // titles. Give an exact artist identity enough weight to beat those title
     // prefixes while keeping an exact song title the strongest song signal.
-    (artist === query ? 160 : 0) +
+    // Repeated exact artist identities are strong evidence that this is an
+    // artist search. Keep those records above an unrelated track whose title
+    // merely happens to equal the artist name.
+    (artistIdentityMatch ? (artist === query ? (exactArtistMatches >= 2 ? 300 : 160) : 220) : 0) +
     // Resolver catalogs commonly return a track named after the artist before
     // the artist's actual recordings. Prefer the exact artist record when both
     // candidates come from the same mainstream resolver.
-    (isResolverSource(song.provider) && artist === query ? 100 : 0) +
+    (isResolverSource(song.provider) && artist === query ? 40 : 0) +
     tokenScore(artist, query) +
-    tokenScore(title, query);
+    tokenScore(title, query) +
+    titleArtistScore(song, query, titleArtistEvidence) +
+    // Once several records prove the query is an artist identity, an exact
+    // title collision from another artist is a much weaker interpretation of
+    // the search than any of those recordings.
+    (exactArtistMatches >= 2 && title === query && artist !== query ? -420 : 0);
   const quality =
     PROVIDER_RELEVANCE[song.provider] +
     (song.metadataVerified ? 12 : -10) +
     (song.duration > 0 ? 4 : 0) +
     (song.isLive ? -28 : 0) +
     (song.playbackUnavailable ? -500 : 0) +
-    (LOW_SIGNAL_TITLE.test(song.title) ? -36 : 0);
+    (LOW_SIGNAL_TITLE.test(song.title) ? -36 : 0) +
+    // Keep alternates discoverable in More tracks, but stop live/festival,
+    // interlude, cover, and translated-uploader variants from taking over the
+    // compact top shelf when a clean identity is available.
+    (NON_STUDIO_TITLE.test(song.title) ? (accessMode === 'full' ? -280 : -180) : 0) +
+    (SHORT_FORM_TITLE.test(song.title) && accessMode === 'full' ? -130 : 0) +
+    (LOCALIZED_ALT_TITLE.test(song.title) ? (accessMode === 'full' ? -280 : -70) : 0) +
+    (artist === query && title !== query && title.includes(query) ? -140 : 0) +
+    (hasOfficialArtistEvidence && artist === query && !isMainstreamPreview(song) && !isResolverSource(song.provider)
+      ? -220
+      : 0) +
+    // Full-track searches need a mainstream identity lane. Open archives can
+    // contain a correctly tagged artist upload, but a verified resolver record
+    // is the better first play target for a mainstream artist query.
+    (accessMode === 'full' && artistIntent && artistIdentityMatch && isResolverSource(song.provider)
+      ? NON_STUDIO_TITLE.test(song.title) || LOCALIZED_ALT_TITLE.test(song.title)
+        ? 260
+        : 460
+      : 0) +
+    corroborationScore(song, evidence);
 
   return relevance + quality;
 }
@@ -112,13 +280,49 @@ export function areAllSearchProvidersUnavailable(state: {
  * title and artist is listed first. Rank before de-duplicating so the more
  * dependable record survives, then keep stable source order for ties.
  */
-function rankSearchSongsInternal(songs: Song[], query: string, preferFullDuplicates: boolean): Song[] {
+function rankSearchSongsInternal(
+  songs: Song[],
+  query: string,
+  preferFullDuplicates: boolean,
+  accessMode?: AudioAccessMode,
+): Song[] {
   const normalizedQuery = normalize(query);
-  const ranked = songs
-    .filter(isSearchableSong)
-    .map((song, index) => ({ song, index, score: score(song, normalizedQuery) }))
-    .sort((left, right) => right.score - left.score || left.index - right.index)
-    .map((candidate, rank) => ({ ...candidate, rank }));
+  const evidence = buildIdentityEvidence(songs);
+  const titleArtistEvidence = buildTitleArtistEvidence(songs);
+  const exactArtistMatches = exactArtistMatchCount(songs, normalizedQuery);
+  const searchableSongs = accessMode ? filterSongsByAccess(songs, accessMode) : songs.filter(isSearchableSong);
+  const mainstreamArtistSongs = searchableSongs.filter(
+    (song) => isMainstreamPreview(song) && normalize(song.artist) === normalizedQuery,
+  );
+  const hasOfficialArtistEvidence =
+    accessMode !== 'full' &&
+    songs.some((song) => isMainstreamPreview(song) && normalize(song.artist) === normalizedQuery);
+  const rankedByScore = searchableSongs
+    .map((song, index) => ({
+      song,
+      index,
+      score: score(
+        song,
+        normalizedQuery,
+        evidence,
+        titleArtistEvidence,
+        exactArtistMatches,
+        hasOfficialArtistEvidence,
+        accessMode,
+      ),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  const ranked =
+    accessMode === 'all' && mainstreamArtistSongs.length >= 3
+      ? [
+          ...rankedByScore.filter(
+            ({ song }) => isMainstreamPreview(song) && normalize(song.artist) === normalizedQuery,
+          ),
+          ...rankedByScore.filter(
+            ({ song }) => !(isMainstreamPreview(song) && normalize(song.artist) === normalizedQuery),
+          ),
+        ].map((candidate, rank) => ({ ...candidate, rank }))
+      : rankedByScore.map((candidate, rank) => ({ ...candidate, rank }));
   const selected = new Map<string, (typeof ranked)[number]>();
 
   for (const candidate of ranked) {
@@ -152,7 +356,7 @@ export function rankSearchSongs(songs: Song[], query: string): Song[] {
 }
 
 export function rankSearchSongsForAccess(songs: Song[], query: string, mode: AudioAccessMode): Song[] {
-  return rankSearchSongsInternal(filterSongsByAccess(songs, mode), query, mode === 'all');
+  return rankSearchSongsInternal(songs, query, mode === 'all', mode);
 }
 
 function entityProviderScore(id: string): number {
@@ -255,8 +459,17 @@ export function summarizeSearchProviders(
 
 export function splitTopSearchMatches(songs: Song[], limit = 6): { topMatches: Song[]; remainingTracks: Song[] } {
   const cappedLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 6;
+  // Artist searches can return a large block of official previews alongside
+  // open uploads and resolver alternates. Keep that mainstream identity lane
+  // visible at the top when it has enough depth, while preserving every other
+  // result below it for users who want full-length or alternate recordings.
+  const officialPreviewLane = songs.filter(isMainstreamPreview);
+  const orderedSongs =
+    officialPreviewLane.length >= 3
+      ? [...officialPreviewLane, ...songs.filter((song) => !isMainstreamPreview(song))]
+      : songs;
   return {
-    topMatches: songs.slice(0, cappedLimit),
-    remainingTracks: songs.slice(cappedLimit),
+    topMatches: orderedSongs.slice(0, cappedLimit),
+    remainingTracks: orderedSongs.slice(cappedLimit),
   };
 }

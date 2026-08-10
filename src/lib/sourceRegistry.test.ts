@@ -29,6 +29,8 @@ describe('music source registry', () => {
 
   it('keeps playback capability checks registry-driven', () => {
     expect(isResolverSource('Kuwo')).toBe(true);
+    expect(isResolverSource('QQ Music')).toBe(true);
+    expect(isResolverSource('Bilibili')).toBe(true);
     expect(isResolverSource('LX Music')).toBe(true);
     expect(isResolverSource('Audius')).toBe(false);
     expect(isPreviewSource('Apple Preview')).toBe(true);
