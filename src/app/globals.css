@@ -647,3 +647,80 @@ html[data-marea-reduced-motion='true'] *::after {
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
+/* === Enhanced mobile glass UI (progressive chart resolution era) === */
+
+/* Stronger frosted-glass blur on mobile for deeper liquid-glass feel */
+@media (max-width: 768px) {
+  .marea-glass-panel {
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(200%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(200%);
+  }
+  .marea-player-bar {
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(200%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(200%);
+    box-shadow:
+      0 -10px 32px rgba(13, 111, 168, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+  }
+  /* Spring scale on touch for glass cards */
+  .marea-glass-card:active {
+    transform: scale(0.96);
+    transition: transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .marea-glass-hero {
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(180%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(180%);
+  }
+  /* Spring animation for nav items on tap */
+  [class*="marea-nav-item"]:active {
+    transform: scale(0.97);
+    transition: transform 120ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  /* Glass rail scroll with stronger friction and momentum */
+  .marea-rail-scroll {
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+}
+
+/* Glow border for the currently-playing card */
+.marea-glass-card.marea-now-playing-card {
+  border-color: var(--glass-border-active);
+  box-shadow:
+    var(--glass-shadow),
+    0 0 0 1px color-mix(in srgb, var(--glass-border-active) 52%, transparent),
+    0 0 28px rgba(13, 111, 168, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.56);
+}
+
+/* Soft floating animation on the cover art of the playing track */
+@keyframes marea-floating-cover {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .marea-glass-card.marea-now-playing-card img:first-child {
+    animation: marea-floating-cover 4s ease-in-out infinite;
+  }
+}
+
+/* Status pills transition smoothly on mobile */
+@media (pointer: coarse) {
+  [class*="rounded-full"][class*="bg-"] {
+    transition: background-color 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marea-glass-card.marea-now-playing-card img:first-child {
+    animation: none;
+  }
+  .marea-glass-card:active {
+    transform: none;
+    transition: none;
+  }
+}
+
