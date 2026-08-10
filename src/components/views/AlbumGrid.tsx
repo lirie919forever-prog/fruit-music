@@ -1,40 +1,104 @@
 'use client';
 
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { usePlayerStore } from '@/store/playerStore';
-import { api } from '@/lib/api';
 import { providerErrorMessage } from '@/lib/providers/errors';
-import type { Album } from '@/types/music';
+import { catalogStaleTime, countFederatedResults } from '@/lib/catalogFreshness';
+import { AlbumTile, TileSkeleton } from '@/components/ui/CatalogTile';
+import { StatusButton, StatusPanel } from '@/components/ui/StatusPanel';
+import { VirtualGrid } from '@/components/ui/VirtualGrid';
+import type { ViewType } from '@/types/music';
+import type { NavigationItem } from '@/lib/navigation';
+import { useMusicCatalog } from '@/lib/musicCatalog';
 
-export function AlbumGrid() {
-  const { data: albums, isLoading, isError, error, refetch } = useQuery({ queryKey: ['albums'], queryFn: () => api.getAlbums(), staleTime: 60_000 });
+export function AlbumGrid({
+  onNavigateWithItem,
+}: {
+  onNavigateWithItem?: (view: ViewType, item: NavigationItem | null) => void;
+}) {
+  const catalog = useMusicCatalog();
+  const {
+    data: albumState,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['albums'],
+    queryFn: ({ signal }) => catalog.getAlbums(signal),
+    staleTime: catalogStaleTime(countFederatedResults),
+  });
+  const albums = albumState?.results;
+  const failedProviders = albumState?.failedProviders ?? [];
+  const degradedProviders = albumState?.degradedProviders ?? [];
+  const unavailableProviders = [...new Set([...failedProviders, ...degradedProviders])];
+  const allProvidersFailed = Boolean(albumState && unavailableProviders.length === albumState.providerCount);
+
   if (isLoading) return <AlbumSkeleton />;
   if (isError) return <Failure message={providerErrorMessage(error)} retry={() => void refetch()} />;
-  if (!albums?.length) return <p className="px-4 py-10 text-[var(--salt-mist)] sm:px-6">No provider-backed albums are available.</p>;
+  if (allProvidersFailed)
+    return <Failure message="Album providers are unavailable. Please try again." retry={() => void refetch()} />;
+  if (!albums?.length) return <EmptyAlbums providers={unavailableProviders} retry={() => void refetch()} />;
 
-  return <section className="pb-[120px]"><h2 className="px-4 pb-4 pt-5 text-[28px] font-semibold italic text-[var(--salt-white)] sm:px-6" style={{ fontFamily: 'var(--font-display)' }}>Albums</h2><div className="grid grid-cols-2 gap-3 px-4 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-5 sm:px-6">{albums.map((album) => <AlbumCard key={album.id} album={album} />)}</div></section>;
+  return (
+    <section className="pb-6">
+      {/* The page header already says "Albums"; this line carries only what it
+			    can't — how many, and whether any source is missing. */}
+      <div className="pb-3">
+        <p className="text-[13px] text-[var(--salt-mist)]">
+          {albums.length} available {albums.length === 1 ? 'album' : 'albums'}
+        </p>
+        {unavailableProviders.length > 0 && (
+          <p className="mt-1 text-xs text-[var(--salt-mist)]">
+            {unavailableProviders.join(', ')} {unavailableProviders.length === 1 ? 'is' : 'are'} unavailable. Showing
+            available albums.
+          </p>
+        )}
+      </div>
+      <VirtualGrid
+        items={albums}
+        estimateRowSize={230}
+        minColumnWidth={150}
+        label="Albums"
+        getItemKey={(album) => album.id}
+        renderItem={(album, index) => (
+          <AlbumTile album={album} eager={index === 0} onNavigateWithItem={onNavigateWithItem} />
+        )}
+      />
+    </section>
+  );
 }
 
-function AlbumCard({ album }: { album: Album }) {
-  const playAlbum = usePlayerStore((state) => state.playAlbum);
-  const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
-
-  const loadAndPlay = async () => {
-    if (state === 'loading') return;
-    setState('loading');
-    try {
-      const songs = await api.getAlbumSongs(album.id);
-      if (!songs.length) throw new Error('No verified tracks are available for this album.');
-      playAlbum(songs, 0);
-      setState('idle');
-    } catch {
-      setState('error');
-    }
-  };
-
-  return <article className="min-w-0"><button type="button" onClick={() => void loadAndPlay()} disabled={state === 'loading'} aria-label={`Play ${album.name} by ${album.artist}`} className="group block w-full text-left disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)]"><div className="relative aspect-square overflow-hidden rounded-xl"><img src={album.coverArt || '/placeholder-album.svg'} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover transition-transform group-hover:scale-105" /><span className="absolute inset-0 flex items-center justify-center bg-[rgba(2,8,16,0.45)] text-lg text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">{state === 'loading' ? '…' : '▶'}</span></div><span className="mt-2 block truncate text-sm font-medium text-[var(--salt-white)]">{album.name}</span><span className="block truncate text-xs text-[var(--salt-mist)]">{album.artist}</span></button>{state === 'error' && <p className="mt-1 text-xs text-[var(--danger)]">Could not load verified tracks. <button type="button" onClick={() => void loadAndPlay()} className="underline">Try again</button></p>}</article>;
+function EmptyAlbums({ providers, retry }: { providers: string[]; retry: () => void }) {
+  return (
+    <StatusPanel
+      eyebrow="Albums are temporarily empty"
+      title="No provider-backed albums are available right now."
+      body="The album view only shows records returned by configured music providers. No placeholder or unverified albums are inserted."
+      note={providers.length > 0 ? `Unavailable or degraded: ${providers.join(', ')}` : undefined}
+      actions={<StatusButton onClick={retry}>Refresh albums</StatusButton>}
+    />
+  );
 }
 
-function Failure({ message, retry }: { message: string; retry: () => void }) { return <div className="flex flex-col items-start gap-3 px-4 py-10 text-[var(--salt-mist)] sm:px-6"><p>{message}</p><button type="button" onClick={retry} className="rounded-full border border-[var(--glass-border-active)] px-4 py-2 text-sm text-[var(--salt-white)]">Try again</button></div>; }
-function AlbumSkeleton() { return <div className="grid grid-cols-2 gap-3 px-4 pt-5 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-5 sm:px-6">{Array.from({ length: 12 }).map((_, i) => <div key={i} className="aspect-square animate-pulse rounded-xl bg-[var(--salt-ghost)]" />)}</div>; }
+function Failure({ message, retry }: { message: string; retry: () => void }) {
+  return (
+    <StatusPanel
+      eyebrow="Albums unavailable"
+      title={message}
+      tone="error"
+      actions={<StatusButton onClick={retry}>Try again</StatusButton>}
+    />
+  );
+}
+
+function AlbumSkeleton() {
+  return (
+    <section aria-label="Loading albums" className="pb-6">
+      <div className="h-4 w-40 animate-pulse rounded bg-[var(--salt-ghost)]" />
+      <div className="mt-3">
+        <TileSkeleton />
+      </div>
+      <p className="sr-only">Loading albums</p>
+    </section>
+  );
+}

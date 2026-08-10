@@ -13,26 +13,28 @@ afterEach(() => {
 
 describe('Jamendo provider', () => {
   it('maps valid tracks and drops malformed records', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      results: [
-        {
-          id: '42',
-          name: 'Rock &amp; Roll',
-          artist_name: 'Artist',
-          artist_id: '7',
-          album_name: 'Album',
-          album_id: '9',
-          image: 'https://example.com/cover.jpg',
-          duration: 61.6,
-          position: 2,
-          audio: 'https://example.com/song.mp3',
-          license_ccurl: 'https://creativecommons.org/licenses/by/4.0/',
-          shareurl: 'https://www.jamendo.com/track/42',
-        },
-        { id: 'not-numeric', name: 'Invalid' },
-        null,
-      ],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            id: '42',
+            name: 'Rock &amp; Roll',
+            artist_name: 'Artist',
+            artist_id: '7',
+            album_name: 'Album',
+            album_id: '9',
+            image: 'https://usercontent.jamendo.com/cover.jpg',
+            duration: 61.6,
+            position: 2,
+            audio: 'https://example.com/song.mp3',
+            license_ccurl: 'https://creativecommons.org/licenses/by/4.0/',
+            shareurl: 'https://www.jamendo.com/track/42',
+          },
+          { id: 'not-numeric', name: 'Invalid' },
+          null,
+        ],
+      }),
+    );
 
     const results = await jamendoProvider.search('rock');
 
@@ -48,11 +50,114 @@ describe('Jamendo provider', () => {
     });
   });
 
+  it('maps album summaries from the Jamendo albums endpoint', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            id: '9',
+            name: 'Album',
+            artist_id: '7',
+            artist_name: 'Artist',
+            image: 'https://usercontent.jamendo.com/album.jpg',
+            releasedate: '2025-06-01',
+          },
+        ],
+      }),
+    );
+
+    await expect(jamendoProvider.getAlbums()).resolves.toEqual([
+      {
+        id: 'jamendo-9',
+        name: 'Album',
+        artist: 'Artist',
+        artistId: 'jamendo-artist-7',
+        coverArt: 'https://usercontent.jamendo.com/album.jpg',
+        songCount: 0,
+        duration: 0,
+        year: 2025,
+        genre: '',
+      },
+    ]);
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain('/api/music/jamendo/albums');
+  });
   it('drops unresolved records instead of inventing playable metadata', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ results: [{ id: '42' }] }));
 
     const results = await jamendoProvider.search('unknown');
 
     expect(results).toEqual([]);
+  });
+
+  it('retries a listing once when Jamendo answers success with no results', async () => {
+    // Throttled requests come back 200 with an empty `results` array, so the
+    // emptiness has to be retried rather than believed.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ headers: { status: 'success', code: 0 }, results: [] }))
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [
+            {
+              id: '9',
+              name: 'Album',
+              artist_id: '7',
+              artist_name: 'Artist',
+              image: 'https://usercontent.jamendo.com/album.jpg',
+              releasedate: '2025-06-01',
+            },
+          ],
+        }),
+      );
+
+    const albums = await jamendoProvider.getAlbums();
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    expect(albums).toHaveLength(1);
+    expect(albums[0].id).toBe('jamendo-9');
+  });
+
+  it('accepts a genuinely empty listing after one retry rather than looping', async () => {
+    // A fresh Response per call: a body can only be read once, so a shared
+    // instance would fail the retry on `Body already read` instead of emptiness.
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ results: [] }));
+
+    await expect(jamendoProvider.getAlbumSongs('jamendo-9')).resolves.toEqual([]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not spend a retry on a search that legitimately matches nothing', async () => {
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ results: [] }));
+
+    await expect(jamendoProvider.search('zzzznomatch')).resolves.toEqual([]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it('matches album and artist names by name, not by their track text', async () => {
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ results: [] }));
+
+    await jamendoProvider.searchAlbums('ocean');
+    await jamendoProvider.searchArtists('ocean');
+
+    for (const call of vi.mocked(fetch).mock.calls) {
+      const url = new URL(String(call[0]));
+      // `search` would also match albums merely containing a matching track,
+      // which is not what an "Albums" heading promises.
+      expect(url.searchParams.get('namesearch')).toBe('ocean');
+      expect(url.searchParams.has('search')).toBe(false);
+    }
+    // Neither pays for the empty-result retry: no matches is a real answer.
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks for a discography by artist id, newest release first', async () => {
+    // A listing, so it pays for the empty-result retry; a fresh Response per
+    // call because a body can only be read once.
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ results: [] }));
+
+    await jamendoProvider.getArtistAlbums('jamendo-artist-602037');
+
+    const url = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(url.searchParams.get('artist_id')).toBe('602037');
+    expect(url.searchParams.get('order')).toBe('releasedate_desc');
   });
 });

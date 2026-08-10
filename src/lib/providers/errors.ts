@@ -13,32 +13,111 @@ export class ProviderError extends Error {
   }
 }
 
+const PROVIDER_TIMEOUT_MS = 9_000;
+
+export interface ProviderFetchOptions {
+  /** A longer limit is reserved for fan-out endpoints such as Apple charts. */
+  timeoutMs?: number;
+}
+
+function requestTimeout(options?: ProviderFetchOptions): number {
+  const requested = options?.timeoutMs;
+  if (typeof requested !== 'number' || !Number.isFinite(requested)) return PROVIDER_TIMEOUT_MS;
+  return Math.max(1_000, Math.min(Math.floor(requested), 30_000));
+}
+
+async function responseError(response: Response): Promise<{ code: ProviderErrorCode; message?: string }> {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = undefined;
+  }
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : undefined;
+  const message = typeof record?.error === 'string' ? record.error : undefined;
+  const explicitlyNotConfigured =
+    record?.code === 'not_configured' || Boolean(message && /\b(?:not configured|disabled)\b/i.test(message));
+  const code: ProviderErrorCode =
+    response.status === 504
+      ? 'timeout'
+      : response.status === 503 && explicitlyNotConfigured
+        ? 'not_configured'
+        : 'upstream';
+  return { code, message };
+}
+
+function composeSignals(
+  external: AbortSignal | undefined,
+  timeout: AbortSignal,
+): { signal: AbortSignal; cleanup: () => void } {
+  if (!external) return { signal: timeout, cleanup: () => {} };
+  const controller = new AbortController();
+  const abortFromExternal = () => controller.abort(external.reason);
+  const abortFromTimeout = () => controller.abort(timeout.reason);
+  if (external.aborted) abortFromExternal();
+  else external.addEventListener('abort', abortFromExternal, { once: true });
+  if (timeout.aborted) abortFromTimeout();
+  else timeout.addEventListener('abort', abortFromTimeout, { once: true });
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      external.removeEventListener('abort', abortFromExternal);
+      timeout.removeEventListener('abort', abortFromTimeout);
+    },
+  };
+}
+
+export function externalAbortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError');
+}
+
 export async function providerFetch<T>(
   provider: string,
   operation: string,
   path: string,
   params: Record<string, string> = {},
+  externalSignal?: AbortSignal,
+  options?: ProviderFetchOptions,
 ): Promise<T> {
-  const url = new URL(path, window.location.origin);
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const url = new URL(path, origin);
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
 
-  let response: Response;
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(
+    () => timeoutController.abort(new DOMException('Timed out', 'TimeoutError')),
+    requestTimeout(options),
+  );
+  const request = composeSignals(externalSignal, timeoutController.signal);
+
   try {
-    response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { signal: request.signal });
+    if (!response.ok) {
+      const { code, message } = await responseError(response);
+      throw new ProviderError(provider, operation, code, response.status, message);
+    }
+    try {
+      return (await response.json()) as T;
+    } catch {
+      if (externalSignal?.aborted) throw externalAbortError(externalSignal);
+      if (timeoutController.signal.aborted) throw new ProviderError(provider, operation, 'timeout', 504);
+      throw new ProviderError(provider, operation, 'invalid_response', response.status);
+    }
   } catch (error) {
+    if (error instanceof ProviderError) throw error;
+    if (externalSignal?.aborted) throw error;
+    if (timeoutController.signal.aborted) throw new ProviderError(provider, operation, 'timeout', 504);
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
-    throw new ProviderError(provider, operation, 'network', undefined, error instanceof Error ? error.message : undefined);
-  }
-
-  if (!response.ok) {
-    const code: ProviderErrorCode = response.status === 503 ? 'not_configured' : response.status === 504 ? 'timeout' : 'upstream';
-    throw new ProviderError(provider, operation, code, response.status);
-  }
-
-  try {
-    return await response.json() as T;
-  } catch {
-    throw new ProviderError(provider, operation, 'invalid_response', response.status);
+    throw new ProviderError(
+      provider,
+      operation,
+      'network',
+      undefined,
+      error instanceof Error ? error.message : undefined,
+    );
+  } finally {
+    clearTimeout(timeout);
+    request.cleanup();
   }
 }
 

@@ -10,6 +10,10 @@ function context(path: string[]) {
   return { params: Promise.resolve({ path }) };
 }
 
+// Workers already in flight when the limit is reached still finish their own
+// candidate, so allow one extra lookup per concurrent worker.
+const ARCHIVE_ENRICHMENT_SLACK = 4;
+
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
   delete process.env.JAMENDO_CLIENT_ID;
@@ -24,7 +28,7 @@ afterEach(() => {
 });
 
 describe('music media proxy', () => {
-  it.each([200, 206, 416])('preserves upstream status %s and streams its body', async status => {
+  it.each([200, 206, 416])('preserves upstream status %s and streams its body', async (status) => {
     const upstreamHeaders = new Headers({
       'content-type': 'audio/mpeg',
       'content-length': status === 416 ? '0' : '4',
@@ -52,21 +56,229 @@ describe('music media proxy', () => {
     expect(forwarded.get('if-range')).toBe('"etag"');
     expect(streamCall[1]?.signal).toBeInstanceOf(AbortSignal);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
+    if (status === 206) {
+      expect(response.headers.get('vercel-cdn-cache-control')).toBeNull();
+      expect(response.headers.get('cdn-cache-control')).toBeNull();
+    }
     expect(response.headers.get('vary')).toContain('Range');
+  });
+
+  it('aborts the upstream body when the downstream cancels a stream', async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1]));
+      },
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ files: [{ name: 'song.mp3', format: 'VBR MP3', length: 10, size: 100 }] }))
+      .mockImplementationOnce(async (_url, init) => {
+        upstreamSignal = init?.signal as AbortSignal;
+        return new Response(body, { status: 200, headers: { 'content-type': 'audio/mpeg' } });
+      });
+
+    const response = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
+    expect(upstreamSignal?.aborted).toBe(false);
+    await response.body?.cancel('client disconnected');
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
+  it('caches successful catalog and full-stream responses at the CDN', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json([{ upload_id: 1 }]))
+      .mockResolvedValueOnce(Response.json({ files: [{ name: 'song.mp3', format: 'VBR MP3', length: 10, size: 100 }] }))
+      .mockResolvedValueOnce(new Response('audio', { status: 200, headers: { 'content-type': 'audio/mpeg' } }));
+
+    const catalog = await GET(request('ccmixter/tracks'), context(['ccmixter', 'tracks']));
+    const stream = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
+
+    for (const response of [catalog, stream]) {
+      expect(response.headers.get('cache-control')).toContain('s-maxage=');
+      expect(response.headers.get('vercel-cdn-cache-control')).toBe(response.headers.get('cache-control'));
+      expect(response.headers.get('cdn-cache-control')).toBe(response.headers.get('cache-control'));
+    }
+  });
+
+  it('rejects successful upstream streams without an audio MIME type', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ files: [{ name: 'song.mp3', format: 'VBR MP3', length: 10, size: 100 }] }))
+      .mockResolvedValueOnce(new Response('<html>', { status: 200, headers: { 'content-type': 'text/html' } }));
+
+    const response = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({ error: 'Upstream returned invalid media' });
+  });
+
+  it('follows validated ccMixter redirects and preserves range headers', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json([
+          { files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: 'https://www.ccmixter.org/song.mp3' } }),
+      )
+      .mockResolvedValueOnce(
+        new Response('music', {
+          status: 206,
+          headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-4/10' },
+        }),
+      );
+
+    const response = await GET(
+      request('ccmixter/stream/123', { range: 'bytes=0-4', 'if-range': '"etag"' }),
+      context(['ccmixter', 'stream', '123']),
+    );
+
+    expect(response.status).toBe(206);
+    expect(String(vi.mocked(fetch).mock.calls[2][0])).toBe('https://www.ccmixter.org/song.mp3');
+    expect(new Headers(vi.mocked(fetch).mock.calls[2][1]?.headers).get('range')).toBe('bytes=0-4');
+    expect(new Headers(vi.mocked(fetch).mock.calls[2][1]?.headers).get('if-range')).toBe('"etag"');
+  });
+
+  it('sends the referer ccMixter media requires and never forwards a browser one', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }],
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(new Response('music', { status: 200, headers: { 'content-type': 'audio/mpeg' } }));
+
+    const response = await GET(
+      request('ccmixter/stream/123', { referer: 'https://attacker.example/', range: 'bytes=0-9' }),
+      context(['ccmixter', 'stream', '123']),
+    );
+
+    expect(response.status).toBe(200);
+    const sent = new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers);
+    expect(sent.get('referer')).toBe('https://ccmixter.org/');
+    expect(sent.get('range')).toBe('bytes=0-9');
+  });
+
+  it('rejects external ccMixter redirect targets and redirect exhaustion', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json([
+          { files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: 'https://example.com/song.mp3' } }),
+      );
+    const external = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
+    expect(external.status).toBe(502);
+
+    // A chain that revisits a URL is cut as soon as the repeat is seen rather
+    // than fetched until the redirect budget runs out.
+    vi.mocked(fetch)
+      .mockReset()
+      .mockResolvedValueOnce(
+        Response.json([
+          { files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] },
+        ]),
+      )
+      .mockResolvedValue(new Response(null, { status: 302, headers: { location: 'https://ccmixter.org/next.mp3' } }));
+    const looping = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
+    expect(looping.status).toBe(502);
+    expect(await looping.text()).toBe('Stream redirect loop');
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('stops after the redirect budget even when every hop is a new approved URL', async () => {
+    let hop = 0;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json([
+          { files: [{ download_url: 'https://ccmixter.org/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }] },
+        ]),
+      )
+      .mockImplementation(
+        async () =>
+          new Response(null, {
+            status: 302,
+            headers: { location: `https://ccmixter.org/hop-${hop++}.mp3` },
+          }),
+      );
+
+    const response = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
+
+    expect(response.status).toBe(502);
+    expect(await response.text()).toBe('Too many stream redirects');
+    // One metadata lookup, then the start URL plus three redirects.
+    expect(fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it('refuses to follow a redirect off the provider on every stream path', async () => {
+    // The off-site target answers with perfectly good audio. Following it would
+    // therefore return 200 and stream an attacker-chosen body through our own
+    // origin — which is exactly what jamendo, archive and itunes did before,
+    // because they passed no redirect validator at all.
+    const offsiteThenAudio = (prelude: Response[]) => {
+      const queue = [
+        ...prelude,
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://attacker.example/song.mp3' },
+        }),
+      ];
+      return vi
+        .mocked(fetch)
+        .mockReset()
+        .mockImplementation(
+          async () =>
+            queue.shift() ?? new Response('audio-bytes', { status: 200, headers: { 'content-type': 'audio/mpeg' } }),
+        );
+    };
+
+    process.env.JAMENDO_CLIENT_ID = 'test-id';
+    offsiteThenAudio([]);
+    const jamendo = await GET(request('jamendo/stream/9'), context(['jamendo', 'stream', '9']));
+    expect(jamendo.status).toBe(502);
+
+    offsiteThenAudio([Response.json({ files: [{ name: 'a.mp3', format: 'VBR MP3', length: '30', size: '1000' }] })]);
+    const archive = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
+    expect(archive.status).toBe(502);
+
+    offsiteThenAudio([
+      Response.json({ results: [{ trackId: 5, previewUrl: 'https://audio-ssl.itunes.apple.com/p.m4a' }] }),
+    ]);
+    const itunes = await GET(request('itunes/stream/5'), context(['itunes', 'stream', '5']));
+    expect(itunes.status).toBe(502);
+  });
+
+  it('rejects a malformed partial response and cancels its body', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ files: [{ name: 'song.mp3', format: 'VBR MP3', length: 10, size: 100 }] }))
+      .mockResolvedValueOnce(new Response(body, { status: 206, headers: { 'content-type': 'audio/mpeg' } }));
+
+    const response = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
+
+    expect(response.status).toBe(502);
+    expect(cancelled).toBe(true);
   });
 
   it('does not advertise range support unless the upstream does', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(Response.json({ files: [{ name: 'song.mp3', format: 'VBR MP3', length: 10, size: 100 }] }))
-      .mockResolvedValueOnce(new Response('audio', {
-        status: 200,
-        headers: { 'content-type': 'audio/mpeg', 'content-length': '5' },
-      }));
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg', 'content-length': '5' },
+        }),
+      );
 
-    const response = await GET(
-      request('archive/stream/item'),
-      context(['archive', 'stream', 'item']),
-    );
+    const response = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
 
     expect(response.headers.get('accept-ranges')).toBeNull();
     expect(response.headers.get('content-range')).toBeNull();
@@ -76,10 +288,12 @@ describe('music media proxy', () => {
   it('keeps Jamendo credentials server-controlled', async () => {
     process.env.JAMENDO_CLIENT_ID = 'configured-client';
     process.env.JAMENDO_CLIENT_SECRET = 'must-not-be-sent';
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      headers: { status: 'success', next: 'https://api.jamendo.com/v3.0/tracks?client_id=configured-client' },
-      results: [],
-    }));
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        headers: { status: 'success', next: 'https://api.jamendo.com/v3.0/tracks?client_id=configured-client' },
+        results: [],
+      }),
+    );
 
     const response = await GET(
       request('jamendo/tracks?client_id=attacker&format=xml&limit=10'),
@@ -93,20 +307,19 @@ describe('music media proxy', () => {
     expect(upstreamUrl.searchParams.get('format')).toBe('json');
     expect(upstreamUrl.searchParams.get('limit')).toBe('10');
     expect(upstreamUrl.toString()).not.toContain('must-not-be-sent');
-    const body = await response.json() as { headers?: { next?: string } };
+    const body = (await response.json()) as { headers?: { next?: string } };
     expect(body.headers?.next).toBeUndefined();
   });
 
   it('preserves Jamendo application-level failures', async () => {
     process.env.JAMENDO_CLIENT_ID = 'configured-client';
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      headers: { status: 'failed', error_message: 'Invalid credentials' },
-    }));
-
-    const response = await GET(
-      request('jamendo/tracks'),
-      context(['jamendo', 'tracks']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        headers: { status: 'failed', error_message: 'Invalid credentials' },
+      }),
     );
+
+    const response = await GET(request('jamendo/tracks'), context(['jamendo', 'tracks']));
 
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({ error: 'Invalid credentials' });
@@ -115,20 +328,14 @@ describe('music media proxy', () => {
   it('rejects invalid Jamendo stream IDs before fetching', async () => {
     process.env.JAMENDO_CLIENT_ID = 'configured-client';
 
-    const response = await GET(
-      request('jamendo/stream/not-a-number'),
-      context(['jamendo', 'stream', 'not-a-number']),
-    );
+    const response = await GET(request('jamendo/stream/not-a-number'), context(['jamendo', 'stream', 'not-a-number']));
 
     expect(response.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
 
   it('returns an honest configuration failure when Jamendo is not configured', async () => {
-    const response = await GET(
-      request('jamendo/tracks'),
-      context(['jamendo', 'tracks']),
-    );
+    const response = await GET(request('jamendo/tracks'), context(['jamendo', 'tracks']));
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining('not configured') });
@@ -142,36 +349,186 @@ describe('music media proxy', () => {
     );
     expect(invalidId.status).toBe(400);
 
-    const invalidLimit = await GET(
-      request('archive/tracks?limit=101'),
-      context(['archive', 'tracks']),
-    );
+    const invalidLimit = await GET(request('archive/tracks?limit=101'), context(['archive', 'tracks']));
     expect(invalidLimit.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('preserves the ccMixter 25-result cap', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json([]));
+  it('stops enriching Archive candidates once the limit is satisfied', async () => {
+    const docs = Array.from({ length: 30 }, (_, index) => ({
+      identifier: `item-${index}`,
+      title: `Track ${index}`,
+      creator: 'Performer',
+      subject: ['jazz'],
+      licenseurl: 'https://creativecommons.org/licenses/by/4.0/',
+    }));
 
-    const response = await GET(
-      request('ccmixter/tracks?limit=500'),
-      context(['ccmixter', 'tracks']),
-    );
+    vi.mocked(fetch).mockImplementation(async (url) => {
+      if (String(url).includes('advancedsearch')) {
+        return Response.json({ response: { docs } });
+      }
+      return Response.json({
+        metadata: {
+          title: 'Track',
+          creator: 'Performer',
+          subject: ['jazz'],
+          licenseurl: 'https://creativecommons.org/licenses/by/4.0/',
+        },
+        files: [{ name: 'a.mp3', format: 'VBR MP3', length: '2:00', size: '1024' }],
+      });
+    });
+
+    const response = await GET(request('archive/tracks?subject=jazz&limit=3'), context(['archive', 'tracks']));
 
     expect(response.status).toBe(200);
-    const url = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
-    expect(url.searchParams.get('limit')).toBe('25');
+    const body = (await response.json()) as { results: unknown[] };
+    expect(body.results).toHaveLength(3);
+    // One search request plus a bounded number of metadata lookups, not one per
+    // candidate: enrichment is the expensive part and must not run 30 times.
+    expect(vi.mocked(fetch).mock.calls.length).toBeLessThanOrEqual(1 + 3 + ARCHIVE_ENRICHMENT_SLACK);
+  });
+
+  it('never CDN-caches an empty catalog response', async () => {
+    process.env.JAMENDO_CLIENT_ID = 'configured-client';
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ headers: { status: 'success' }, results: [] }));
+
+    const empty = await GET(request('jamendo/tracks?limit=10'), context(['jamendo', 'tracks']));
+
+    expect(empty.status).toBe(200);
+    // A transient empty answer must not be pinned in front of every client.
+    expect(empty.headers.get('cache-control')).toBe('private, no-store');
+    expect(empty.headers.get('cdn-cache-control')).toBe('private, no-store');
+
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ headers: { status: 'success' }, results: [{ id: '1' }] }));
+    const populated = await GET(request('jamendo/tracks?limit=10'), context(['jamendo', 'tracks']));
+    expect(populated.headers.get('cache-control')).toContain('s-maxage=');
+  });
+
+  it('clamps a ccMixter request to the supported record ceiling', async () => {
+    vi.mocked(fetch).mockImplementation(async () => Response.json([]));
+
+    const response = await GET(request('ccmixter/tracks?limit=500'), context(['ccmixter', 'tracks']));
+
+    expect(response.status).toBe(200);
+    for (const call of vi.mocked(fetch).mock.calls) {
+      expect(Number(new URL(String(call[0])).searchParams.get('limit'))).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('pages ccMixter by offset when a page is truncated below the request', async () => {
+    // A page shrunk by header overflow must resume from the records already
+    // collected instead of restarting or stopping short.
+    let call = 0;
+    vi.mocked(fetch).mockImplementation(async (url) => {
+      const offset = Number(new URL(String(url)).searchParams.get('offset'));
+      call += 1;
+      if (call === 1) {
+        // First attempt overflows, forcing the page size down.
+        throw Object.assign(new TypeError('fetch failed'), {
+          cause: { code: 'UND_ERR_HEADERS_OVERFLOW' },
+        });
+      }
+      const size = Number(new URL(String(url)).searchParams.get('limit'));
+      return Response.json(Array.from({ length: size }, (_, index) => ({ upload_id: offset + index })));
+    });
+
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=100'), context(['ccmixter', 'tracks']));
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { results: Array<{ upload_id: number }> };
+    expect(body.results).toHaveLength(100);
+    expect(body.results.at(-1)?.upload_id).toBe(99);
+
+    const offsets = vi
+      .mocked(fetch)
+      .mock.calls.slice(1)
+      .map((entry) => Number(new URL(String(entry[0])).searchParams.get('offset')));
+    // Offsets advance monotonically, so no record is fetched twice.
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+    expect(new Set(offsets).size).toBe(offsets.length);
+  });
+
+  it('stops paging ccMixter as soon as the requested count is satisfied', async () => {
+    vi.mocked(fetch).mockImplementation(async () =>
+      Response.json(Array.from({ length: 30 }, (_, index) => ({ upload_id: index }))),
+    );
+
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=30'), context(['ccmixter', 'tracks']));
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { results: unknown[] };
+    expect(body.results).toHaveLength(30);
+    // A full page that already satisfies the request must not trigger another.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops paging ccMixter once a short page signals the end of results', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json([{ upload_id: 1 }]));
+
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=40'), context(['ccmixter', 'tracks']));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ results: [{ upload_id: 1 }] });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a persistently empty ccMixter body as degraded rather than as no results', async () => {
+    vi.mocked(fetch).mockImplementation(async () => new Response('', { status: 200 }));
+
+    const response = await GET(request('ccmixter/tracks?tags=remix'), context(['ccmixter', 'tracks']));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      results: [],
+      degraded: true,
+      reason: 'upstream-empty-response',
+    });
+    // The page shrinks toward a single record before giving up.
+    const sizes = vi.mocked(fetch).mock.calls.map((call) => Number(new URL(String(call[0])).searchParams.get('limit')));
+    expect(sizes.at(-1)).toBe(1);
+    expect(sizes.length).toBeGreaterThan(1);
+  });
+
+  it('retries a smaller ccMixter page when an oversized header aborts the response', async () => {
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(
+        Object.assign(new TypeError('fetch failed'), {
+          cause: { code: 'UND_ERR_HEADERS_OVERFLOW' },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json([{ upload_id: 1 }]));
+
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=100'), context(['ccmixter', 'tracks']));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ results: [{ upload_id: 1 }] });
+    const sizes = vi.mocked(fetch).mock.calls.map((call) => Number(new URL(String(call[0])).searchParams.get('limit')));
+    expect(sizes[0]).toBeGreaterThan(sizes[1]);
+  });
+
+  it('keeps earlier ccMixter pages when a later page fails', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json(Array.from({ length: 20 }, (_, index) => ({ upload_id: index }))))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    const response = await GET(request('ccmixter/tracks?tags=remix&limit=40'), context(['ccmixter', 'tracks']));
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { results: unknown[]; degraded?: boolean };
+    expect(body.results).toHaveLength(20);
+    expect(body.degraded).toBeUndefined();
   });
 
   it('refuses a ccMixter upload without an MP3 file', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json([{
-      files: [{ download_url: 'https://example.com/notes.txt', file_format_info: { mime_type: 'text/plain' } }],
-    }]));
-
-    const response = await GET(
-      request('ccmixter/stream/123'),
-      context(['ccmixter', 'stream', '123']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([
+        {
+          files: [{ download_url: 'https://example.com/notes.txt', file_format_info: { mime_type: 'text/plain' } }],
+        },
+      ]),
     );
+
+    const response = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
 
     expect(response.status).toBe(404);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -179,16 +536,25 @@ describe('music media proxy', () => {
 
   it('uses the verified ccMixter MP3 instead of the first arbitrary file', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json([{
-        files: [
-          { download_url: 'https://example.com/notes.txt', file_format_info: { mime_type: 'text/plain' } },
-          { download_url: 'https://ccmixter.org/content/artist/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } },
-        ],
-      }]))
-      .mockResolvedValueOnce(new Response('music', {
-        status: 206,
-        headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-4/10' },
-      }));
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            files: [
+              { download_url: 'https://example.com/notes.txt', file_format_info: { mime_type: 'text/plain' } },
+              {
+                download_url: 'https://ccmixter.org/content/artist/song.mp3',
+                file_format_info: { mime_type: 'audio/mpeg' },
+              },
+            ],
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response('music', {
+          status: 206,
+          headers: { 'content-type': 'audio/mpeg', 'content-range': 'bytes 0-4/10' },
+        }),
+      );
 
     const response = await GET(
       request('ccmixter/stream/123', { range: 'bytes=0-4' }),
@@ -202,14 +568,15 @@ describe('music media proxy', () => {
   });
 
   it('rejects ccMixter media URLs outside approved hosts', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json([{
-      files: [{ download_url: 'https://example.com/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }],
-    }]));
-
-    const response = await GET(
-      request('ccmixter/stream/123'),
-      context(['ccmixter', 'stream', '123']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([
+        {
+          files: [{ download_url: 'https://example.com/song.mp3', file_format_info: { mime_type: 'audio/mpeg' } }],
+        },
+      ]),
     );
+
+    const response = await GET(request('ccmixter/stream/123'), context(['ccmixter', 'stream', '123']));
 
     expect(response.status).toBe(502);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -217,21 +584,22 @@ describe('music media proxy', () => {
 
   it('uses Archive metadata files directly without probing the full media URL', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json({
-        files: [
-          { name: 'notes.txt', format: 'Text' },
-          { name: 'actual track.mp3', format: 'VBR MP3', length: '00:03:12', size: 12345 },
-        ],
-      }))
-      .mockResolvedValueOnce(new Response('music', {
-        status: 200,
-        headers: { 'content-type': 'audio/mpeg' },
-      }));
+      .mockResolvedValueOnce(
+        Response.json({
+          files: [
+            { name: 'notes.txt', format: 'Text' },
+            { name: 'actual track.mp3', format: 'VBR MP3', length: '00:03:12', size: 12345 },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('music', {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg' },
+        }),
+      );
 
-    const response = await GET(
-      request('archive/stream/valid-item_1'),
-      context(['archive', 'stream', 'valid-item_1']),
-    );
+    const response = await GET(request('archive/stream/valid-item_1'), context(['archive', 'stream', 'valid-item_1']));
 
     expect(response.status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -242,14 +610,13 @@ describe('music media proxy', () => {
   });
 
   it('returns 404 when Archive metadata has no MP3', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      files: [{ name: 'notes.txt', format: 'Text' }],
-    }));
-
-    const response = await GET(
-      request('archive/stream/valid-item_1'),
-      context(['archive', 'stream', 'valid-item_1']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        files: [{ name: 'notes.txt', format: 'Text' }],
+      }),
     );
+
+    const response = await GET(request('archive/stream/valid-item_1'), context(['archive', 'stream', 'valid-item_1']));
 
     expect(response.status).toBe(404);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -271,17 +638,16 @@ describe('music media proxy', () => {
   });
 
   it('requires a playable Archive file with positive length and size', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
-      files: [
-        { name: 'zero-length.mp3', format: 'VBR MP3', length: 0, size: 100 },
-        { name: 'zero-size.mp3', format: 'VBR MP3', length: 0, size: 0 },
-      ],
-    }));
-
-    const response = await GET(
-      request('archive/stream/item'),
-      context(['archive', 'stream', 'item']),
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        files: [
+          { name: 'zero-length.mp3', format: 'VBR MP3', length: 0, size: 100 },
+          { name: 'zero-size.mp3', format: 'VBR MP3', length: 0, size: 0 },
+        ],
+      }),
     );
+
+    const response = await GET(request('archive/stream/item'), context(['archive', 'stream', 'item']));
 
     expect(response.status).toBe(404);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -289,15 +655,23 @@ describe('music media proxy', () => {
 
   it('binds an Archive stream to the exact requested playable file', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json({
-        files: [
-          { name: 'track.mp3', format: 'VBR MP3', length: 10, size: 100 },
-          { name: 'other.mp3', format: 'VBR MP3', length: 10, size: 100 },
-        ],
-      }))
-      .mockResolvedValueOnce(new Response('music', { status: 206, headers: {
-        'content-type': 'audio/mpeg', 'content-range': 'bytes 0-4/10',
-      } }));
+      .mockResolvedValueOnce(
+        Response.json({
+          files: [
+            { name: 'track.mp3', format: 'VBR MP3', length: 10, size: 100 },
+            { name: 'other.mp3', format: 'VBR MP3', length: 10, size: 100 },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('music', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-range': 'bytes 0-4/10',
+          },
+        }),
+      );
 
     const response = await GET(
       request('archive/stream/item?file=track.mp3', { range: 'bytes=0-4' }),
@@ -305,31 +679,54 @@ describe('music media proxy', () => {
     );
 
     expect(response.status).toBe(206);
-    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe(
-      'https://archive.org/download/item/track.mp3',
-    );
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe('https://archive.org/download/item/track.mp3');
     expect(vi.mocked(fetch).mock.calls[1][1]?.headers).toEqual(new Headers({ range: 'bytes=0-4' }));
   });
 
   it('enriches Archive catalog records and omits spoken-word records', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(Response.json({ response: { docs: [
-        { identifier: 'music-item', title: 'Catalog title', creator: 'Catalog creator', licenseurl: 'http://creativecommons.org/licenses/by/4.0/' },
-        { identifier: 'spoken-item', title: 'An audiobook lecture', creator: 'Reader', licenseurl: 'https://creativecommons.org/licenses/by/4.0/' },
-      ] } }))
-      .mockResolvedValueOnce(Response.json({
-        metadata: {
-          title: 'Verified song', creator: 'Verified artist', subject: ['jazz'], year: 2024,
-          licenseurl: 'http://creativecommons.org/licenses/by-sa/4.0/',
-        },
-        files: [{ name: 'verified.mp3', format: 'VBR MP3', length: '01:02', size: 2048, bitrate: 192 }],
-      }))
-      .mockResolvedValueOnce(Response.json({
-        metadata: {
-          title: 'Audiobook lecture', creator: 'Reader', licenseurl: 'https://creativecommons.org/licenses/by/4.0/',
-        },
-        files: [{ name: 'spoken.mp3', format: 'VBR MP3', length: 100, size: 2048 }],
-      }));
+      .mockResolvedValueOnce(
+        Response.json({
+          response: {
+            docs: [
+              {
+                identifier: 'music-item',
+                title: 'Catalog title',
+                creator: 'Catalog creator',
+                licenseurl: 'http://creativecommons.org/licenses/by/4.0/',
+              },
+              {
+                identifier: 'spoken-item',
+                title: 'An audiobook lecture',
+                creator: 'Reader',
+                licenseurl: 'https://creativecommons.org/licenses/by/4.0/',
+              },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          metadata: {
+            title: 'Verified song',
+            creator: 'Verified artist',
+            subject: ['jazz'],
+            year: 2024,
+            licenseurl: 'http://creativecommons.org/licenses/by-sa/4.0/',
+          },
+          files: [{ name: 'verified.mp3', format: 'VBR MP3', length: '01:02', size: 2048, bitrate: 192 }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          metadata: {
+            title: 'Audiobook lecture',
+            creator: 'Reader',
+            licenseurl: 'https://creativecommons.org/licenses/by/4.0/',
+          },
+          files: [{ name: 'spoken.mp3', format: 'VBR MP3', length: 100, size: 2048 }],
+        }),
+      );
 
     const response = await GET(
       request('archive/tracks?creator=Example%20Artist&limit=10'),
@@ -337,25 +734,649 @@ describe('music media proxy', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ results: [{
-      identifier: 'music-item', title: 'Verified song', creator: 'Verified artist', subject: ['jazz'], year: '2024',
-      filename: 'verified.mp3', duration: 62, size: 2048, bitRate: 192, contentType: 'audio/mpeg', suffix: 'mp3',
-      streamUrl: '/api/music/archive/stream/music-item?file=verified.mp3',
-      sourceUrl: 'https://archive.org/details/music-item', creatorUrl: '',
-      licenseName: 'CC BY-SA', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
-      attributionUrl: 'https://archive.org/details/music-item',
-    }] });
+    await expect(response.json()).resolves.toEqual({
+      results: [
+        {
+          identifier: 'music-item',
+          title: 'Verified song',
+          creator: 'Verified artist',
+          subject: ['jazz'],
+          year: '2024',
+          filename: 'verified.mp3',
+          duration: 62,
+          size: 2048,
+          bitRate: 192,
+          contentType: 'audio/mpeg',
+          suffix: 'mp3',
+          streamUrl: '/api/music/archive/stream/music-item?file=verified.mp3',
+          sourceUrl: 'https://archive.org/details/music-item',
+          creatorUrl: '',
+          licenseName: 'CC BY-SA',
+          licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
+          attributionUrl: 'https://archive.org/details/music-item',
+        },
+      ],
+    });
+  });
+
+  it('returns an empty degraded catalog when ccMixter is unavailable', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('unavailable', { status: 502 }));
+
+    const response = await GET(request('ccmixter/tracks'), context(['ccmixter', 'tracks']));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ results: [], degraded: true });
   });
 
   it('preserves provider HTTP failures rather than returning a successful empty payload', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response('unavailable', { status: 503 }));
 
-    const response = await GET(
-      request('archive/tracks'),
-      context(['archive', 'tracks']),
-    );
+    const response = await GET(request('archive/tracks'), context(['archive', 'tracks']));
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({ error: 'Archive upstream error' });
+  });
+
+  it('resolves an Apple preview from the lookup response rather than trusting a supplied URL', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [{ trackId: 101, previewUrl: 'https://audio-ssl.itunes.apple.com/preview.m4a' }],
+        }),
+      )
+      .mockResolvedValueOnce(new Response('audio', { status: 200, headers: { 'content-type': 'audio/mp4' } }));
+
+    const response = await GET(request('itunes/stream/101'), context(['itunes', 'stream', '101']));
+
+    expect(response.status).toBe(200);
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe('https://audio-ssl.itunes.apple.com/preview.m4a');
+  });
+
+  it('refuses an Apple preview served from an unapproved host', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [{ trackId: 101, previewUrl: 'https://attacker.example/preview.m4a' }],
+      }),
+    );
+
+    const response = await GET(request('itunes/stream/101'), context(['itunes', 'stream', '101']));
+
+    expect(response.status).toBe(404);
+    // The lookup happened; the media fetch never did.
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an unsupported Apple entity and an oversized id list before fetching', async () => {
+    const badEntity = await GET(request('itunes/search?term=jazz&entity=tvEpisode'), context(['itunes', 'search']));
+    const tooManyIds = await GET(
+      request(`itunes/lookup?id=${Array.from({ length: 51 }, (_, index) => index + 1).join(',')}`),
+      context(['itunes', 'lookup']),
+    );
+
+    expect(badEntity.status).toBe(400);
+    expect(tooManyIds.status).toBe(400);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it('pins the Apple request to music and rejects a term the caller left empty', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ results: [] }));
+
+    const empty = await GET(request('itunes/search?term=%20'), context(['itunes', 'search']));
+    expect(empty.status).toBe(400);
+
+    await GET(request('itunes/search?term=jazz&media=movie'), context(['itunes', 'search']));
+
+    const url = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(url.searchParams.get('media')).toBe('music');
+    expect(url.searchParams.get('country')).toBe('us');
+  });
+
+  it('pins Deezer search to the public catalog and bounds its result page', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ data: [{ id: 1, title: 'Track' }] }));
+
+    const response = await GET(
+      request('deezer/tracks?q=pop&limit=3&access_token=attacker'),
+      context(['deezer', 'tracks']),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ data: [{ id: 1, title: 'Track' }] });
+    const upstream = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(upstream.origin).toBe('https://api.deezer.com');
+    expect(upstream.pathname).toBe('/search');
+    expect(upstream.searchParams.get('q')).toBe('pop');
+    expect(upstream.searchParams.get('limit')).toBe('3');
+    expect(upstream.searchParams.has('access_token')).toBe(false);
+  });
+
+  it('resolves a Deezer preview by id and rejects a preview outside Deezer media hosts', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ preview: 'https://cdnt-preview.dzcdn.net/audio.mp3' }))
+      .mockResolvedValueOnce(new Response('audio', { status: 200, headers: { 'content-type': 'audio/mpeg' } }));
+
+    const accepted = await GET(request('deezer/stream/3881984711'), context(['deezer', 'stream', '3881984711']));
+    expect(accepted.status).toBe(200);
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe('https://cdnt-preview.dzcdn.net/audio.mp3');
+
+    vi.mocked(fetch)
+      .mockReset()
+      .mockResolvedValueOnce(Response.json({ preview: 'https://attacker.example/audio.mp3' }));
+    const rejected = await GET(request('deezer/stream/3881984712'), context(['deezer', 'stream', '3881984712']));
+    expect(rejected.status).toBe(502);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('pins Audius requests to the selected public endpoint and server app name', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ data: [] }));
+
+    const response = await GET(
+      request('audius/tracks?q=techno&limit=12&query=attacker&app_name=attacker'),
+      context(['audius', 'tracks']),
+    );
+
+    expect(response.status).toBe(200);
+    const upstream = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(upstream.origin).toBe('https://api.audius.co');
+    expect(upstream.pathname).toBe('/v1/tracks/search');
+    expect(upstream.searchParams.get('query')).toBe('techno');
+    expect(upstream.searchParams.get('app_name')).toBe('marea');
+    expect(upstream.searchParams.get('limit')).toBe('12');
+  });
+
+  it('keeps playlists out of the Audius album catalog', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        data: [
+          { id: 'album', is_album: true, playlist_name: 'Album' },
+          { id: 'playlist', is_album: false, playlist_name: 'Playlist' },
+        ],
+      }),
+    );
+
+    const response = await GET(request('audius/albums?trending=1'), context(['audius', 'albums']));
+
+    await expect(response.json()).resolves.toEqual({
+      data: [{ id: 'album', is_album: true, playlist_name: 'Album' }],
+    });
+  });
+
+  it('filters mature Openverse records and keeps its anonymous API request bounded', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          { id: 'safe', mature: false },
+          { id: 'mature', mature: true },
+        ],
+      }),
+    );
+
+    const response = await GET(request('openverse/tracks?q=jazz&limit=10'), context(['openverse', 'tracks']));
+
+    await expect(response.json()).resolves.toEqual({ results: [{ id: 'safe', mature: false }] });
+    const upstream = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(upstream.origin).toBe('https://api.openverse.org');
+    expect(upstream.searchParams.get('q')).toBe('jazz');
+    expect(upstream.searchParams.get('page_size')).toBe('10');
+    expect(upstream.searchParams.get('mature')).toBe('false');
+  });
+
+  it('maps official SomaFM stations and resolves its controlled live playlist at play time', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        channels: [
+          {
+            id: '7soul',
+            title: 'Seven Inch Soul',
+            description: 'Vintage soul tracks',
+            genre: 'oldies',
+            lastPlaying: "Esther Philips - Baby, I'm For Real",
+            playlists: [{ format: 'mp3' }],
+          },
+          { id: 'not-playable', title: 'No MP3', playlists: [{ format: 'aac' }] },
+        ],
+      }),
+    );
+
+    const catalog = await GET(request('somafm/stations?tag=soul&limit=3'), context(['somafm', 'stations']));
+
+    await expect(catalog.json()).resolves.toEqual({
+      results: [
+        {
+          id: '7soul',
+          title: 'Seven Inch Soul',
+          description: 'Vintage soul tracks',
+          genre: 'oldies',
+          lastPlaying: "Esther Philips - Baby, I'm For Real",
+        },
+      ],
+    });
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe('https://somafm.com/channels.json');
+
+    vi.mocked(fetch)
+      .mockReset()
+      .mockResolvedValueOnce(
+        new Response(
+          '[playlist]\nFile1=https://ice2.somafm.com/7soul-128-mp3\nFile2=https://attacker.example/stream.mp3',
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg' },
+        }),
+      );
+
+    const stream = await GET(
+      request('somafm/stream/7soul', { range: 'bytes=0-4' }),
+      context(['somafm', 'stream', '7soul']),
+    );
+
+    expect(stream.status).toBe(200);
+    expect(stream.headers.get('cache-control')).toBe('private, no-store');
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe('https://api.somafm.com/7soul.pls');
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe('https://ice2.somafm.com/7soul-128-mp3');
+  });
+
+  it('keeps only checked, direct music stations from Radio Browser', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([
+        {
+          stationuuid: 'c76686ca-a8b9-4db9-9839-1470c9599623',
+          name: 'Classic Vinyl HD',
+          url_resolved: 'https://icecast.walmradio.com:8443/classic',
+          homepage: 'https://www.walmradio.com/',
+          tags: 'classic rock,music,vinyl',
+          codec: 'MP3',
+          bitrate: 320,
+          countrycode: 'US',
+          lastcheckok: 1,
+        },
+        {
+          stationuuid: '042d3140-227c-4fac-9387-4903b692d5f2',
+          name: 'Preview HLS station',
+          url_resolved: 'https://example.test/live/index.m3u8',
+          tags: 'pop,music',
+          codec: 'AAC',
+          lastcheckok: 1,
+        },
+        {
+          stationuuid: '33178054-56cd-449c-8cf7-412cc7be936a',
+          name: 'News station',
+          url_resolved: 'https://example.test/news.mp3',
+          tags: 'news,talk',
+          codec: 'MP3',
+          lastcheckok: 1,
+        },
+      ]),
+    );
+
+    const response = await GET(request('radio/stations?limit=3'), context(['radio', 'stations']));
+
+    await expect(response.json()).resolves.toEqual({
+      results: [
+        {
+          id: 'c76686ca-a8b9-4db9-9839-1470c9599623',
+          name: 'Classic Vinyl HD',
+          streamUrl: 'https://icecast.walmradio.com:8443/classic',
+          homepage: 'https://www.walmradio.com/',
+          tags: 'classic rock,music,vinyl',
+          codec: 'audio/mpeg',
+          bitrate: 320,
+          countryCode: 'US',
+        },
+      ],
+    });
+    const upstream = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(upstream.origin).toBe('https://de2.api.radio-browser.info');
+    expect(upstream.pathname).toBe('/json/stations/topclick/3');
+    expect(upstream.searchParams.get('hidebroken')).toBe('true');
+  });
+
+  it('falls back to the next Radio Browser mirror when the preferred mirror is unavailable', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            stationuuid: 'c76686ca-a8b9-4db9-9839-1470c9599623',
+            name: 'Classic Vinyl HD',
+            url_resolved: 'https://icecast.walmradio.com:8443/classic',
+            tags: 'classic rock,music,vinyl',
+            codec: 'MP3',
+            lastcheckok: 1,
+          },
+        ]),
+      );
+
+    const response = await GET(request('radio/stations?limit=3'), context(['radio', 'stations']));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      results: [
+        {
+          id: 'c76686ca-a8b9-4db9-9839-1470c9599623',
+          name: 'Classic Vinyl HD',
+        },
+      ],
+    });
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    expect(new URL(String(vi.mocked(fetch).mock.calls[1][0])).origin).toBe('https://de1.api.radio-browser.info');
+  });
+
+  it('reports a Radio Browser outage after every mirror fails', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('unavailable', { status: 503 }));
+
+    const response = await GET(request('radio/stations?limit=3'), context(['radio', 'stations']));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'Radio Browser upstream error' });
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('uses the fixed Commons API and streams only approved Wikimedia media', async () => {
+    const page = {
+      pageid: 175624708,
+      title: 'File:River Dance Music.oga',
+      imageinfo: [
+        {
+          url: 'https://upload.wikimedia.org/wikipedia/commons/0/02/River_Dance_Music.oga',
+          descriptionurl: 'https://commons.wikimedia.org/wiki/File:River_Dance_Music.oga',
+          mime: 'application/ogg',
+          duration: 318.43,
+          size: 66_161_803,
+          extmetadata: {
+            Artist: { value: 'Izi Music Production' },
+            LicenseUrl: { value: 'https://creativecommons.org/licenses/by/4.0/' },
+            Categories: { value: 'Music|Dance music' },
+          },
+        },
+      ],
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ query: { pages: [page] } }));
+
+    const catalog = await GET(
+      request('wikimedia/tracks?q=dance&sort=recent&limit=3'),
+      context(['wikimedia', 'tracks']),
+    );
+
+    await expect(catalog.json()).resolves.toMatchObject({
+      results: [
+        {
+          id: 175624708,
+          title: 'File:River Dance Music.oga',
+          mime: 'application/ogg',
+          duration: 318.43,
+          artist: 'Izi Music Production',
+        },
+      ],
+    });
+    const catalogUrl = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(catalogUrl.origin).toBe('https://commons.wikimedia.org');
+    expect(catalogUrl.pathname).toBe('/w/api.php');
+    expect(catalogUrl.searchParams.get('gsrsearch')).toContain('incategory:"Music"');
+    expect(catalogUrl.searchParams.get('gsrsort')).toBe('create_timestamp_desc');
+
+    vi.mocked(fetch)
+      .mockReset()
+      .mockResolvedValueOnce(Response.json({ query: { pages: [page] } }))
+      .mockResolvedValueOnce(
+        new Response('audio', {
+          status: 206,
+          headers: { 'content-type': 'application/ogg', 'content-range': 'bytes 0-4/10' },
+        }),
+      );
+
+    const stream = await GET(
+      request('wikimedia/stream/175624708', { range: 'bytes=0-4' }),
+      context(['wikimedia', 'stream', '175624708']),
+    );
+
+    expect(stream.status).toBe(206);
+    expect(stream.headers.get('content-type')).toBe('application/ogg');
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toBe(page.imageinfo[0].url);
+  });
+
+  it('does not expose or proxy short Wikimedia snippets', async () => {
+    const snippet = {
+      pageid: 175624709,
+      title: 'File:Short music excerpt.mp3',
+      imageinfo: [
+        {
+          url: 'https://upload.wikimedia.org/wikipedia/commons/0/02/Short_music_excerpt.mp3',
+          descriptionurl: 'https://commons.wikimedia.org/wiki/File:Short_music_excerpt.mp3',
+          mime: 'audio/mpeg',
+          duration: 30,
+          size: 48_000,
+          extmetadata: { LicenseUrl: { value: 'https://creativecommons.org/licenses/by/4.0/' } },
+        },
+      ],
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ query: { pages: [snippet] } }));
+
+    const catalog = await GET(request('wikimedia/tracks?q=excerpt'), context(['wikimedia', 'tracks']));
+
+    await expect(catalog.json()).resolves.toEqual({ results: [] });
+
+    vi.mocked(fetch)
+      .mockReset()
+      .mockResolvedValueOnce(Response.json({ query: { pages: [snippet] } }));
+    const stream = await GET(request('wikimedia/stream/175624709'), context(['wikimedia', 'stream', '175624709']));
+
+    expect(stream.status).toBe(404);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes the public NTS live schedule and rejects unsupported channel IDs', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        results: [
+          {
+            channel_name: '2',
+            now: {
+              broadcast_title: 'Night drive',
+              embeds: {
+                details: {
+                  description: 'Live from London',
+                  genres: [{ value: 'Electronic' }, { value: 'Ambient' }],
+                },
+              },
+            },
+          },
+          {
+            channel_name: '1',
+            now: {
+              broadcast_title: 'Morning music',
+              embeds: { details: { description: 'Worldwide radio', genres: [{ value: 'Soul' }] } },
+            },
+          },
+          { channel_name: '3', now: { broadcast_title: 'Unsupported' } },
+        ],
+      }),
+    );
+
+    const response = await GET(request('nts/stations?limit=2'), context(['nts', 'stations']));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      results: [
+        {
+          id: '1',
+          title: 'NTS 1',
+          description: 'Worldwide radio',
+          genre: 'Soul',
+          nowPlaying: 'Morning music',
+        },
+        {
+          id: '2',
+          title: 'NTS 2',
+          description: 'Live from London',
+          genre: 'Electronic, Ambient',
+          nowPlaying: 'Night drive',
+        },
+      ],
+    });
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe('https://www.nts.live/api/v2/live');
+
+    vi.mocked(fetch).mockReset();
+    const invalid = await GET(request('nts/stations?id=3'), context(['nts', 'stations']));
+    expect(invalid.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses an exact country endpoint for Japan Radio Browser discovery', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json([
+        {
+          stationuuid: '1adf1539-e647-44c3-85d8-b437b768fb8c',
+          name: 'Japan Pop Radio',
+          url_resolved: 'https://stream.example.test/japan-pop.mp3',
+          homepage: 'https://example.test/',
+          tags: 'jpop,music',
+          codec: 'MP3',
+          bitrate: 128,
+          countrycode: 'JP',
+          lastcheckok: 1,
+        },
+      ]),
+    );
+
+    const response = await GET(request('radio/stations?country=JP&limit=4'), context(['radio', 'stations']));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      results: [{ name: 'Japan Pop Radio', countryCode: 'JP' }],
+    });
+    const upstream = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(upstream.pathname).toBe('/json/stations/bycountrycodeexact/JP');
+    expect(upstream.searchParams.get('limit')).toBe('4');
+  });
+
+  it('keeps QQ Music search and signed-stream resolution server-controlled', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        code: 0,
+        data: {
+          song: {
+            list: [
+              {
+                songmid: '003b34Vx21nbbp',
+                songname: 'Night Run',
+                singer: [{ name: 'Artist' }],
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    const catalog = await GET(request('qq/tracks?q=artist&limit=2'), context(['qq', 'tracks']));
+
+    expect(catalog.status).toBe(200);
+    await expect(catalog.json()).resolves.toMatchObject({ results: [{ songmid: '003b34Vx21nbbp' }] });
+    const searchUrl = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(searchUrl.origin).toBe('https://c.y.qq.com');
+    expect(searchUrl.pathname).toBe('/soso/fcgi-bin/client_search_cp');
+    expect(searchUrl.searchParams.get('w')).toBe('artist');
+
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        req_1: {
+          data: {
+            midurlinfo: [
+              {
+                songmid: '003b34Vx21nbbp',
+                result: 0,
+                purl: 'C400003b34Vx21nbbp.m4a?guid=1&vkey=signed&uin=&fromtag=120032',
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    const probe = await GET(request('qq/stream/003b34Vx21nbbp?probe=1'), context(['qq', 'stream', '003b34Vx21nbbp']));
+
+    expect(probe.status).toBe(200);
+    await expect(probe.json()).resolves.toEqual({ available: true });
+    expect(new URL(String(vi.mocked(fetch).mock.calls[0][0])).origin).toBe('https://u.y.qq.com');
+
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          req_1: {
+            data: {
+              midurlinfo: [
+                {
+                  songmid: '003b34Vx21nbbp',
+                  result: 0,
+                  purl: 'C400003b34Vx21nbbp.m4a?guid=1&vkey=signed&uin=&fromtag=120032',
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response('audio', { status: 200, headers: { 'content-type': 'audio/mp4' } }));
+
+    const stream = await GET(request('qq/stream/003b34Vx21nbbp'), context(['qq', 'stream', '003b34Vx21nbbp']));
+
+    expect(stream.status).toBe(200);
+    expect(new URL(String(vi.mocked(fetch).mock.calls[1][0])).origin).toBe('https://isure6.stream.qqmusic.qq.com');
+    expect(new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers).get('referer')).toBe('https://y.qq.com/');
+  });
+
+  it('rejects a QQ media response that is too small for the requested full recording', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          req_1: {
+            data: {
+              midurlinfo: [
+                {
+                  songmid: '003b34Vx21nbbp',
+                  result: 0,
+                  purl: 'C400003b34Vx21nbbp.m4a?guid=1&vkey=signed&uin=&fromtag=120032',
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('a', {
+          status: 206,
+          headers: {
+            'content-type': 'audio/mp4',
+            'content-range': 'bytes 0-1/1000',
+          },
+        }),
+      );
+
+    const response = await GET(
+      request('qq/stream/003b34Vx21nbbp?probe=1&expected=247'),
+      context(['qq', 'stream', '003b34Vx21nbbp']),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ available: false, code: 'short' });
+    expect(new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers).get('range')).toBe('bytes=0-1');
+  });
+
+  it('rejects QQ Music records that do not expose a public signed stream', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        req_1: { data: { midurlinfo: [{ songmid: '003b34Vx21nbbp', result: 104003, purl: '' }] } },
+      }),
+    );
+
+    const response = await GET(
+      request('qq/stream/003b34Vx21nbbp?probe=1'),
+      context(['qq', 'stream', '003b34Vx21nbbp']),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ available: false });
   });
 });

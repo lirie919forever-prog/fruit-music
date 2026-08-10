@@ -1,11 +1,31 @@
 'use client';
 
+import {
+  BarChart3,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Heart,
+  Globe,
+  LayoutGrid,
+  Search,
+  ListMusic,
+  X,
+  Disc3,
+  AudioWaveform,
+  Music2,
+  Radio,
+  Sparkles,
+  Users,
+} from 'lucide-react';
+import { motion } from 'motion/react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { usePlayerStore } from '@/store/playerStore';
 import type { ViewType } from '@/types/music';
-import { HiMagnifyingGlass, HiXMark } from 'react-icons/hi2';
-import { TbVinyl, TbWaveSine } from 'react-icons/tb';
-import { GiViolin } from 'react-icons/gi';
+import type { SidebarMode } from '@/lib/appSettings';
+import { buildNavigationUrl } from '@/lib/navigation';
+import { VirtualList } from '@/components/ui/VirtualList';
 
 interface NavItem {
   view: ViewType;
@@ -13,87 +33,168 @@ interface NavItem {
   icon: ReactNode;
 }
 
-function IconAlbums() {
-  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="1" width="6" height="6" rx="1.5" /><rect x="9" y="1" width="6" height="6" rx="1.5" /><rect x="1" y="9" width="6" height="6" rx="1.5" /><rect x="9" y="9" width="6" height="6" rx="1.5" /></svg>;
-}
-
-function IconArtists() {
-  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="5" r="3" /><path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" /></svg>;
-}
-
-function IconPop() {
-  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 1l1.5 3.5L13 5l-2.5 2.5.5 3.5L8 9.5 5 11l.5-3.5L3 5l3.5-.5z" /></svg>;
-}
-
-function IconJpop() {
-  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2" /><path d="M8 2v2M8 12v2M2 8h2M12 8h2" /></svg>;
-}
-
-function IconTrending() {
-  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="1,12 5,7 9,9 15,3" /><polyline points="11,3 15,3 15,7" /></svg>;
-}
-
 function WaveIcon() {
-  return <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M1 6 Q3 1 5 6 Q7 11 9 6 Q11 1 13 6 Q15 11 17 6 Q19 1 20 6" /></svg>;
+  return (
+    <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M1 6 Q3 1 5 6 Q7 11 9 6 Q11 1 13 6 Q15 11 17 6 Q19 1 20 6" />
+    </svg>
+  );
 }
 
 export const navigationSections: Array<{ title: string; items: NavItem[] }> = [
-  { title: 'Library', items: [
-    { view: 'albums', label: 'Albums', icon: <IconAlbums /> },
-    { view: 'artists', label: 'Artists', icon: <IconArtists /> },
-    { view: 'search', label: 'Search', icon: <HiMagnifyingGlass className="h-4 w-4" /> },
-  ] },
-  { title: 'Discover', items: [
-    { view: 'pop', label: 'Pop', icon: <IconPop /> },
-    { view: 'jp', label: 'J-Pop', icon: <IconJpop /> },
-    { view: 'trending', label: 'Trending', icon: <IconTrending /> },
-  ] },
-  { title: 'Explore', items: [
-    { view: 'remixes', label: 'Remixes', icon: <TbVinyl className="h-4 w-4" /> },
-    { view: 'jazz', label: 'Jazz', icon: <TbWaveSine className="h-4 w-4" /> },
-    { view: 'classical', label: 'Classical', icon: <GiViolin className="h-4 w-4" /> },
-  ] },
+  {
+    title: 'Library',
+    items: [
+      { view: 'albums', label: 'Albums', icon: <LayoutGrid className="h-4 w-4" /> },
+      { view: 'artists', label: 'Artists', icon: <Users className="h-4 w-4" /> },
+      { view: 'playlist', label: 'Playlists', icon: <ListMusic className="h-4 w-4" /> },
+      { view: 'favorites', label: 'Favorites', icon: <Heart className="h-4 w-4" /> },
+      { view: 'history', label: 'Recently Played', icon: <Clock className="h-4 w-4" /> },
+      { view: 'search', label: 'Search', icon: <Search className="h-4 w-4" /> },
+    ],
+  },
+  {
+    title: 'Discover',
+    items: [
+      { view: 'new', label: 'New', icon: <Sparkles className="h-4 w-4" /> },
+      { view: 'radio', label: 'Radio', icon: <Radio className="h-4 w-4" /> },
+      { view: 'billboard', label: 'US Charts', icon: <BarChart3 className="h-4 w-4" /> },
+      { view: 'uk', label: 'UK Charts', icon: <BarChart3 className="h-4 w-4" /> },
+      { view: 'jp', label: 'Japan Charts', icon: <Disc3 className="h-4 w-4" /> },
+    ],
+  },
+  {
+    title: 'Explore',
+    items: [
+      { view: 'remixes', label: 'Remixes', icon: <Disc3 className="h-4 w-4" /> },
+      { view: 'jazz', label: 'Jazz', icon: <AudioWaveform className="h-4 w-4" /> },
+      { view: 'classical', label: 'Classical', icon: <Music2 className="h-4 w-4" /> },
+      { view: 'sources', label: 'Sources', icon: <Globe className="h-4 w-4" /> },
+    ],
+  },
 ];
 
-function NavSections({ onSelect }: { onSelect?: () => void }) {
+function NavSections({
+  onSelect,
+  onNavigate,
+  collapsed = false,
+}: {
+  onSelect?: () => void;
+  onNavigate?: (view: ViewType) => void;
+  collapsed?: boolean;
+}) {
   const currentView = usePlayerStore((state) => state.currentView);
   const setCurrentView = usePlayerStore((state) => state.setCurrentView);
 
-  return navigationSections.map((section) => (
-    <div key={section.title} className="space-y-1">
-      <p className="px-3 pb-2 pt-5 text-[13px] font-semibold uppercase tracking-[0.18em] text-[var(--salt-mist)]">{section.title}</p>
-      {section.items.map((item) => {
-        const active = currentView === item.view;
+  const navigate = useCallback(
+    (view: ViewType) => {
+      if (onNavigate) {
+        onNavigate(view);
+        return;
+      }
+      setCurrentView(view);
+      window.history.pushState(null, '', buildNavigationUrl(window.location, view));
+    },
+    [onNavigate, setCurrentView],
+  );
+
+  const entries = navigationSections.flatMap((section) => [
+    { kind: 'section' as const, id: `section-${section.title}`, title: section.title },
+    ...section.items.map((item) => ({ kind: 'item' as const, id: item.view, item })),
+  ]);
+
+  return (
+    <VirtualList
+      items={entries}
+      estimateSize={collapsed ? 40 : 36}
+      label="Primary navigation"
+      getItemKey={(entry) => entry.id}
+      style={{ height: '100%' }}
+      className="overflow-x-hidden"
+      renderItem={(entry) => {
+        if (entry.kind === 'section') {
+          return (
+            <p
+              className={
+                collapsed
+                  ? 'h-3 px-1 text-center text-[0px] text-transparent'
+                  : 'h-7 px-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--salt-mist)]'
+              }
+              aria-hidden={collapsed}
+            >
+              {collapsed ? '' : entry.title}
+            </p>
+          );
+        }
+
+        const active = currentView === entry.item.view;
         return (
-          <button
-            key={item.view}
-            onClick={() => { setCurrentView(item.view); onSelect?.(); }}
-            className="flex h-10 w-full items-center gap-3 rounded-2xl border px-3 text-sm transition-colors"
-            style={{
-              color: active ? 'var(--salt-white)' : 'var(--salt-mist)',
-              background: active ? 'rgba(255,255,255,0.08)' : 'transparent',
-              borderColor: active ? 'var(--glass-border-active)' : 'transparent',
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.96 }}
+            onClick={() => {
+              navigate(entry.item.view);
+              onSelect?.();
             }}
+            className={`flex h-9 w-full items-center rounded-md text-[13px] font-medium transition-colors ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-2'} ${active ? 'marea-nav-item-active text-[var(--salt-primary)]' : 'text-[var(--salt-foam)] hover:bg-[var(--glass-bg-hover)]'}`}
             aria-current={active ? 'page' : undefined}
+            aria-label={collapsed ? entry.item.label : undefined}
+            title={collapsed ? entry.item.label : undefined}
           >
-            {item.icon}<span className="font-medium">{item.label}</span>
-          </button>
+            {entry.item.icon}
+            <span className={collapsed ? 'sr-only' : 'truncate'}>{entry.item.label}</span>
+          </motion.button>
         );
-      })}
-    </div>
-  ));
+      }}
+    />
+  );
 }
 
-export function Sidebar() {
+export function Sidebar({
+  onNavigate,
+  mode = 'expanded',
+  onToggle,
+}: {
+  onNavigate?: (view: ViewType) => void;
+  mode?: SidebarMode;
+  onToggle?: () => void;
+}) {
+  const collapsed = mode === 'collapsed';
   return (
-    <aside className="hidden h-dvh w-[220px] shrink-0 border-r border-[var(--glass-border)] bg-[rgba(2,8,16,0.7)] backdrop-blur-2xl md:flex md:flex-col">
-      <div className="px-4 pb-5 pt-6"><div className="flex items-center gap-3 text-[var(--salt-white)]"><span className="text-[var(--salt-primary)]"><WaveIcon /></span><span className="text-xl font-bold tracking-tight">Marea</span></div></div>
-      <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-2 pb-6"><NavSections /></nav>
+    <aside
+      aria-label="Sidebar navigation"
+      className={`marea-glass-sidebar hidden h-dvh shrink-0 flex-col border-r transition-[width] duration-300 md:flex ${collapsed ? 'w-[72px]' : 'w-[248px]'}`}
+    >
+      <div className={`pb-4 pt-6 ${collapsed ? 'px-2' : 'px-4'}`}>
+        <div className={`flex items-center text-[var(--salt-white)] ${collapsed ? 'justify-center' : 'gap-2.5 px-2'}`}>
+          <span className="marea-glass-control flex h-7 w-7 items-center justify-center rounded-lg border text-[var(--salt-primary)]">
+            <WaveIcon />
+          </span>
+          {!collapsed && <span className="text-[19px] font-bold tracking-[-0.02em]">Marea</span>}
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.96 }}
+            onClick={onToggle}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`marea-glass-control flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-[var(--salt-mist)] hover:text-[var(--salt-primary)] ${collapsed ? 'mt-3' : 'ml-auto'}`}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            ) : (
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            )}
+          </motion.button>
+        </div>
+      </div>
+      <nav className={`flex flex-1 flex-col gap-4 overflow-y-auto pb-6 ${collapsed ? 'px-2' : 'px-2'}`}>
+        <NavSections onNavigate={onNavigate} collapsed={collapsed} />
+      </nav>
     </aside>
   );
 }
 
-export function MobileNavigation() {
+export function MobileNavigation({ onNavigate }: { onNavigate?: (view: ViewType) => void }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -106,6 +207,8 @@ export function MobileNavigation() {
 
   useEffect(() => {
     if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     closeButtonRef.current?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -116,47 +219,98 @@ export function MobileNavigation() {
       }
       if (event.key !== 'Tab') return;
 
-      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      ) ?? []).filter((element) => element.offsetParent !== null);
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]):not([tabindex="-1"]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => element.offsetParent !== null);
       if (!focusable.length) return;
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      const activeElement = document.activeElement;
+      if (!dialogRef.current?.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && activeElement === last) {
         event.preventDefault();
         first.focus();
       }
     }
 
+    const desktopQuery = window.matchMedia('(min-width: 768px)');
+    const handleDesktopTransition = (event: MediaQueryListEvent) => {
+      if (event.matches) setOpen(false);
+    };
+
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    desktopQuery.addEventListener('change', handleDesktopTransition);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+      desktopQuery.removeEventListener('change', handleDesktopTransition);
+    };
   }, [closeNavigation, open]);
+
+  const navigationDialog = open ? (
+    <div
+      ref={dialogRef}
+      id="mobile-navigation-dialog"
+      className="fixed inset-0 z-[70] md:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Navigation menu"
+    >
+      <button
+        tabIndex={-1}
+        aria-label="Close navigation"
+        onClick={closeNavigation}
+        className="absolute inset-0 bg-[rgba(13,43,62,0.34)] backdrop-blur-sm"
+      />
+      <div className="marea-glass-sidebar absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col border-r p-2 shadow-[18px_0_60px_rgba(25,74,102,0.2)]">
+        <div className="flex shrink-0 items-center justify-between px-2 pb-3 pt-2">
+          <div className="flex items-center gap-2.5 text-[19px] font-bold text-[var(--salt-white)]">
+            <span className="marea-glass-control flex h-7 w-7 items-center justify-center rounded-lg border text-[var(--salt-primary)]">
+              <WaveIcon />
+            </span>
+            Marea
+          </div>
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            ref={closeButtonRef}
+            onClick={closeNavigation}
+            aria-label="Close navigation"
+            className="marea-glass-control flex h-9 w-9 items-center justify-center rounded-full border text-[var(--salt-mist)]"
+          >
+            <X className="h-5 w-5" />
+          </motion.button>
+        </div>
+        <nav className="min-h-0 flex-1">
+          <NavSections onSelect={closeNavigation} onNavigate={onNavigate} />
+        </nav>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <>
-      <button
+      <motion.button
+        whileTap={{ scale: 0.96 }}
         ref={triggerRef}
         onClick={() => setOpen(true)}
         aria-label="Open navigation"
         aria-expanded={open}
         aria-controls="mobile-navigation-dialog"
-        className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg)] text-[var(--salt-white)] md:hidden"
+        className="marea-glass-control flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border text-[var(--salt-white)] md:hidden"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-      </button>
-      {open && (
-        <div ref={dialogRef} id="mobile-navigation-dialog" className="fixed inset-0 z-[70] md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
-          <button tabIndex={-1} aria-label="Close navigation" onClick={closeNavigation} className="absolute inset-0 bg-[rgba(2,8,16,0.72)] backdrop-blur-sm" />
-          <div className="absolute inset-y-0 left-0 w-[min(86vw,320px)] overflow-y-auto border-r border-[var(--glass-border)] bg-[var(--sea-midnight)] p-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-2"><div className="flex items-center gap-3 text-xl font-bold"><span className="text-[var(--salt-primary)]"><WaveIcon /></span>Marea</div><button ref={closeButtonRef} onClick={closeNavigation} aria-label="Close navigation" className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--salt-mist)]"><HiXMark className="h-6 w-6" /></button></div>
-            <nav className="space-y-4"><NavSections onSelect={closeNavigation} /></nav>
-          </div>
-        </div>
-      )}
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </motion.button>
+      {open && typeof document !== 'undefined' ? createPortal(navigationDialog, document.body) : null}
     </>
   );
 }

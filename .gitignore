@@ -42,3 +42,20 @@ next-env.d.ts
 
 .vercel
 .env*
+!.env.example
+
+# local browser-automation output
+/screenshots/
+/.playwright-cli/
+/output/playwright/
+/output/*.log
+/.playwright-mcp/
+/.next-dev-*.log
+/.chrome-profile/
+/.edge-profile/
+/.edge-profile-2/
+/.edge-profile-3/
+deploy*.log
+*.png
+homepage-full.png
+uk-charts.png

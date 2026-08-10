@@ -17,7 +17,30 @@ export interface Artist {
   albumCount: number;
 }
 
-export type MusicProviderName = 'Jamendo' | 'ccMixter' | 'Archive';
+export type MusicProviderName =
+  | 'Jamendo'
+  | 'ccMixter'
+  | 'Archive'
+  | 'LX Music'
+  | 'Kuwo'
+  | 'QQ Music'
+  | 'Bilibili'
+  | 'Apple Preview'
+  | 'Deezer Preview'
+  | 'Audius'
+  | 'Openverse'
+  | 'Wikimedia Commons'
+  | 'SomaFM'
+  | 'NTS Radio'
+  | 'Radio Paradise'
+  | 'KEXP'
+  | 'FIP'
+  | 'The Current'
+  | 'Radio France'
+  | 'Radio Browser'
+  | 'Invidious'
+  | 'Netease'
+  | 'Local file';
 
 export interface Song {
   id: string;
@@ -28,6 +51,12 @@ export interface Song {
   albumId: string;
   coverArt: string;
   duration: number;
+  /**
+   * The full recording length when a catalog only exposes a preview clip.
+   * This is verification metadata, not the duration currently exposed by the
+   * playable stream.
+   */
+  recordingDuration?: number;
   track: number;
   year: number;
   genre: string;
@@ -43,14 +72,21 @@ export interface Song {
   licenseUrl: string;
   attributionUrl: string;
   metadataVerified: boolean;
+  /** Continuous station streams have no finite duration or seek position. */
+  isLive?: boolean;
+  playbackUnavailable?: boolean;
 }
 
+/**
+ * A user-built playlist. Held in full rather than as a summary of provider ids:
+ * a playlist has to keep working when the provider stops serving a track, and
+ * the count, duration and cover are all derivable from the songs themselves.
+ */
 export interface Playlist {
   id: string;
   name: string;
-  songCount: number;
-  duration: number;
-  coverArt: string;
+  songs: Song[];
+  createdAt: number;
 }
 
 export interface QueueItem {
@@ -58,4 +94,25 @@ export interface QueueItem {
   addedBy: 'user' | 'autoplay';
 }
 
-export type ViewType = 'albums' | 'artists' | 'search' | 'playlist' | 'now-playing' | 'pop' | 'jp' | 'trending' | 'remixes' | 'jazz' | 'classical';
+/** Which side panel the Now Playing view opens on. */
+export type NowPlayingPanel = 'queue' | 'lyrics';
+
+export type ViewType =
+  | 'new'
+  | 'albums'
+  | 'artists'
+  | 'search'
+  | 'favorites'
+  | 'history'
+  | 'playlist'
+  | 'now-playing'
+  | 'pop'
+  | 'jp'
+  | 'billboard'
+  | 'uk'
+  | 'trending'
+  | 'radio'
+  | 'remixes'
+  | 'jazz'
+  | 'classical'
+  | 'sources';

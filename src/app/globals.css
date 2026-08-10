@@ -1,88 +1,100 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme inline {
   --color-background: var(--sea-abyss);
   --color-foreground: var(--salt-white);
-  --font-sans: var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif);
+  --font-sans: var(
+    --font-body,
+    var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif)
+  );
+  --font-display: var(
+    --font-display,
+    var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif)
+  );
   --font-mono: var(--font-mono-var, 'JetBrains Mono', ui-monospace, monospace);
 }
 
 :root {
-  --sea-abyss: #020810;
-  --sea-midnight: #030d1e;
-  --sea-deep: #071428;
-  --sea-mid: #0a1e38;
-  --sea-surface: #0f2744;
-  --sea-shallow: #163354;
+  --sea-abyss: #fbfcfe;
+  --sea-midnight: #eef8ff;
+  --sea-deep: #dceffc;
+  --sea-mid: #bfe3f7;
+  --sea-surface: #74bee5;
+  --sea-shallow: #2488c2;
 
-  --glass-bg: rgba(255, 255, 255, 0.04);
-  --glass-bg-hover: rgba(255, 255, 255, 0.08);
-  --glass-border: rgba(180, 220, 255, 0.12);
-  --glass-border-active: rgba(100, 180, 255, 0.35);
-  --glass-blur: 20px;
-  --glass-saturate: 180%;
-  --glass-hover: rgba(255, 255, 255, 0.07);
+  --glass-bg-hover: rgba(232, 247, 255, 0.9);
+  --glass-border: rgba(62, 131, 170, 0.16);
+  --glass-border-active: rgba(25, 126, 186, 0.42);
+  --glass-surface: rgba(255, 255, 255, 0.62);
+  --glass-surface-strong: rgba(252, 254, 255, 0.8);
+  --glass-surface-muted: rgba(224, 244, 254, 0.54);
+  --glass-highlight: rgba(255, 255, 255, 0.88);
+  --glass-shadow: 0 12px 32px rgba(25, 93, 129, 0.1);
+  --glass-shadow-raised: 0 20px 52px rgba(25, 93, 129, 0.16);
+  --glass-blur: 22px;
 
-  --salt-primary: #5bb8f5;
-  --salt-bright: #a8d8f0;
-  --salt-white: #e8f4ff;
-  --salt-foam: #cce8f8;
-  --salt-mist: rgba(200, 230, 255, 0.5);
-  --salt-whisper: rgba(200, 230, 255, 0.18);
-  --salt-ghost: rgba(200, 230, 255, 0.07);
+  --salt-primary: #0d6fa8;
+  --salt-bright: #075d91;
+  --salt-white: #102f45;
+  --salt-foam: #31566f;
+  --salt-mist: #486b82;
+  --salt-whisper: rgba(55, 126, 168, 0.16);
+  --salt-ghost: rgba(68, 147, 190, 0.09);
+  --danger: #b43d45;
 
-  --glow-primary: rgba(91, 184, 245, 0.2);
-  --glow-strong: rgba(91, 184, 245, 0.4);
-  --glow-wide: 0 0 40px rgba(91, 184, 245, 0.15);
+  --glow-primary: rgba(52, 158, 219, 0.18);
+  --ambient: #6fc8f4;
 
-  --ambient: #5bb8f5;
-  --ambient-secondary: rgba(91, 184, 245, 0.4);
-
-  --ocean-abyss: var(--sea-abyss);
-  --ocean-midnight: var(--sea-midnight);
-  --ocean-deep: var(--sea-deep);
-  --ocean-surface: var(--sea-mid);
-  --ocean-shallow: var(--sea-shallow);
-
+  /* Retained aliases: still referenced by the player and search surfaces. */
   --biolum-primary: var(--salt-primary);
-  --biolum-soft: var(--salt-bright);
-  --biolum-teal: var(--salt-primary);
   --biolum-glow: var(--glow-primary);
-
   --pearl-bright: var(--salt-white);
   --pearl-mid: var(--salt-foam);
   --pearl-dim: var(--salt-mist);
-  --pearl-ghost: var(--salt-ghost);
   --pearl-whisper: var(--salt-whisper);
+
+  /* The player bar's own height, and the room the scrolling pane leaves for it.
+     Both used to be written out by hand in two files — 72px in NowPlayingBar
+     and a hard-coded 88px of padding in MareaApp — so changing the bar meant
+     remembering to change a number somewhere else or clipping the last row. */
+  --player-bar-height: 72px;
+  --player-bar-clearance: calc(var(--player-bar-height) + 16px + env(safe-area-inset-bottom));
+  --player-bar-desktop-height: 92px;
+  --player-bar-desktop-clearance: calc(var(--player-bar-desktop-height) + 16px + env(safe-area-inset-bottom));
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-
-  --background: var(--sea-abyss);
-  --foreground: var(--salt-white);
+  --font-body: var(--font-body, var(--font-ui));
+  --font-headline: var(--font-display, var(--font-ui));
+  --marea-font-family: var(--font-body, var(--font-ui));
+  --marea-font-weight: 500;
+  --marea-font-scale: 1;
+  --marea-lyric-scale: 1;
+  --marea-letter-spacing: 0;
+  --marea-background-opacity: 1;
+  --marea-background-blur: 130px;
+  --marea-background-brightness: 1;
+  --marea-background-saturation: 135%;
 }
 
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: rgba(91, 184, 245, 0.15) transparent;
+  scrollbar-color: rgba(39, 132, 184, 0.22) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
 }
-
 *::-webkit-scrollbar-track {
   background: transparent;
 }
-
 *::-webkit-scrollbar-thumb {
-  background: rgba(91, 184, 245, 0.15);
+  background: rgba(39, 132, 184, 0.2);
   border-radius: 999px;
 }
-
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(91, 184, 245, 0.3);
+  background: rgba(39, 132, 184, 0.36);
 }
 
 html,
@@ -93,33 +105,173 @@ body {
   background-color: var(--sea-abyss);
 }
 
+/* Browse surfaces stay a near-flat near-white on purpose: cover art is the only
+   saturated thing on the page, and a tinted gradient behind it drags every
+   thumbnail toward the same blue. The sea palette now lives in the accents.
+   The hairline radial veil underneath is atmosphere, not chart: two faint
+   pools of light placed where the hero and the first shelf render, so the
+   near-white field has depth instead of reading as a flat sheet. */
 body {
-  font-family: var(--font-ui);
+  font-family: var(--marea-font-family, var(--font-body, var(--font-ui)));
+  font-size: calc(16px * var(--marea-font-scale, 1));
+  font-weight: var(--marea-font-weight, 500);
+  letter-spacing: var(--marea-letter-spacing, 0);
   color: var(--salt-white);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--sea-abyss);
   background-image:
-    radial-gradient(circle at 18% 16%, color-mix(in srgb, var(--ambient) 30%, transparent) 0%, transparent 34%),
-    radial-gradient(circle at 82% 12%, rgba(91, 184, 245, 0.16) 0%, transparent 30%),
-    radial-gradient(circle at 50% 100%, rgba(91, 184, 245, 0.12) 0%, transparent 42%),
-    linear-gradient(180deg, var(--sea-midnight) 0%, var(--sea-abyss) 100%);
-  background-attachment: fixed;
+    radial-gradient(78rem 32rem at 18% -8%, rgba(116, 190, 229, 0.16), transparent 64%),
+    radial-gradient(64rem 30rem at 92% 0%, rgba(154, 221, 247, 0.12), transparent 60%),
+    radial-gradient(48rem 28rem at 50% 116%, rgba(36, 136, 194, 0.06), transparent 62%);
+  background-attachment: fixed, fixed, fixed;
 }
 
-button,
-input,
-textarea,
-select {
-  font: inherit;
+.marea-app-background--ocean {
+  background:
+    radial-gradient(72rem 34rem at 18% -10%, rgba(116, 190, 229, 0.2), transparent 62%),
+    radial-gradient(66rem 32rem at 92% 0%, rgba(154, 221, 247, 0.16), transparent 60%),
+    linear-gradient(145deg, var(--sea-abyss) 0%, var(--sea-midnight) 48%, var(--sea-deep) 100%);
+}
+
+/* Shared translucent surfaces keep the ocean theme dimensional without
+   turning every browse section into an opaque card. */
+.marea-glass-surface {
+  border-color: var(--glass-border);
+  background: linear-gradient(145deg, var(--glass-highlight), var(--glass-surface));
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    inset 0 -1px 0 rgba(25, 93, 129, 0.06);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(165%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(165%);
+}
+
+.marea-glass-panel {
+  border-color: var(--glass-border);
+  background: linear-gradient(150deg, var(--glass-highlight), var(--glass-surface-strong));
+  box-shadow:
+    var(--glass-shadow-raised),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(180%);
+  backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(180%);
+}
+
+.marea-glass-sidebar {
+  border-color: var(--glass-border);
+  background: linear-gradient(180deg, var(--glass-surface-strong), var(--glass-surface-muted));
+  box-shadow:
+    inset -1px 0 rgba(255, 255, 255, 0.42),
+    inset 1px 0 0 rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(160%);
+  backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(160%);
+}
+
+.marea-shell-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--glass-border) 80%, transparent);
+  background: linear-gradient(180deg, var(--glass-surface-strong), rgba(255, 255, 255, 0));
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
+}
+
+.marea-glass-control {
+  border-color: var(--glass-border);
+  background: linear-gradient(145deg, var(--glass-highlight), var(--glass-surface));
+  box-shadow: 0 4px 14px rgba(25, 93, 129, 0.06);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.marea-glass-control:hover:not(:disabled),
+.marea-glass-control:focus-within {
+  border-color: var(--glass-border-active);
+  box-shadow: 0 8px 20px rgba(25, 93, 129, 0.12);
+}
+
+.marea-glass-card {
+  border-color: var(--glass-border);
+  background: linear-gradient(145deg, var(--glass-highlight), var(--glass-surface));
+  box-shadow: 0 8px 24px rgba(25, 93, 129, 0.08);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+.marea-glass-card:hover {
+  border-color: var(--glass-border-active);
+  box-shadow:
+    var(--glass-shadow),
+    0 0 0 1px rgba(13, 111, 168, 0.1),
+    0 10px 28px rgba(13, 111, 168, 0.16);
+}
+
+.marea-nav-item-active {
+  background: linear-gradient(135deg, rgba(201, 235, 250, 0.88), rgba(226, 246, 255, 0.66));
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.74),
+    0 5px 14px rgba(25, 93, 129, 0.08);
+}
+
+.marea-cinematic-hero {
+  border-color: color-mix(in srgb, white 54%, var(--glass-border));
+  box-shadow:
+    var(--glass-shadow-raised),
+    inset 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.marea-player-surface {
+  border-color: var(--glass-border);
+  background: linear-gradient(125deg, var(--glass-surface-strong), var(--glass-surface));
+  box-shadow:
+    0 -10px 32px rgba(25, 93, 129, 0.12),
+    inset 0 1px rgba(255, 255, 255, 0.62),
+    inset 0 -1px rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 8px)) saturate(180%);
+  backdrop-filter: blur(calc(var(--glass-blur) + 8px)) saturate(180%);
+}
+
+.marea-primary-action {
+  background: linear-gradient(135deg, #258cc4, #0d6fa8);
+  box-shadow: 0 7px 18px rgba(13, 111, 168, 0.28);
+}
+
+.marea-primary-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, #187cad, #075d91);
+  box-shadow: 0 9px 22px rgba(13, 111, 168, 0.34);
+}
+
+.marea-primary-action:disabled {
+  background: #a7b3ba;
+  box-shadow: none;
+}
+
+/* Must stay inside `base`. Unlayered rules outrank every layered one no matter
+   the specificity, so as a bare selector this `font` shorthand silently beat
+   every text-size and font-weight utility applied to a button — which is most
+   of the interactive type in the app. */
+@layer base {
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
 }
 
 button:focus-visible,
 [role='button']:focus-visible,
+a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline: 2px solid var(--salt-primary);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
 .ambient-artwork {
@@ -127,16 +279,38 @@ select:focus-visible {
   inset: -18%;
   width: 136%;
   height: 136%;
-  object-fit: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
   transform: translateZ(0) scale(1.18);
-  filter: blur(120px) saturate(200%);
-  opacity: 0.5;
+  filter: blur(var(--marea-background-blur, 130px)) saturate(var(--marea-background-saturation, 135%))
+    brightness(var(--marea-background-brightness, 1));
+  opacity: calc(0.14 * var(--marea-background-opacity, 1));
+  mix-blend-mode: multiply;
   will-change: transform, opacity;
   pointer-events: none;
 }
 
 .ambient-artwork--idle {
-  background: linear-gradient(180deg, rgba(10, 30, 56, 0.9), rgba(2, 8, 16, 1));
+  background:
+    radial-gradient(circle at 22% 18%, rgba(153, 220, 251, 0.55), transparent 34%),
+    radial-gradient(circle at 78% 30%, rgba(91, 185, 231, 0.28), transparent 38%),
+    linear-gradient(145deg, #ffffff, #eaf7ff);
+}
+
+.ambient-artwork--gradient {
+  background:
+    linear-gradient(135deg, rgba(116, 190, 229, 0.78), rgba(251, 252, 254, 0.92) 48%, rgba(36, 136, 194, 0.4)),
+    linear-gradient(25deg, #dceffc, #ffffff);
+  filter: blur(var(--marea-background-blur, 130px)) brightness(var(--marea-background-brightness, 1));
+}
+
+.marea-player-overlay {
+  background: linear-gradient(135deg, rgba(7, 36, 55, 0.22), rgba(251, 252, 254, 0.68));
+}
+
+html[data-marea-theme='midnight'] .marea-player-overlay {
+  background: linear-gradient(135deg, rgba(2, 15, 25, 0.8), rgba(5, 31, 46, 0.68));
 }
 
 .player-range {
@@ -148,57 +322,42 @@ select:focus-visible {
   cursor: pointer;
   margin: 0;
 }
-
 .player-range::-webkit-slider-runnable-track {
-  height: 100%;
+  height: 3px;
   background: transparent;
 }
-
 .player-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 12px;
-  height: 12px;
-  margin-top: -3px;
+  width: 13px;
+  height: 13px;
+  margin-top: -5px;
   border-radius: 999px;
-  border: none;
-  background: var(--salt-white);
+  border: 2px solid white;
+  background: var(--salt-primary);
   opacity: 0;
   transition: opacity 160ms ease;
-  box-shadow: 0 0 0 1px rgba(2, 8, 16, 0.18);
+  box-shadow: 0 2px 7px rgba(23, 93, 132, 0.28);
 }
-
 .player-range::-moz-range-track {
-  height: 100%;
+  height: 3px;
   background: transparent;
 }
-
 .player-range::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
-  border: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid white;
   border-radius: 999px;
-  background: var(--salt-white);
+  background: var(--salt-primary);
   opacity: 0;
   transition: opacity 160ms ease;
-  box-shadow: 0 0 0 1px rgba(2, 8, 16, 0.18);
+  box-shadow: 0 2px 7px rgba(23, 93, 132, 0.28);
 }
-
 .group:hover .player-range::-webkit-slider-thumb,
 .group:focus-within .player-range::-webkit-slider-thumb,
 .group:hover .player-range::-moz-range-thumb,
 .group:focus-within .player-range::-moz-range-thumb {
   opacity: 1;
-}
-
-@keyframes marea-pulse {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 0.8;
-  }
 }
 
 @keyframes marea-eq {
@@ -216,30 +375,66 @@ select:focus-visible {
     transform: scaleY(1);
   }
 }
-
 .eq-bar-1 {
   animation: marea-eq 0.9s ease-in-out infinite;
   animation-delay: 0s;
 }
-
 .eq-bar-2 {
   animation: marea-eq 0.9s ease-in-out infinite;
   animation-delay: 0.18s;
 }
-
 .eq-bar-3 {
   animation: marea-eq 0.9s ease-in-out infinite;
   animation-delay: 0.36s;
 }
 
-.skeleton {
-  background: var(--salt-whisper);
-  border-radius: 12px;
-  animation: marea-pulse 1.8s ease-in-out infinite;
+/* Horizontal shelves signal that they scroll by letting the next card peek in,
+   so the scrollbar underneath is redundant and reads as a stray rule. */
+.rail-scroll {
+  scrollbar-width: none;
+}
+.rail-scroll::-webkit-scrollbar {
+  height: 0;
+  width: 0;
 }
 
 ::selection {
-  background: rgba(91, 184, 245, 0.25);
+  background: rgba(67, 169, 222, 0.24);
+}
+
+/* One orchestrated entrance: shelves lift in with a slight rise-and-fade,
+   staggered by index so the page assembles top-to-bottom rather than popping.
+   Anthropic's frontend-design skill rates a single well-choreographed load
+   above scattered micro-interactions, so this is the only entrance motion on
+   browse surfaces. Motion-library variants handle the React-driven version;
+   this is the CSS fallback for server-rendered and Suspense-fallback shells. */
+@keyframes marea-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.marea-rise {
+  animation: marea-rise 0.62s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.marea-rise-1 {
+  animation-delay: 0.04s;
+}
+.marea-rise-2 {
+  animation-delay: 0.1s;
+}
+.marea-rise-3 {
+  animation-delay: 0.16s;
+}
+.marea-rise-4 {
+  animation-delay: 0.24s;
+}
+.marea-rise-5 {
+  animation-delay: 0.32s;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -252,3 +447,280 @@ select:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+
+/* === Mobile UX optimizations === */
+
+/* Scroll snap for horizontal rails — cards align cleanly as you flick */
+.marea-rail-scroll {
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scroll-padding-left: 1rem;
+}
+.marea-rail-scroll > * {
+  scroll-snap-align: start;
+}
+
+/* Mobile-only: stronger glass on the player bar for a frosted dock effect */
+@media (max-width: 768px) {
+  .marea-player-bar {
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(180%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(180%);
+    background: linear-gradient(180deg, var(--glass-surface-strong), var(--glass-surface));
+    box-shadow:
+      0 -8px 24px rgba(25, 93, 129, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    border-top: 1px solid var(--glass-border);
+  }
+}
+
+/* Glass shimmer effect for hero and spotlight on mobile */
+.marea-glass-hero {
+  border: 1px solid var(--glass-border);
+  background: linear-gradient(135deg, var(--glass-surface-strong), var(--glass-surface));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(170%);
+  backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(170%);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.48);
+}
+
+/* Prevent text selection on touch UI controls */
+@media (pointer: coarse) {
+  .marea-glass-control,
+  .marea-glass-surface,
+  .marea-rail-scroll {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* Mobile: enlarge touch targets for station/track name buttons */
+@media (max-width: 768px) {
+  .marea-rail-scroll button,
+  .marea-rail-scroll [role="button"] {
+    min-height: 44px;
+  }
+  /* Ensure the scroll container has room below the player bar */
+  .marea-scroll-container {
+    scroll-padding-bottom: calc(var(--player-bar-clearance) + 1rem);
+  }
+}
+
+/* Smooth scroll for the main content pane */
+.marea-scroll-pane {
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+}
+
+/* Glass glow on hover for track cards — adds depth on desktop */
+@media (hover: hover) {
+  .marea-glass-card {
+    transition: box-shadow 280ms cubic-bezier(0.22, 1, 0.36, 1),
+                border-color 280ms ease;
+  }
+  .marea-glass-card:hover {
+    border-color: var(--glass-border-active);
+    box-shadow:
+      var(--glass-shadow),
+      0 0 0 1px color-mix(in srgb, var(--glass-border-active) 40%, transparent),
+      0 12px 32px rgba(13, 111, 168, 0.14);
+  }
+}
+
+/* Active state for glass cards on touch — scale down slightly */
+@media (hover: none) and (pointer: coarse) {
+  .marea-glass-card:active {
+    transform: scale(0.97);
+    border-color: var(--glass-border-active);
+  }
+}
+
+
+/* Glass shimmer keyframe: a soft diagonal light sweep on hover */
+@keyframes marea-glass-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Shimmer overlay on glass cards when hovered — adds a light sweep effect */
+@media (hover: hover) {
+  .marea-glass-card:hover::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      115deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.12) 45%,
+      rgba(255, 255, 255, 0.04) 55%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    animation: marea-glass-shimmer 1.2s ease-out;
+    pointer-events: none;
+    z-index: 1;
+  }
+}
+
+/* Ensure glass-card content is above the shimmer */
+.marea-glass-card > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Mobile: subtle pulse-glow on the player bar when playing */
+@keyframes marea-playing-glow {
+  0%, 100% { box-shadow: 0 -8px 24px rgba(13, 111, 168, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+  50% { box-shadow: 0 -8px 28px rgba(13, 111, 168, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.56); }
+}
+
+.marea-playing-glow {
+  animation: marea-playing-glow 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marea-playing-glow { animation: none; }
+  .marea-glass-card:hover::after { display: none; }
+}
+
+/* The ocean palette is the product identity. Midnight is an optional low-light
+   surface that reuses the same blue vocabulary, so theme changes do not create
+   a second visual language or remount the audio engine. */
+html[data-marea-theme='midnight'] {
+  --sea-abyss: #071b2b;
+  --sea-midnight: #0b2639;
+  --sea-deep: #123b53;
+  --sea-mid: #28627e;
+  --sea-surface: #63b8df;
+  --sea-shallow: #80d0f2;
+  --glass-bg-hover: rgba(176, 225, 245, 0.11);
+  --glass-border: rgba(186, 226, 241, 0.16);
+  --glass-border-active: rgba(113, 205, 239, 0.52);
+  --glass-surface: rgba(8, 36, 54, 0.58);
+  --glass-surface-strong: rgba(9, 42, 62, 0.76);
+  --glass-surface-muted: rgba(13, 52, 73, 0.48);
+  --glass-highlight: rgba(190, 236, 251, 0.12);
+  --glass-shadow: 0 14px 38px rgba(0, 8, 15, 0.28);
+  --glass-shadow-raised: 0 22px 58px rgba(0, 8, 15, 0.42);
+  --salt-bright: #b7eaff;
+  --salt-white: #effaff;
+  --salt-foam: #c1dce8;
+  --salt-mist: #9ab9c7;
+  --salt-whisper: rgba(170, 220, 240, 0.18);
+  --salt-ghost: rgba(170, 220, 240, 0.1);
+  --glow-primary: rgba(91, 191, 231, 0.22);
+}
+
+html[data-marea-theme='midnight'] body {
+  background-image:
+    radial-gradient(78rem 32rem at 18% -8%, rgba(65, 171, 218, 0.16), transparent 64%),
+    radial-gradient(64rem 30rem at 92% 0%, rgba(80, 192, 226, 0.1), transparent 60%),
+    radial-gradient(48rem 28rem at 50% 116%, rgba(36, 136, 194, 0.1), transparent 62%);
+}
+
+html[data-marea-theme='midnight'] .marea-nav-item-active {
+  background: linear-gradient(135deg, rgba(69, 165, 202, 0.3), rgba(20, 82, 111, 0.28));
+  box-shadow:
+    inset 0 1px rgba(207, 243, 255, 0.12),
+    0 5px 14px rgba(0, 8, 15, 0.18);
+}
+
+html[data-marea-theme='midnight'] .bg-white {
+  background-color: rgba(12, 37, 54, 0.94) !important;
+}
+
+html[data-marea-theme='midnight'] [role='dialog']:not(.marea-glass-panel) {
+  background-color: rgba(7, 27, 43, 0.98) !important;
+}
+
+html[data-marea-theme='midnight'] [role='dialog'] footer:not(.marea-glass-surface) {
+  background-color: rgba(7, 27, 43, 0.98) !important;
+}
+
+html[data-marea-reduced-motion='true'] *,
+html[data-marea-reduced-motion='true'] *::before,
+html[data-marea-reduced-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+/* === Enhanced mobile glass UI (progressive chart resolution era) === */
+
+/* Stronger frosted-glass blur on mobile for deeper liquid-glass feel */
+@media (max-width: 768px) {
+  .marea-glass-panel {
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(200%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(200%);
+  }
+  .marea-player-bar {
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(200%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(200%);
+    box-shadow:
+      0 -10px 32px rgba(13, 111, 168, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+  }
+  /* Spring scale on touch for glass cards */
+  .marea-glass-card:active {
+    transform: scale(0.96);
+    transition: transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .marea-glass-hero {
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(180%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(180%);
+  }
+  /* Spring animation for nav items on tap */
+  [class*="marea-nav-item"]:active {
+    transform: scale(0.97);
+    transition: transform 120ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  /* Glass rail scroll with stronger friction and momentum */
+  .marea-rail-scroll {
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+}
+
+/* Glow border for the currently-playing card */
+.marea-glass-card.marea-now-playing-card {
+  border-color: var(--glass-border-active);
+  box-shadow:
+    var(--glass-shadow),
+    0 0 0 1px color-mix(in srgb, var(--glass-border-active) 52%, transparent),
+    0 0 28px rgba(13, 111, 168, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.56);
+}
+
+/* Soft floating animation on the cover art of the playing track */
+@keyframes marea-floating-cover {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .marea-glass-card.marea-now-playing-card img:first-child {
+    animation: marea-floating-cover 4s ease-in-out infinite;
+  }
+}
+
+/* Status pills transition smoothly on mobile */
+@media (pointer: coarse) {
+  [class*="rounded-full"][class*="bg-"] {
+    transition: background-color 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marea-glass-card.marea-now-playing-card img:first-child {
+    animation: none;
+  }
+  .marea-glass-card:active {
+    transform: none;
+    transition: none;
+  }
+}
+
