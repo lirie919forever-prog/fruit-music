@@ -276,7 +276,7 @@ function matchingFullTracks(
   return matches.map(({ candidate }) => candidate);
 }
 
-type FullTrackSearchSource = (query: string) => Promise<Song[]>;
+type FullTrackSearchSource = (query: string, signal?: AbortSignal) => Promise<Song[]>;
 
 interface FullTrackSearchOptions {
   queryLimit?: number;
@@ -303,11 +303,12 @@ async function searchFullTrackSources(
 ): Promise<Song[]> {
   if (sources.length === 0) return [];
 
-  // Race-style resolve: as soon as ANY source finds matches, return them.
-  // This prevents slow sources (e.g., Invidious at 12s timeout) from blocking
-  // chart rows where a fast source (e.g., Netease at 300ms) already found a
-  // match. Remaining sources check \`hasEarlyMatch\` at the top of each
-  // query loop iteration and exit early once matches exist.
+  // A per-search AbortController cancels slow source HTTP requests
+  // as soon as a fast source finds matches. Without this, abandoned fetch
+  // requests (e.g., Invidious at 12s) would saturate the browser's fetch
+  // connection pool and delay later chart rows.
+  const linked = createLinkedAbortController(signal);
+  const searchSignal = linked.controller.signal;
   const allMatches: Song[] = [];
   let earlyResolve!: () => void;
   const matchedOrAllDone = new Promise<void>((resolve) => {
@@ -317,10 +318,10 @@ async function searchFullTrackSources(
   const sourcePromises = sources.map(async (search) => {
     try {
       for (const query of queries) {
-        throwIfAborted(signal);
+        throwIfAborted(searchSignal);
         if (allMatches.length > 0) return;
         const matches = matchingFullTracks(
-          await search(query),
+          await search(query, searchSignal),
           title,
           artist,
           true,
@@ -330,10 +331,17 @@ async function searchFullTrackSources(
         if (matches.length > 0) {
           allMatches.push(...matches);
           earlyResolve();
+          // Cancel remaining in-flight source HTTP requests so they stop
+          // occupying the browser's fetch connection pool.
+          if (!searchSignal.aborted) {
+            linked.controller.abort(new DOMException('Search matched early', 'AbortError'));
+          }
           return;
         }
       }
     } catch {
+      // Aborted by the linked controller or an upstream signal; throw only
+      // if the parent signal aborted.
       throwIfAborted(signal);
     }
   });
@@ -344,7 +352,7 @@ async function searchFullTrackSources(
     matchedOrAllDone,
     Promise.allSettled(sourcePromises).then(() => earlyResolve()),
   ]);
-
+  linked.dispose();
   return allMatches;
 }
 
@@ -379,31 +387,31 @@ async function findFullTrackCandidates(
   ].slice(0, Math.max(1, Math.min(options.queryLimit ?? 3, 3)));
   const primarySources: FullTrackSearchSource[] = [];
   if (options.excludeProvider !== 'Kuwo') {
-    primarySources.push((query) =>
-      kuwoProvider.search(query, signal, options.softResolverSearch ? { soft: true } : undefined),
+    primarySources.push((query, sourceSignal) =>
+      kuwoProvider.search(query, sourceSignal, options.softResolverSearch ? { soft: true } : undefined),
     );
   }
   if (options.excludeProvider !== 'QQ Music') {
-    primarySources.push((query) => qqMusicProvider.search(query, signal));
+    primarySources.push((query, sourceSignal) => qqMusicProvider.search(query, sourceSignal));
   }
   if (options.excludeProvider !== 'Bilibili') {
-    primarySources.push((query) => bilibiliProvider.search(query, signal));
+    primarySources.push((query, sourceSignal) => bilibiliProvider.search(query, sourceSignal));
   }
   if (options.excludeProvider !== 'Invidious') {
-    primarySources.push((query) => invidiousProvider.search(query, signal));
+    primarySources.push((query, sourceSignal) => invidiousProvider.search(query, sourceSignal));
   }
   if (options.excludeProvider !== 'Netease') {
-    primarySources.push((query) => neteaseProvider.search(query, signal));
+    primarySources.push((query, sourceSignal) => neteaseProvider.search(query, sourceSignal));
   }
   if (
     options.includeLx === true &&
     options.excludeProvider !== 'LX Music' &&
     process.env.NEXT_PUBLIC_LX_ENABLED === 'true'
   ) {
-    primarySources.push((query) => lxmusicProvider.search(query, signal));
+    primarySources.push((query, sourceSignal) => lxmusicProvider.search(query, sourceSignal));
   }
   if (options.includeAudius !== false && options.excludeProvider !== 'Audius') {
-    primarySources.push((query) => audiusProvider.search(query, signal));
+    primarySources.push((query, sourceSignal) => audiusProvider.search(query, sourceSignal));
   }
 
   let candidates = await searchFullTrackSources(
@@ -422,11 +430,11 @@ async function findFullTrackCandidates(
     // can recover covers, live versions, and independent releases without
     // pretending an official preview is a full stream.
     const openSources: FullTrackSearchSource[] = [
-      (query) => jamendoProvider.search(query, signal),
-      (query) => ccmixterProvider.search(query, signal),
-      (query) => archiveProvider.search(query, signal),
-      (query) => openverseProvider.search(query, signal),
-      (query) => wikimediaProvider.search(query, signal),
+      (query, sourceSignal) => jamendoProvider.search(query, sourceSignal),
+      (query, sourceSignal) => ccmixterProvider.search(query, sourceSignal),
+      (query, sourceSignal) => archiveProvider.search(query, sourceSignal),
+      (query, sourceSignal) => openverseProvider.search(query, sourceSignal),
+      (query, sourceSignal) => wikimediaProvider.search(query, sourceSignal),
     ];
     candidates = await searchFullTrackSources(
       openSources,
@@ -736,9 +744,9 @@ async function findFullTrackFallback(
 // before the UI presents it as playable.
 const CHART_FULL_TRACK_LIMIT = 50;
 const CHART_SHELF_TRACK_LIMIT = 18;
-const CHART_FULL_TRACK_WORKERS = 4;
+const CHART_FULL_TRACK_WORKERS = 8;
 const CHART_SHELF_WORKERS = 2;
-const CHART_FULL_TRACK_TIMEOUT_MS = PLAYBACK_RESOLUTION_TIMEOUT_MS + 12_000;
+const CHART_FULL_TRACK_TIMEOUT_MS = PLAYBACK_RESOLUTION_TIMEOUT_MS + 20_000;
 const CHART_SHELF_TIMEOUT_MS = PLAYBACK_RESOLUTION_TIMEOUT_MS + 5_000;
 
 // Audius rate-limits aggressively (429) when hit in a background fan-out.
