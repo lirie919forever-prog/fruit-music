@@ -20,6 +20,31 @@ const NETEASE_HEADERS: Record<string, string> = {
 
 const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 120, maxEntries: 4_000 });
 
+function metingStreamUrl(songId: string): string {
+  return `https://api.injahow.cn/meting/?type=url&id=${songId}`;
+}
+
+function neteaseOuterUrl(songId: string): string {
+  return `https://music.163.com/song/media/outer/url?id=${songId}.mp3`;
+}
+
+/**
+ * Meting returns application/octet-stream (with a large Content-Length) for
+ * valid MP3 streams on Vercel's edge runtime, while VIP / unavailable songs
+ * return tiny or non-audio payloads. Accept audio, mpeg, or a sizable
+ * octet-stream body as a playable stream.
+ */
+function isAudioLike(contentType: string, contentLength: string | null): boolean {
+  const ct = contentType.toLowerCase();
+  if (ct.includes('audio') || ct.includes('mpeg')) return true;
+  if (ct.includes('octet-stream') && contentLength && Number(contentLength) > 1024) return true;
+  return false;
+}
+
+function upContentLength(resp: Response): string | null {
+  return resp.headers.get('Content-Length') ?? resp.headers.get('content-length');
+}
+
 interface NeteaseSearchSong {
   id: number;
   name: string;
@@ -97,46 +122,55 @@ export async function GET(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'Invalid song ID' }, { status: 400 });
     }
 
-    // Use the public meting API proxy which reliably returns MP3 streams.
-    // The Netease outer URL endpoint frequently returns 404 for popular songs
-    // due to VIP restrictions; the meting proxy handles authentication internally.
-    const streamUrl = `https://api.injahow.cn/meting/?type=url&id=${songId}`;
+    const rangeHeader = request.headers.get('Range') ?? undefined;
 
-    // Probe: check if the meting API returns an audio stream
+    // Probe: check if any Netease source returns an audio stream.
     if (new URL(request.url).searchParams.get('probe') === '1') {
       try {
-        const probeResponse = await fetch(streamUrl, {
+        const meting = await fetch(metingStreamUrl(songId), {
           signal,
           headers: { 'User-Agent': NETEASE_HEADERS['User-Agent'] },
         });
-        const contentType = probeResponse.headers.get('Content-Type') ?? '';
-        const available = contentType.includes('audio') || contentType.includes('mpeg');
-        return NextResponse.json({ available });
+        if (isAudioLike(meting.headers.get('Content-Type') ?? '', upContentLength(meting))) {
+          return NextResponse.json({ available: true });
+        }
+        // Fallback: Netease outer URL serves non-VIP tracks from server IPs.
+        const outer = await fetch(neteaseOuterUrl(songId), {
+          signal,
+          headers: { 'User-Agent': NETEASE_HEADERS['User-Agent'] },
+        });
+        const outerAvailable =
+          outer.ok && isAudioLike(outer.headers.get('Content-Type') ?? '', upContentLength(outer));
+        return NextResponse.json({ available: outerAvailable });
       } catch {
         return NextResponse.json({ available: false });
       }
     }
 
-    // Stream proxy via the meting API
+    // Stream proxy: try meting first, then fall back to the outer URL.
     try {
-      const upstream = await fetch(streamUrl, {
-        signal,
-        headers: {
-          'User-Agent': NETEASE_HEADERS['User-Agent'],
-          ...(request.headers.get('Range') ? { Range: request.headers.get('Range')! } : {}),
-        },
-      });
+      const streamHeaders: Record<string, string> = {
+        'User-Agent': NETEASE_HEADERS['User-Agent'],
+      };
+      if (rangeHeader) streamHeaders['Range'] = rangeHeader;
 
-      const contentType = upstream.headers.get('Content-Type') ?? '';
-      if (!contentType.includes('audio') && !contentType.includes('mpeg')) {
+      let upstream = await fetch(metingStreamUrl(songId), { signal, headers: streamHeaders });
+      let contentType = upstream.headers.get('Content-Type') ?? '';
+      if (!isAudioLike(contentType, upContentLength(upstream))) {
+        await upstream.body?.cancel().catch(() => {});
+        upstream = await fetch(neteaseOuterUrl(songId), { signal, headers: streamHeaders });
+        contentType = upstream.headers.get('Content-Type') ?? '';
+      }
+
+      const contentLength = upContentLength(upstream);
+      if (!isAudioLike(contentType, contentLength)) {
         return NextResponse.json({ error: 'Netease stream is unavailable for this song' }, { status: 502 });
       }
 
       const headers = new Headers();
       const ct = mediaContentType(contentType) ?? 'audio/mpeg';
       headers.set('Content-Type', ct);
-      const cl = upstream.headers.get('Content-Length');
-      if (cl) headers.set('Content-Length', cl);
+      if (contentLength) headers.set('Content-Length', contentLength);
       const cr = upstream.headers.get('Content-Range');
       if (cr && validContentRange(cr)) headers.set('Content-Range', cr);
       headers.set('Accept-Ranges', 'bytes');
