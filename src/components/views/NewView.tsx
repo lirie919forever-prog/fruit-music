@@ -727,7 +727,7 @@ function ReleaseRail({
 }) {
   return (
     <div
-      className="rail-scroll -mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-1"
+      className="rail-scroll marea-rail-scroll -mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-1"
       aria-label="New releases"
     >
       {songs.map((song, index) => (
@@ -1278,7 +1278,7 @@ export function NewView({
           />
           {heroSongs.length > 1 && (
             <Shelf title="Also in the spotlight">
-              <div className="rail-scroll flex snap-x snap-mandatory scroll-pl-0 gap-3 overflow-x-auto [overflow-anchor:none] lg:grid lg:grid-cols-2 lg:gap-4 lg:overflow-visible">
+              <div className="rail-scroll marea-rail-scroll flex snap-x snap-mandatory scroll-pl-0 gap-3 overflow-x-auto [overflow-anchor:none] lg:grid lg:grid-cols-2 lg:gap-4 lg:overflow-visible">
                 {heroSongs.slice(1).map((song, index) => (
                   <div key={song.id} className="w-[88%] max-w-[480px] shrink-0 snap-start lg:w-auto lg:max-w-none">
                     <EditorialBanner

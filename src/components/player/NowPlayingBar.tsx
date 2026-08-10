@@ -3,6 +3,7 @@
 import {
   Heart,
   ListMusic,
+  MoreHorizontal,
   Music,
   Pause,
   Play,
@@ -12,8 +13,6 @@ import {
   SkipBack,
   SkipForward,
   Sparkles,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
@@ -40,6 +39,7 @@ function ControlButton({
   pressed,
   onClick,
   disabled = false,
+  className = '',
   children,
 }: {
   active?: boolean;
@@ -47,6 +47,7 @@ function ControlButton({
   pressed?: boolean;
   onClick: () => void;
   disabled?: boolean;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -56,7 +57,7 @@ function ControlButton({
       disabled={disabled}
       aria-label={label}
       aria-pressed={pressed}
-      className="marea-glass-control flex h-8 w-8 items-center justify-center rounded-full text-[var(--salt-mist)] hover:text-[var(--salt-white)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+      className={`marea-glass-control flex h-10 w-10 items-center justify-center rounded-full text-[var(--salt-mist)] hover:text-[var(--salt-white)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent lg:h-8 lg:w-8 ${className}`}
       style={{ color: active ? 'var(--salt-primary)' : undefined }}
     >
       {children}
@@ -79,11 +80,13 @@ function SeekSlider({
   const seekable = duration > 0 && !isLive;
   return (
     <div className="group flex w-full max-w-[280px] flex-col gap-1">
-      <div className="relative h-[2px] rounded-full bg-[var(--salt-ghost)] transition-all duration-200 group-hover:h-[6px] group-focus-within:h-[6px]">
-        <div
-          className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--salt-bright),var(--salt-primary))]"
-          style={{ width: `${progressPct}%` }}
-        />
+      <div className="relative h-6">
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-[var(--salt-ghost)] transition-all duration-200 group-hover:h-[6px] group-focus-within:h-[6px]">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--salt-bright),var(--salt-primary))]"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
         <input
           type="range"
           min={0}
@@ -129,8 +132,8 @@ function MobileSeekBar({
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-[env(safe-area-inset-bottom)] z-10 block px-3 pb-1 md:hidden">
-      <div className="relative h-3">
-        <div className="pointer-events-none absolute inset-x-0 top-1.5 h-[3px] rounded-full bg-[var(--salt-ghost)]">
+      <div className="relative h-6">
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-[var(--salt-ghost)]">
           <div
             className="absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--salt-bright),var(--salt-primary))]"
             style={{ width: `${progressPct}%` }}
@@ -146,35 +149,98 @@ function MobileSeekBar({
           disabled={!seekable}
           aria-valuetext={isLive ? 'Live stream' : `${formatTime(progress)} of ${formatTime(duration)}`}
           onChange={(event) => onSeek(Number(event.target.value))}
-          className="player-range pointer-events-auto absolute inset-x-0 top-0 h-3"
+          className="player-range pointer-events-auto absolute inset-0"
         />
       </div>
     </div>
   );
 }
 
-function MobileVolumeControl({ disabled }: { disabled: boolean }) {
+function MobileMoreControls({
+  disabled,
+  autoplay,
+  onToggleAutoplay,
+  repeat,
+  onToggleRepeat,
+  onOpenLyrics,
+  onOpenQueue,
+}: {
+  disabled: boolean;
+  autoplay: boolean;
+  onToggleAutoplay: () => void;
+  repeat: 'off' | 'all' | 'one';
+  onToggleRepeat: () => void;
+  onOpenLyrics: () => void;
+  onOpenQueue: () => void;
+}) {
   const [open, setOpen] = useState(false);
-  const volume = usePlayerStore((state) => state.volume);
-  const muted = volume === 0;
 
   return (
     <div className="relative md:hidden">
       <ControlButton
-        label={open ? 'Close volume controls' : 'Open volume controls'}
+        label={open ? 'Close more controls' : 'Open more controls'}
         pressed={open}
         onClick={() => setOpen((value) => !value)}
-        disabled={disabled}
       >
-        {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+        <MoreHorizontal size={17} />
       </ControlButton>
       {open && (
         <div
           role="dialog"
-          aria-label="Volume controls"
-          className="marea-glass-panel absolute bottom-10 right-0 z-20 rounded-xl border p-3 shadow-xl"
+          aria-label="More player controls"
+          className="marea-glass-panel absolute bottom-12 right-0 z-20 w-56 rounded-xl border p-3 shadow-xl"
         >
-          <VolumeSlider />
+          <div className="grid grid-cols-2 gap-1">
+            <button
+              type="button"
+              onClick={onOpenLyrics}
+              disabled={disabled}
+              className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-[var(--salt-white)] transition-colors hover:bg-[var(--glass-bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Music className="h-4 w-4 shrink-0 text-[var(--salt-primary)]" aria-hidden />
+              Lyrics
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onOpenQueue();
+              }}
+              disabled={disabled}
+              className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-[var(--salt-white)] transition-colors hover:bg-[var(--glass-bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ListMusic className="h-4 w-4 shrink-0 text-[var(--salt-primary)]" aria-hidden />
+              Queue
+            </button>
+          </div>
+          <div className="mt-2 border-t border-[var(--glass-border)] pt-2">
+            <span className="mb-1 block px-2 text-[10px] font-semibold uppercase tracking-[0.04em] text-[var(--salt-mist)]">
+              Volume
+            </span>
+            <VolumeSlider />
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-1 border-t border-[var(--glass-border)] pt-2">
+            <button
+              type="button"
+              onClick={onToggleAutoplay}
+              disabled={disabled}
+              aria-pressed={autoplay}
+              className={`flex min-h-10 items-center justify-center gap-1 rounded-lg px-2 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${autoplay ? 'bg-[var(--glass-bg-hover)] text-[var(--salt-primary)]' : 'text-[var(--salt-mist)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)]'}`}
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              Autoplay
+            </button>
+            <button
+              type="button"
+              onClick={onToggleRepeat}
+              disabled={disabled}
+              aria-pressed={repeat !== 'off'}
+              className={`flex min-h-10 items-center justify-center gap-1 rounded-lg px-2 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${repeat !== 'off' ? 'bg-[var(--glass-bg-hover)] text-[var(--salt-primary)]' : 'text-[var(--salt-mist)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--salt-white)]'}`}
+            >
+              {repeat === 'one' ? <Repeat1 className="h-3.5 w-3.5" /> : <Repeat className="h-3.5 w-3.5" />}
+              {repeat === 'one' ? 'Repeat one' : repeat === 'all' ? 'Repeat all' : 'Repeat'}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -238,9 +304,8 @@ export function NowPlayingBar({
   return (
     <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50">
       <div
-        className="marea-player-surface relative pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t px-3 md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
+        className="marea-player-surface marea-player-bar relative pointer-events-auto grid min-h-[calc(var(--player-bar-height)_+_env(safe-area-inset-bottom))] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t px-3 md:min-h-[calc(var(--player-bar-desktop-height)_+_env(safe-area-inset-bottom))] md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
         style={{
-          minHeight: 'calc(var(--player-bar-height) + env(safe-area-inset-bottom))',
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
@@ -262,47 +327,63 @@ export function NowPlayingBar({
                 loading="eager"
                 className="h-12 w-12 shrink-0 rounded-lg object-cover shadow-[0_5px_16px_rgba(25,93,129,0.22)] ring-1 ring-white/60"
               />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <motion.button
                   whileTap={{ scale: 0.96 }}
                   onClick={() => setCurrentView('now-playing')}
-                  className="block max-w-[180px] truncate text-left text-[13px] font-medium leading-tight text-[var(--salt-white)] hover:text-[var(--salt-primary)]"
+                  className="block w-full min-w-0 truncate text-left text-[13px] font-medium leading-tight text-[var(--salt-white)] hover:text-[var(--salt-primary)]"
                 >
                   {currentSong.title}
                 </motion.button>
-                {status === 'loading' ? (
-                  <p className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--salt-mist)]">
-                    Loading…
-                  </p>
-                ) : status === 'error' ? (
-                  <p
-                    className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--danger)]"
-                    title={error ?? undefined}
-                  >
-                    {error || 'Playback failed'}
-                  </p>
-                ) : onNavigateWithItem ? (
-                  <motion.button
-                    whileTap={{ scale: 0.96 }}
-                    type="button"
-                    onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: currentSong.artistId })}
-                    className="mt-0.5 block max-w-[180px] truncate text-left text-xs leading-tight text-[var(--salt-mist)] hover:text-[var(--salt-primary)] focus-visible:outline-none"
-                  >
-                    {currentSong.artist}
-                  </motion.button>
-                ) : (
-                  <p className="mt-0.5 max-w-[180px] truncate text-xs leading-tight text-[var(--salt-mist)]">
-                    {currentSong.artist}
-                  </p>
-                )}
-                <PlaybackSourceNotice
-                  catalogSong={currentSong}
-                  effectiveSong={effectiveSong}
-                  compact
-                  verified={
-                    (status === 'ready' || status === 'playing' || status === 'paused') && (duration > 0 || isLive)
-                  }
-                />
+                <div className="mt-0.5 flex min-w-0 items-center gap-1">
+                  {status === 'loading' ? (
+                    <p className="min-w-0 flex-1 truncate text-xs leading-tight text-[var(--salt-mist)]">Loading…</p>
+                  ) : status === 'error' ? (
+                    <p
+                      className="min-w-0 flex-1 truncate text-xs leading-tight text-[var(--danger)]"
+                      title={error ?? undefined}
+                    >
+                      {error || 'Playback failed'}
+                    </p>
+                  ) : onNavigateWithItem ? (
+                    <motion.button
+                      whileTap={{ scale: 0.96 }}
+                      type="button"
+                      onClick={() => onNavigateWithItem('artists', { kind: 'artist', id: currentSong.artistId })}
+                      className="block min-w-0 flex-1 truncate text-left text-xs leading-tight text-[var(--salt-mist)] hover:text-[var(--salt-primary)] focus-visible:outline-none"
+                    >
+                      {currentSong.artist}
+                    </motion.button>
+                  ) : (
+                    <p className="min-w-0 flex-1 truncate text-xs leading-tight text-[var(--salt-mist)]">
+                      {currentSong.artist}
+                    </p>
+                  )}
+                  {status !== 'loading' && status !== 'error' && (
+                    <div className="shrink-0 md:hidden">
+                      <PlaybackSourceNotice
+                        catalogSong={currentSong}
+                        effectiveSong={effectiveSong}
+                        compact
+                        mobileShort
+                        verified={
+                          (status === 'ready' || status === 'playing' || status === 'paused') &&
+                          (duration > 0 || isLive)
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+                <div className="hidden md:block">
+                  <PlaybackSourceNotice
+                    catalogSong={currentSong}
+                    effectiveSong={effectiveSong}
+                    compact
+                    verified={
+                      (status === 'ready' || status === 'playing' || status === 'paused') && (duration > 0 || isLive)
+                    }
+                  />
+                </div>
               </div>
               <motion.button
                 whileTap={{ scale: 0.96 }}
@@ -320,7 +401,9 @@ export function NowPlayingBar({
               <div className="marea-glass-control flex h-12 w-12 items-center justify-center rounded-lg text-[var(--salt-mist)]">
                 <Music className="h-5 w-5" aria-hidden />
               </div>
-              <span className="text-[13px]">{status === 'error' ? 'Playback unavailable' : 'Not playing'}</span>
+              <span className="whitespace-nowrap text-[13px] max-[359px]:hidden">
+                {status === 'error' ? 'Playback unavailable' : 'Not playing'}
+              </span>
             </div>
           )}
         </div>
@@ -377,7 +460,7 @@ export function NowPlayingBar({
 
         <div className="flex items-center justify-end gap-1 md:gap-3">
           <div className="flex items-center md:hidden">
-            <ControlButton label="Previous" onClick={previous} disabled={!hasTrack}>
+            <ControlButton className="max-[359px]:hidden" label="Previous" onClick={previous} disabled={!hasTrack}>
               <SkipBack className="h-[18px] w-[18px] fill-current" aria-hidden />
             </ControlButton>
             <motion.button
@@ -390,23 +473,24 @@ export function NowPlayingBar({
             >
               {playIcon}
             </motion.button>
-            <ControlButton label="Next" onClick={next} disabled={!canGoNext}>
+            <ControlButton className="max-[359px]:hidden" label="Next" onClick={next} disabled={!canGoNext}>
               <SkipForward className="h-[18px] w-[18px] fill-current" aria-hidden />
             </ControlButton>
-            <ControlButton label="Queue" onClick={openQueue} disabled={!hasTrack}>
+            <ControlButton className="max-[359px]:hidden" label="Queue" onClick={openQueue} disabled={!hasTrack}>
               <ListMusic size={17} />
             </ControlButton>
-            <ControlButton
-              label="Lyrics"
-              onClick={() => {
+            <MobileMoreControls
+              disabled={!hasTrack}
+              autoplay={autoplay}
+              onToggleAutoplay={toggleAutoplay}
+              repeat={repeat}
+              onToggleRepeat={toggleRepeat}
+              onOpenLyrics={() => {
                 setNowPlayingPanel('lyrics');
                 setCurrentView('now-playing');
               }}
-              disabled={!hasTrack}
-            >
-              <Music size={16} />
-            </ControlButton>
-            <MobileVolumeControl disabled={!hasTrack} />
+              onOpenQueue={openQueue}
+            />
           </div>
           <div className="hidden items-center gap-3 md:flex">
             <VolumeSlider />

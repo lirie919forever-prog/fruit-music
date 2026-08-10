@@ -59,6 +59,8 @@
      remembering to change a number somewhere else or clipping the last row. */
   --player-bar-height: 72px;
   --player-bar-clearance: calc(var(--player-bar-height) + 16px + env(safe-area-inset-bottom));
+  --player-bar-desktop-height: 92px;
+  --player-bar-desktop-clearance: calc(var(--player-bar-desktop-height) + 16px + env(safe-area-inset-bottom));
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -321,7 +323,7 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
   margin: 0;
 }
 .player-range::-webkit-slider-runnable-track {
-  height: 100%;
+  height: 3px;
   background: transparent;
 }
 .player-range::-webkit-slider-thumb {
@@ -329,7 +331,7 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
   appearance: none;
   width: 13px;
   height: 13px;
-  margin-top: -3.5px;
+  margin-top: -5px;
   border-radius: 999px;
   border: 2px solid white;
   background: var(--salt-primary);
@@ -338,7 +340,7 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
   box-shadow: 0 2px 7px rgba(23, 93, 132, 0.28);
 }
 .player-range::-moz-range-track {
-  height: 100%;
+  height: 3px;
   background: transparent;
 }
 .player-range::-moz-range-thumb {
@@ -443,6 +445,94 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+
+/* === Mobile UX optimizations === */
+
+/* Scroll snap for horizontal rails — cards align cleanly as you flick */
+.marea-rail-scroll {
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scroll-padding-left: 1rem;
+}
+.marea-rail-scroll > * {
+  scroll-snap-align: start;
+}
+
+/* Mobile-only: stronger glass on the player bar for a frosted dock effect */
+@media (max-width: 768px) {
+  .marea-player-bar {
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(180%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 10px)) saturate(180%);
+    background: linear-gradient(180deg, var(--glass-surface-strong), var(--glass-surface));
+    box-shadow:
+      0 -8px 24px rgba(25, 93, 129, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    border-top: 1px solid var(--glass-border);
+  }
+}
+
+/* Glass shimmer effect for hero and spotlight on mobile */
+.marea-glass-hero {
+  border: 1px solid var(--glass-border);
+  background: linear-gradient(135deg, var(--glass-surface-strong), var(--glass-surface));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(170%);
+  backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(170%);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.48);
+}
+
+/* Prevent text selection on touch UI controls */
+@media (pointer: coarse) {
+  .marea-glass-control,
+  .marea-glass-surface,
+  .marea-rail-scroll {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* Mobile: enlarge touch targets for station/track name buttons */
+@media (max-width: 768px) {
+  .marea-rail-scroll button,
+  .marea-rail-scroll [role="button"] {
+    min-height: 44px;
+  }
+  /* Ensure the scroll container has room below the player bar */
+  .marea-scroll-container {
+    scroll-padding-bottom: calc(var(--player-bar-clearance) + 1rem);
+  }
+}
+
+/* Smooth scroll for the main content pane */
+.marea-scroll-pane {
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+}
+
+/* Glass glow on hover for track cards — adds depth on desktop */
+@media (hover: hover) {
+  .marea-glass-card {
+    transition: box-shadow 280ms cubic-bezier(0.22, 1, 0.36, 1),
+                border-color 280ms ease;
+  }
+  .marea-glass-card:hover {
+    border-color: var(--glass-border-active);
+    box-shadow:
+      var(--glass-shadow),
+      0 0 0 1px color-mix(in srgb, var(--glass-border-active) 40%, transparent),
+      0 12px 32px rgba(13, 111, 168, 0.14);
+  }
+}
+
+/* Active state for glass cards on touch — scale down slightly */
+@media (hover: none) and (pointer: coarse) {
+  .marea-glass-card:active {
+    transform: scale(0.97);
+    border-color: var(--glass-border-active);
   }
 }
 

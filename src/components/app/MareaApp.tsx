@@ -1,25 +1,15 @@
 'use client';
 
 import { Settings, Search, Moon, ListMusic, Sun } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Providers } from '@/app/providers';
 import { NowPlayingBar } from '@/components/player/NowPlayingBar';
-import { QueueDrawer } from '@/components/player/QueueDrawer';
 import { QueueRail } from '@/components/player/QueueRail';
 import { CoverArt } from '@/components/ui/CoverArt';
 import { Sidebar, MobileNavigation } from '@/components/layout/Sidebar';
-import { ProviderDetailView } from '@/components/views/ProviderDetailView';
-import { AlbumGrid } from '@/components/views/AlbumGrid';
-import { ArtistGrid } from '@/components/views/ArtistGrid';
-import { CategoryGrid, type CategoryConfig } from '@/components/views/CategoryGrid';
-import { PersonalLibraryView } from '@/components/views/PersonalLibraryView';
-import { NowPlayingView } from '@/components/views/NowPlayingView';
-import { PlaylistsView } from '@/components/views/PlaylistsView';
+import type { CategoryConfig } from '@/components/views/CategoryGrid';
 import { NewView } from '@/components/views/NewView';
-import { RadioView } from '@/components/views/RadioView';
-import { SearchView } from '@/components/views/SearchView';
-import { SourceDirectoryView } from '@/components/views/SourceDirectoryView';
-import { SettingsDrawer } from '@/components/settings/SettingsDrawer';
 import { useToast } from '@/components/ui/Toast';
 import { buildNavigationUrl, parseNavigation, type NavigationItem } from '@/lib/navigation';
 import { getViewTitle } from '@/lib/theme';
@@ -31,14 +21,80 @@ import { useAudio } from '@/components/player/AudioProvider';
 import { PlayerStoreProvider, usePlayerStore } from '@/store/playerStore';
 import type { ViewType } from '@/types/music';
 import { motion } from 'motion/react';
+
+function ViewLoading() {
+  return (
+    <div className="flex min-h-[min(42vh,420px)] items-center justify-center" role="status">
+      <span className="marea-glass-control flex h-11 w-11 items-center justify-center rounded-lg border">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--salt-primary)] border-t-transparent" />
+      </span>
+      <span className="sr-only">Loading view</span>
+    </div>
+  );
+}
+
+function OverlayLoading() {
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-[rgba(239,248,253,0.62)] backdrop-blur-sm"
+      role="status"
+    >
+      <span className="marea-glass-control flex h-12 w-12 items-center justify-center rounded-lg border">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--salt-primary)] border-t-transparent" />
+      </span>
+      <span className="sr-only">Loading panel</span>
+    </div>
+  );
+}
+
+const QueueDrawer = dynamic(() => import('@/components/player/QueueDrawer').then((module) => module.QueueDrawer), {
+  loading: OverlayLoading,
+});
+const SettingsDrawer = dynamic(
+  () => import('@/components/settings/SettingsDrawer').then((module) => module.SettingsDrawer),
+  { loading: OverlayLoading },
+);
+const ProviderDetailView = dynamic(
+  () => import('@/components/views/ProviderDetailView').then((module) => module.ProviderDetailView),
+  { loading: ViewLoading },
+);
+const AlbumGrid = dynamic(() => import('@/components/views/AlbumGrid').then((module) => module.AlbumGrid), {
+  loading: ViewLoading,
+});
+const ArtistGrid = dynamic(() => import('@/components/views/ArtistGrid').then((module) => module.ArtistGrid), {
+  loading: ViewLoading,
+});
+const CategoryGrid = dynamic(() => import('@/components/views/CategoryGrid').then((module) => module.CategoryGrid), {
+  loading: ViewLoading,
+});
+const PersonalLibraryView = dynamic(
+  () => import('@/components/views/PersonalLibraryView').then((module) => module.PersonalLibraryView),
+  { loading: ViewLoading },
+);
+const NowPlayingView = dynamic(
+  () => import('@/components/views/NowPlayingView').then((module) => module.NowPlayingView),
+  {
+    loading: ViewLoading,
+  },
+);
+const PlaylistsView = dynamic(() => import('@/components/views/PlaylistsView').then((module) => module.PlaylistsView), {
+  loading: ViewLoading,
+});
+const RadioView = dynamic(() => import('@/components/views/RadioView').then((module) => module.RadioView), {
+  loading: ViewLoading,
+});
+const SearchView = dynamic(() => import('@/components/views/SearchView').then((module) => module.SearchView), {
+  loading: ViewLoading,
+});
+const SourceDirectoryView = dynamic(
+  () => import('@/components/views/SourceDirectoryView').then((module) => module.SourceDirectoryView),
+  { loading: ViewLoading },
+);
 /**
- * Said once, on every chart page. These are Apple's own published charts played
- * through Apple's own 30-second preview clips. A bounded background pass tries
- * to swap each row for a verified full recording, and keeps Apple's ranking and
- * the preview when it cannot; the note says exactly that rather than promising
- * every entry is a full track.
+ * Said once, on every chart page. Apple supplies the ranking metadata, while
+ * the client replaces rows with a verified full source before playback.
  */
-const CHART_NOTE = 'Apple regional chart — official 30-second previews, full recording when a match confirms one';
+const CHART_NOTE = 'Apple regional chart · full-length playback is verified before it starts';
 
 /** Everything a view needs from the shell to render itself. */
 interface ViewContext {
@@ -113,7 +169,7 @@ const VIEWS = {
     description: CHART_NOTE,
     fetchFn: (catalog, signal) => catalog.getChartSongs('billboard', signal),
     queryKey: ['chart', 'billboard'],
-    includePreviews: true,
+    requiresFullLength: true,
   }),
   uk: category({
     view: 'uk',
@@ -121,7 +177,7 @@ const VIEWS = {
     description: CHART_NOTE,
     fetchFn: (catalog, signal) => catalog.getChartSongs('uk', signal),
     queryKey: ['chart', 'uk'],
-    includePreviews: true,
+    requiresFullLength: true,
   }),
   jp: category({
     view: 'jp',
@@ -129,7 +185,7 @@ const VIEWS = {
     description: CHART_NOTE,
     fetchFn: (catalog, signal) => catalog.getChartSongs('jp', signal),
     queryKey: ['chart', 'jp'],
-    includePreviews: true,
+    requiresFullLength: true,
   }),
   trending: category({
     view: 'trending',
@@ -198,7 +254,7 @@ function GlobalSearch({ onSubmit }: { onSubmit: (query: string) => void }) {
         event.preventDefault();
         onSubmit(query.trim());
       }}
-      className="hidden h-9 min-w-0 sm:flex sm:w-[min(31vw,280px)]"
+      className="hidden h-9 min-w-0 lg:flex lg:w-[min(31vw,280px)]"
       role="search"
     >
       <label htmlFor="global-music-search" className="sr-only">
@@ -246,7 +302,7 @@ function HeaderIconButton({
       title={title}
       aria-expanded={expanded}
       whileTap={{ scale: 0.96 }}
-      className={`marea-glass-control flex h-9 w-9 items-center justify-center rounded-lg border text-[var(--salt-mist)] hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+      className={`marea-glass-control flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border text-[var(--salt-mist)] hover:text-[var(--salt-primary)] disabled:cursor-not-allowed disabled:opacity-40 lg:h-9 lg:w-9 ${className}`}
     >
       {children}
     </motion.button>
@@ -579,7 +635,7 @@ function MainContent({
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 {currentView !== 'search' && <GlobalSearch onSubmit={navigateToSearch} />}
                 {currentView !== 'search' && (
-                  <HeaderIconButton label="Search music" onClick={() => navigateToSearch('')} className="sm:hidden">
+                  <HeaderIconButton label="Search music" onClick={() => navigateToSearch('')} className="lg:hidden">
                     <Search className="h-4 w-4" aria-hidden />
                   </HeaderIconButton>
                 )}
@@ -588,6 +644,7 @@ function MainContent({
                   title={currentSong ? 'Open queue' : 'Queue is empty'}
                   onClick={openQueue}
                   disabled={!currentSong}
+                  className="max-sm:hidden"
                 >
                   <ListMusic className="h-4 w-4" aria-hidden />
                 </HeaderIconButton>
@@ -616,10 +673,11 @@ function MainContent({
           <div
             id="main-content"
             tabIndex={-1}
-            className="min-h-0 flex-1 overflow-y-auto px-3 outline-none sm:px-6"
-            style={{
-              paddingBottom: currentView === 'now-playing' ? '24px' : 'var(--player-bar-clearance)',
-            }}
+            className={`marea-scroll-pane min-h-0 flex-1 overflow-y-auto px-3 outline-none sm:px-6 ${
+              currentView === 'now-playing'
+                ? 'pb-6'
+                : 'pb-[var(--player-bar-clearance)] md:pb-[var(--player-bar-desktop-clearance)]'
+            }`}
           >
             <div className="mx-auto w-full max-w-[1400px]">
               {showDetailOverlay && pendingItem?.kind === 'album' && (
@@ -660,7 +718,7 @@ function MainContent({
         )}
       </div>
       {currentView !== 'now-playing' && <NowPlayingBar onNavigateWithItem={navigateWithItem} onOpenQueue={openQueue} />}
-      <QueueDrawer open={queueOpen} onClose={closeQueue} onOpenFullPlayer={openFullPlayer} />
+      {queueOpen && <QueueDrawer open onClose={closeQueue} onOpenFullPlayer={openFullPlayer} />}
       <input
         ref={localFileInputRef}
         type="file"
@@ -675,22 +733,24 @@ function MainContent({
           if (files.length > 0) void localMusic.importFiles(files);
         }}
       />
-      <SettingsDrawer
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        settings={settings}
-        onUpdate={updateSettings}
-        onReset={resetSettings}
-        localSongs={localMusic.songs}
-        localLoading={localMusic.isLoading}
-        localError={localMusic.error}
-        onImportFiles={localMusic.importFiles}
-        onImportDesktopFiles={localMusic.importDesktopFiles}
-        onImportBackgroundImage={importBackgroundImage}
-        onRemoveBackgroundImage={removeBackgroundImage}
-        onRemoveLocalSong={localMusic.removeSong}
-        onClearLocalSongs={localMusic.clear}
-      />
+      {settingsOpen && (
+        <SettingsDrawer
+          open
+          onClose={() => setSettingsOpen(false)}
+          settings={settings}
+          onUpdate={updateSettings}
+          onReset={resetSettings}
+          localSongs={localMusic.songs}
+          localLoading={localMusic.isLoading}
+          localError={localMusic.error}
+          onImportFiles={localMusic.importFiles}
+          onImportDesktopFiles={localMusic.importDesktopFiles}
+          onImportBackgroundImage={importBackgroundImage}
+          onRemoveBackgroundImage={removeBackgroundImage}
+          onRemoveLocalSong={localMusic.removeSong}
+          onClearLocalSongs={localMusic.clear}
+        />
+      )}
     </div>
   );
 }
