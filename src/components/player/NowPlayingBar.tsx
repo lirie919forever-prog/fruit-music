@@ -309,6 +309,7 @@ export function NowPlayingBar({
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
+        <div className="marea-aurora-layer" aria-hidden="true" />
         <div aria-live="polite" className="sr-only">
           {currentSong
             ? status === 'error'
