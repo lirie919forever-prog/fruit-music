@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMusicCatalog } from '@/lib/musicCatalog';
 import { isFullTrack } from './newViewModel';
 import { isPreviewSource } from '@/lib/sourceRegistry';
@@ -21,32 +21,50 @@ const RESOLUTION_TIMEOUT_MS = 35_000;
  * keeps the chart ranking intact (the same list of slots, each replaced in
  * place when a full-track match is verified).
  *
- * State updates are batched. The worker pool fires many `resolveChartTrack`
- * calls in parallel; if each resolution wrote straight into React state the
- * burst of `setResolvedMap` commits across the same render window tripped
- * the React "Maximum update depth exceeded" guard on small viewports. We
- * accumulate resolved tracks in a local mutable buffer and flush them on a
- * single setTimeout(0) tick so many worker completions collapse into one
- * commit per flush - the chart upgrades visibly, without the warning.
+ * Reference stability: the resolver effect depends only on a STABLE content
+ * fingerprint (the joined ids) and the enabled flag - never on the `songs`
+ * array or the `catalog` object identities. Either of those can flip
+ * reference on every render (React Query refetch, parent re-render, a
+ * context value that is not memoized upstream); depending on them respawned
+ * the entire worker pool on every flush, which tripped React's "Maximum
+ * update depth exceeded" guard on the Japan chart. Latest snapshots are held
+ * in refs so the workers always read the newest data without re-subscribing.
+ *
+ * State updates are batched: worker completions accumulate in a mutable buffer
+ * that flushes on a single setTimeout(0) tick so many completions collapse
+ * into one commit, instead of each resolution writing straight into state.
  */
 export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
   const catalog = useMusicCatalog();
   const [resolvedMap, setResolvedMap] = useState<ReadonlyMap<string, Song>>(new Map());
 
-  // Reset the upgrade map whenever the underlying chart data changes (a
-  // refetch replaces the entire list). Without this, a stale resolver would
-  // mix the previous chart's tracks with the new list.
+  // Content fingerprint: stable across renders that hand in a new array
+  // reference with the same ids. Only a real content change (different ids)
+  // restarts hydration; a reference-only change is a no-op for the effects.
+  const songsKey = useMemo(() => songs.map((song) => song.id).join('\n'), [songs]);
+
+  // Latest snapshots in refs. The resolver effect reads these so it can
+  // depend on the stable content key instead of the array/catalog objects,
+  // which would otherwise respawn workers on every flush.
+  const songsRef = useRef(songs);
+  songsRef.current = songs;
+  const catalogRef = useRef(catalog);
+  catalogRef.current = catalog;
+
+  // Reset the merge map only when the chart content actually changes (a
+  // refetch that replaces the entire list). Keying on the content fingerprint
+  // means a reference-only change does NOT wipe the upgrades already made.
   useEffect(() => {
     setResolvedMap(new Map());
-  }, [songs]);
+  }, [songsKey]);
 
   useEffect(() => {
-    if (!enabled || songs.length === 0) return;
+    if (!enabled || songsKey === '') return;
     const controller = new AbortController();
     const signal = controller.signal;
     let nextIndex = 0;
 
-    // Mutable buffer + a single scheduled flush. A new buffer is built per
+    // Mutable buffer + a single scheduled flush. A fresh buffer is built per
     // flush so an in-flight probe can keep appending into the active one
     // without racing the state setter below.
     const buffer = { pending: new Map<string, Song>(), scheduled: false };
@@ -76,17 +94,17 @@ export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
     };
 
     void Promise.all(
-      Array.from({ length: Math.min(RESOLUTION_WORKERS, songs.length) }, async () => {
-        while (nextIndex < songs.length) {
+      Array.from({ length: Math.min(RESOLUTION_WORKERS, songsRef.current.length) }, async () => {
+        while (nextIndex < songsRef.current.length) {
           if (signal.aborted) return;
-          const original = songs[nextIndex++];
+          const original = songsRef.current[nextIndex++];
           // Skip tracks that are already full-length. Even with the chart
           // preview response, a stale React Query cache can contain mixed
           // preview + full rows from a previous progressive upgrade; we
           // never want to upgrade them twice.
           if (isFullTrack(original)) continue;
           try {
-            const full = await catalog.resolveChartTrack(original, signal);
+            const full = await catalogRef.current.resolveChartTrack(original, signal);
             if (full && !signal.aborted) {
               buffer.pending.set(original.id, full);
               scheduleFlush();
@@ -108,7 +126,12 @@ export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
       clearTimeout(timeoutId);
       if (!controller.signal.aborted) controller.abort();
     };
-  }, [songs, enabled, catalog]);
+    // Depend only on the stable content key + the enabled flag. songsRef /
+    // catalogRef hold the latest snapshots; depending on the array or catalog
+    // identities respawns the whole worker pool on every flush, which is the
+    // max-depth loop we deliberately avoid here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [songsKey, enabled]);
 
   return useMemo(() => {
     if (resolvedMap.size === 0) return songs;
