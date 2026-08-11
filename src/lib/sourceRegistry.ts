@@ -223,6 +223,15 @@ export const MUSIC_SOURCE_REGISTRY: readonly MusicSourceDefinition[] = [
     searchable: true,
   },
   {
+    name: 'Kugou',
+    description: 'Kugou Music catalog with strong Japanese, Korean, and Chinese coverage.',
+    homepage: 'https://www.kugou.com/',
+    capabilities: ['match'],
+    integration: 'active',
+    note: 'Full tracks for non-VIP recordings; covers Japanese, Korean, and Chinese music',
+    searchable: true,
+  },
+  {
     name: 'LX Music',
     description: 'Optional operator-configured catalog adapter for additional discovery.',
     homepage: 'https://github.com/lyswhut/lx-music-desktop',

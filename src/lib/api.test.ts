@@ -22,6 +22,7 @@ import {
   ntsProvider,
   openverseProvider,
   qqMusicProvider,
+  kugouProvider,
   radioBrowserProvider,
   radioFranceProvider,
   radioParadiseProvider,
@@ -112,6 +113,10 @@ beforeEach(() => {
   vi.spyOn(bilibiliProvider, 'search').mockResolvedValue([]);
   vi.spyOn(invidiousProvider, 'search').mockResolvedValue([]);
   vi.spyOn(neteaseProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(kugouProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(kugouProvider, 'getSongsByTag').mockResolvedValue([]);
+  vi.spyOn(kugouProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(kugouProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
   vi.spyOn(lxmusicProvider, 'search').mockResolvedValue([]);
   vi.spyOn(lxmusicProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
   vi.spyOn(audiusProvider, 'search').mockResolvedValue([]);
@@ -214,7 +219,7 @@ describe('provider federation', () => {
 
     const defaultResults = await searchFederated('YOASOBI', undefined, 'all');
     expect(defaultResults.results).toEqual([lxResult]);
-    expect(defaultResults.providerCount).toBe(22);
+    expect(defaultResults.providerCount).toBe(23);
     expect(lxmusicProvider.search).toHaveBeenCalledTimes(1);
 
     await expect(searchFederated('YOASOBI', undefined, 'LX Music')).resolves.toEqual({
@@ -234,7 +239,7 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
     expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(21);
+    expect(state.providerCount).toBe(22);
   });
 
   it('distinguishes true empty results from total provider failure', async () => {
@@ -254,7 +259,7 @@ describe('provider federation', () => {
     await expect(searchFederated('missing')).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter', 'Archive'],
-      providerCount: 21,
+      providerCount: 22,
     });
   });
 
@@ -270,7 +275,7 @@ describe('provider federation', () => {
       results: [song('ccmixter-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 21,
+      providerCount: 22,
     });
   });
 

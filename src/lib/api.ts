@@ -5,6 +5,7 @@ import {
   bilibiliProvider,
   invidiousProvider,
   neteaseProvider,
+  kugouProvider,
   ccmixterProvider,
   deezerProvider,
   fipProvider,
@@ -287,8 +288,6 @@ interface FullTrackSearchOptions {
   /** Optional resolver search is opt-in; implicit recovery must stay reliable. */
   includeLx?: boolean;
   excludeProvider?: MusicProviderName;
-  /** Cap on concurrently-probed candidates; bounded so burst chart probes stay under upstream rate limits. */
-  probeConcurrency?: number;
   /** Chart hydration may accept a record that names the target artist in its title. */
   allowExplicitArtistTitleMatch?: boolean;
 }
@@ -404,6 +403,9 @@ async function findFullTrackCandidates(
   }
   if (options.excludeProvider !== 'Netease') {
     primarySources.push((query, sourceSignal) => neteaseProvider.search(query, sourceSignal));
+  }
+  if (options.excludeProvider !== 'Kugou') {
+    primarySources.push((query, sourceSignal) => kugouProvider.search(query, sourceSignal));
   }
   if (
     options.includeLx === true &&
@@ -730,37 +732,10 @@ async function findFullTrackFallback(
   options: FullTrackSearchOptions = {},
 ): Promise<Song | null> {
   try {
-    const candidates = await findFullTrackCandidates(song, signal, new Set(), options);
-    if (candidates.length === 0) return null;
-    // Chart hydration must finish quickly enough on slow production edges to
-    // upgrade the chart before a user scrolls past the preview. Probing
-    // candidates sequentially lets one stuck probe hold a worker for several
-    // probe timeouts. Racing the candidates so the first source that verifies
-    // wins (and aborting the losers) completes a row as soon as the fastest
-    // probe resolves instead of waiting on the slowest one. Concurrency is
-    // bounded so a burst of chart probes does not blow through upstream rate
-    // limits, while still allowing several near-equivalent matches to compete.
-    const probeLimit = Math.min(Math.max(1, options.probeConcurrency ?? 4), candidates.length);
-    const linked = createLinkedAbortController(signal);
-    const probeSignal = linked.controller.signal;
-    let verified: Song | null = null;
-    let resolved = false;
-    const probePromises = candidates.slice(0, probeLimit).map(async (candidate) => {
-      try {
-        const url = await getVerifiedStreamUrl(candidate, probeSignal);
-        if (url && !resolved) {
-          verified = candidate;
-          resolved = true;
-          if (!probeSignal.aborted) linked.controller.abort(new DOMException('Verified early', 'AbortError'));
-        }
-      } catch {
-        throwIfAborted(signal);
-      }
-    });
-    await Promise.allSettled(probePromises);
-    linked.dispose();
-    throwIfAborted(signal);
-    return verified ? withCatalogArtwork(verified, song) : null;
+    for (const candidate of await findFullTrackCandidates(song, signal, new Set(), options)) {
+      if (await getVerifiedStreamUrl(candidate, signal)) return withCatalogArtwork(candidate, song);
+    }
+    return null;
   } catch {
     throwIfAborted(signal);
     return null;
@@ -789,17 +764,11 @@ const CHART_FULL_TRACK_SEARCH_OPTIONS: FullTrackSearchOptions = {
   includeOpenSources: false,
   includeAudius: false,
   includeLx: true,
-  softResolverSearch: true,
+    softResolverSearch: true,
   // Bilibili's search endpoint returns HTTP 412 (anti-bot) from Vercel's edge
-  // IPs, which the route surfaces as a 502. Letting the resolver keep firing it
-  // for every chart row only burns worker time on a doomed request. Excluding
-  // it from chart hydration keeps the parallel probe race fast on production;
-  // user-initiated playback still tries Bilibili since a desktop browser may
-  // route around the block.
-  excludeProvider: 'Bilibili',
-  // Probe up to four candidates per row concurrently so a slow primary does
-  // not delay a faster secondary that is ready on the same recording.
-  probeConcurrency: 4,
+  // IPs, surfaced as a 502, which only wastes worker time on doomed requests.
+  // In development (where Bilibili works), it stays as a primary source.
+  excludeProvider: process.env.NODE_ENV === 'production' ? 'Bilibili' : undefined,
 };
 
 async function resolveChartFullTracks(
@@ -1012,6 +981,7 @@ export async function searchFederated(
     { name: 'Bilibili', get: async (sig) => ({ results: await bilibiliProvider.search(query, sig) }) },
     { name: 'Invidious', get: async (sig) => ({ results: await invidiousProvider.search(query, sig) }) },
     { name: 'Netease', get: async (sig) => ({ results: await neteaseProvider.search(query, sig) }) },
+    { name: 'Kugou', get: async (sig) => ({ results: await kugouProvider.search(query, sig) }) },
   ];
   if (shouldIncludeOptionalLx(source)) {
     providers.push({ name: 'LX Music', get: async (sig) => ({ results: await lxmusicProvider.search(query, sig) }) });

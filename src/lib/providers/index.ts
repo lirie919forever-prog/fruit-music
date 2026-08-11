@@ -9,6 +9,7 @@ import { qqMusicProvider } from './qqMusicProvider';
 import { bilibiliProvider } from './bilibiliProvider';
 import { invidiousProvider } from './invidiousProvider';
 import { neteaseProvider } from './neteaseProvider';
+import { kugouProvider } from './kugouProvider';
 import { itunesProvider } from './itunesProvider';
 import { deezerProvider } from './deezerProvider';
 import { audiusProvider } from './audiusProvider';
@@ -101,6 +102,13 @@ export const MUSIC_PROVIDER_ADAPTERS: readonly ProviderRegistration[] = [
     songPrefixes: ['netease-'],
     albumPrefixes: ['netease-album-'],
     artistPrefixes: ['netease-artist-'],
+  },
+  {
+    name: 'Kugou',
+    adapter: kugouProvider,
+    songPrefixes: ['kugou-'],
+    albumPrefixes: ['kugou-album-'],
+    artistPrefixes: ['kugou-artist-'],
   },
   {
     name: 'Apple Preview',
@@ -232,6 +240,7 @@ export {
   bilibiliProvider,
   invidiousProvider,
   neteaseProvider,
+  kugouProvider,
   itunesProvider,
   deezerProvider,
   audiusProvider,
