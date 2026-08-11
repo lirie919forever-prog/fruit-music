@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMusicCatalog } from '@/lib/musicCatalog';
@@ -20,6 +20,14 @@ const RESOLUTION_TIMEOUT_MS = 35_000;
  * Tracks are keyed by their original Apple-preview ID so the merged list
  * keeps the chart ranking intact (the same list of slots, each replaced in
  * place when a full-track match is verified).
+ *
+ * State updates are batched. The worker pool fires many `resolveChartTrack`
+ * calls in parallel; if each resolution wrote straight into React state the
+ * burst of `setResolvedMap` commits across the same render window tripped
+ * the React "Maximum update depth exceeded" guard on small viewports. We
+ * accumulate resolved tracks in a local mutable buffer and flush them on a
+ * single setTimeout(0) tick so many worker completions collapse into one
+ * commit per flush - the chart upgrades visibly, without the warning.
  */
 export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
   const catalog = useMusicCatalog();
@@ -38,6 +46,35 @@ export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
     const signal = controller.signal;
     let nextIndex = 0;
 
+    // Mutable buffer + a single scheduled flush. A new buffer is built per
+    // flush so an in-flight probe can keep appending into the active one
+    // without racing the state setter below.
+    const buffer = { pending: new Map<string, Song>(), scheduled: false };
+    const scheduleFlush = () => {
+      if (buffer.scheduled) return;
+      buffer.scheduled = true;
+      const flushTimer = setTimeout(() => {
+        buffer.scheduled = false;
+        const batch = buffer.pending;
+        if (batch.size === 0) return;
+        buffer.pending = new Map();
+        setResolvedMap((prev) => {
+          const next = new Map(prev);
+          for (const [id, full] of batch) next.set(id, full);
+          return next;
+        });
+      }, 0);
+      // If the abort fires while a flush is pending, skip the empty flush.
+      signal.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(flushTimer);
+          buffer.scheduled = false;
+        },
+        { once: true },
+      );
+    };
+
     void Promise.all(
       Array.from({ length: Math.min(RESOLUTION_WORKERS, songs.length) }, async () => {
         while (nextIndex < songs.length) {
@@ -51,11 +88,8 @@ export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
           try {
             const full = await catalog.resolveChartTrack(original, signal);
             if (full && !signal.aborted) {
-              setResolvedMap((prev) => {
-                const next = new Map(prev);
-                next.set(original.id, full);
-                return next;
-              });
+              buffer.pending.set(original.id, full);
+              scheduleFlush();
             }
           } catch {
             // A single track that fails to resolve should not stop the rest.

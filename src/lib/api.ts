@@ -121,6 +121,7 @@ function isPreviewSong(song: Song): boolean {
 const MIN_RELIABLE_FULL_TRACK_SECONDS = 45;
 const MAX_PLAYBACK_CANDIDATES = 8;
 const PLAYBACK_PROBE_WORKERS = 3;
+const CHART_PROBE_WORKERS = 4;
 const PLAYBACK_PROBE_TIMEOUT_MS = 4_500;
 const PLAYBACK_RESOLUTION_TIMEOUT_MS = 8_000;
 const VERSION_MARKERS = [
@@ -730,10 +731,60 @@ async function findFullTrackFallback(
   options: FullTrackSearchOptions = {},
 ): Promise<Song | null> {
   try {
-    for (const candidate of await findFullTrackCandidates(song, signal, new Set(), options)) {
-      if (await getVerifiedStreamUrl(candidate, signal)) return withCatalogArtwork(candidate, song);
+    const candidates = (
+      await findFullTrackCandidates(song, signal, new Set(), options)
+    ).slice(0, MAX_PLAYBACK_CANDIDATES);
+    if (candidates.length === 0) return null;
+
+    // Race probe candidates concurrently rather than awaiting them one at a
+    // time. The sequential loop wasted the chart background budget waiting
+    // on a single candidate that ultimately failed; a small worker pool
+    // resolves a verified full track much faster. Settled probes are walked
+    // in priority order so a fast lower-priority match cannot overtake a
+    // still-in-flight higher-priority candidate.
+    const linked = createLinkedAbortController(signal);
+    const settled = new Map<number, Song | null>();
+    const inFlight = new Map<number, Promise<{ index: number; song: Song | null }>>();
+    let nextIndex = 0;
+    const fillPool = () => {
+      while (
+        nextIndex < candidates.length &&
+        inFlight.size < Math.min(CHART_PROBE_WORKERS, candidates.length) &&
+        !linked.controller.signal.aborted
+      ) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const probe = getVerifiedStreamUrl(candidates[index], linked.controller.signal).then(
+          (streamUrl) => ({ index, song: streamUrl ? candidates[index] : null }),
+          () => ({ index, song: null }),
+        );
+        inFlight.set(index, probe);
+      }
+    };
+
+    try {
+      fillPool();
+      while (inFlight.size > 0) {
+        const result = await Promise.race(inFlight.values());
+        inFlight.delete(result.index);
+        throwIfAborted(signal);
+        settled.set(result.index, result.song);
+        for (let index = 0; index < candidates.length; index += 1) {
+          if (!settled.has(index)) break;
+          const winner = settled.get(index);
+          if (winner) {
+            linked.controller.abort(new DOMException('Chart full-track selected', 'AbortError'));
+            return withCatalogArtwork(winner, song);
+          }
+        }
+        fillPool();
+      }
+      return null;
+    } finally {
+      if (!linked.controller.signal.aborted)
+        linked.controller.abort(new DOMException('Chart probe complete', 'AbortError'));
+      linked.dispose();
     }
-    return null;
   } catch {
     throwIfAborted(signal);
     return null;
