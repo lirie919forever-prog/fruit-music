@@ -9,25 +9,36 @@ import {
   validContentRange,
 } from '../../streamProxy';
 
+export const runtime = 'nodejs';
+
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const REQUEST_TIMEOUT_MS = 15_000;
 const CATALOG_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=600';
 
-const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 120, maxEntries: 4_000 });
+const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 240, maxEntries: 8_000 });
 
-// Public Piped instances for search — Piped's NewPipe-based search is more
-// reliable than Invidious instances, which frequently return 403 on video
-// extraction. Search returns metadata; streaming is probed separately.
+// Public Piped instances. Search has historically been more reliable through
+// Piped than through the Invidious instances, which increasingly return HTML
+// (anti-scraping) or disable their /api/v1/videos endpoint entirely. Streaming
+// remains the weak link: Piped's /streams extract an audio URL fetched straight
+// from googlevideo, which sometimes 403s or returns zero audioStreams when the
+// instance falls behind YouTube's signature changes. We try them in order and
+// keep the pool broad so a single instance outage does not take the path down.
 const PIPED_INSTANCES = [
-  'https://api.piped.private.coffee',
   'https://pipedapi.kavin.rocks',
+  'https://pipedapi.adminforge.de',
+  'https://api.piped.private.coffee',
+  'https://pipedapi.leptons.xyz',
+  'https://pipedapi.r4fo.com',
+  'https://pipedapi.reallyaweso.me',
+  'https://pipedapi.nosebs.ru',
 ];
 
-// Invidious instances as a fallback for search.
-const INVIDIOUS_INSTANCES = [
-  'https://yewtu.be',
-  'https://invidious.fdn.fr',
-];
+// Invidious instances as a fallback for search only. The /api/v1/videos
+// (stream metadata) endpoint has been disabled or returns HTML on every public
+// instance we have probed, so it is not used for streaming; only /api/v1/search
+// still resolves JSON here.
+const INVIDIOUS_INSTANCES = ['https://yewtu.be', 'https://invidious.fdn.fr'];
 
 interface PipedSearchItem {
   url?: string;
@@ -47,6 +58,28 @@ interface InvidiousSearchItem {
   author?: string;
   lengthSeconds?: number;
   videoThumbnails?: Array<{ url?: string }>;
+}
+
+interface PipedAudioStream {
+  url?: string;
+  mimeType?: string;
+  bitrate?: number;
+}
+
+interface PipedStreamsResponse {
+  audioStreams?: PipedAudioStream[];
+}
+
+/** Resolved audio URLs (googlevideo) are time-limited and IP-bound. Cache the
+ * lookup for a short window so probe + play do not double-fetch /streams. */
+const RESOLVED_AUDIO_TTL_MS = 2 * 60 * 1000;
+const resolvedAudioCache = new Map<string, { url: string; mimeType: string; expires: number }>();
+
+function pruneAudioCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of resolvedAudioCache) {
+    if (entry.expires <= now) resolvedAudioCache.delete(key);
+  }
 }
 
 function extractVideoId(url: string | undefined): string | null {
@@ -89,10 +122,53 @@ async function searchInvidious(query: string, signal: AbortSignal): Promise<Invi
       url.searchParams.set('q', query);
       url.searchParams.set('type', 'videos');
       url.searchParams.set('sort_by', 'relevance');
+      const response = await fetch(url, { signal, headers: { 'User-Agent': 'Marea/1.0', Accept: 'application/json' } });
+      if (!response.ok) continue;
+      const text = await response.text();
+      if (!text || text.startsWith('<')) continue;
+      const data: InvidiousSearchItem[] = JSON.parse(text);
+      if (Array.isArray(data)) return data;
+    } catch {
+      if (signal.aborted) return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolves a usable Piped audio stream URL for a video id. Returns null when
+ * every instance either refuses, serves no audioStreams, or yields a stream
+ * with no real URL. The honest probe relies on this: it reports availability
+ * only when a real, fetchable audio URL exists, so a chart entry that promotes
+ * an Invidious match can actually be played instead of 502-ing at click time.
+ */
+async function resolvePipedAudio(
+  videoId: string,
+  signal: AbortSignal,
+): Promise<{ url: string; mimeType: string } | null> {
+  const cached = resolvedAudioCache.get(videoId);
+  if (cached && cached.expires > Date.now()) {
+    return { url: cached.url, mimeType: cached.mimeType };
+  }
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const url = new URL(`/streams/${videoId}`, instance);
       const response = await fetch(url, { signal, headers: { 'User-Agent': 'Marea/1.0' } });
       if (!response.ok) continue;
-      const data: InvidiousSearchItem[] = await response.json();
-      if (Array.isArray(data)) return data;
+      const data: PipedStreamsResponse = await response.json();
+      const audioStreams = Array.isArray(data?.audioStreams) ? data.audioStreams : [];
+      const preferred =
+        audioStreams.find((stream) => stream.url && /opus/i.test(stream.mimeType ?? '')) ||
+        audioStreams.find((stream) => stream.url && /m4a|mp4/i.test(stream.mimeType ?? '')) ||
+        audioStreams.find((stream) => typeof stream.url === 'string' && stream.url.length > 0);
+      if (!preferred?.url) continue;
+      pruneAudioCache();
+      resolvedAudioCache.set(videoId, {
+        url: preferred.url,
+        mimeType: mediaContentType(preferred.mimeType ?? null) ?? 'audio/webm',
+        expires: Date.now() + RESOLVED_AUDIO_TTL_MS,
+      });
+      return { url: preferred.url, mimeType: mediaContentType(preferred.mimeType ?? null) ?? 'audio/webm' };
     } catch {
       if (signal.aborted) return null;
     }
@@ -123,7 +199,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
     const limit = Math.min(Math.max(Number(searchParams.get('limit') ?? '40'), 1), 50);
 
-    // Try Piped first (more reliable), then Invidious as fallback
+    // Try Piped first (more reliable metadata), then Invidious as fallback
     let results = await searchPiped(query, signal);
     if (!results || results.length === 0) {
       results = await searchInvidious(query, signal);
@@ -156,65 +232,61 @@ export async function GET(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'Invalid video ID' }, { status: 400 });
     }
 
-    // Probe-only request
-    if (new URL(request.url).searchParams.get('probe') === '1') {
-      // For probe, we check if we can get stream metadata from Piped/Invidious
-      // If both fail, we still return available:true because the stream proxy
-      // will try again at playback time — failing early would prevent playback
-      // of songs that might work with a different instance.
-      return NextResponse.json({ available: true });
+    const isProbe = new URL(request.url).searchParams.get('probe') === '1';
+    const resolved = await resolvePipedAudio(videoId, signal);
+
+    if (isProbe) {
+      // Honest probe: a track is verified only when a real fetchable audio URL
+      // exists. Previously this always returned available:true, which let the
+      // resolver promote Invidious matches that 502'd at play time and left the
+      // chart attesting to "full tracks" the user could not actually hear.
+      return NextResponse.json(
+        { available: Boolean(resolved?.url), provider: 'Invidious' },
+        { headers: { 'Cache-Control': 'private, no-store' } },
+      );
     }
 
-    // Actual stream proxy: try Piped instances for audio stream URL
-    for (const pipedInstance of PIPED_INSTANCES) {
-      try {
-        const streamsUrl = new URL('/streams/' + videoId, pipedInstance);
-        const videoResponse = await fetch(streamsUrl, {
-          signal,
-          headers: { 'User-Agent': 'Marea/1.0' },
-        });
-        if (!videoResponse.ok) continue;
+    if (!resolved?.url) {
+      return NextResponse.json(
+        { error: 'No audio stream available from any instance' },
+        { status: 502, headers: { 'Cache-Control': 'private, no-store' } },
+      );
+    }
 
-        const videoData = await videoResponse.json();
-        const audioStreams = (videoData.audioStreams ?? []) as Array<{
-          url?: string;
-          mimeType?: string;
-          bitrate?: number;
-        }>;
-
-        // Find a good quality audio stream (prefer opus, fallback to m4a)
-        const audio =
-          audioStreams.find((s) => s.url && (s.mimeType?.includes('opus') || false)) ||
-          audioStreams.find((s) => s.url && (s.mimeType?.includes('m4a') || false)) ||
-          audioStreams.find((s) => s.url);
-
-        if (!audio?.url) continue;
-
-        const upstream = await fetch(audio.url, {
-          signal,
-          headers: { Range: request.headers.get('Range') ?? '' },
-        });
-
-        if (!upstream.ok) continue;
-
-        const headers = new Headers();
-        const ct = mediaContentType(upstream.headers.get('Content-Type')) ?? 'audio/webm';
-        headers.set('Content-Type', ct);
-        const cl = upstream.headers.get('Content-Length');
-        if (cl) headers.set('Content-Length', cl);
-        const cr = upstream.headers.get('Content-Range');
-        if (cr && validContentRange(cr)) headers.set('Content-Range', cr);
-        headers.set('Accept-Ranges', 'bytes');
-
-        const controller = new AbortController();
-        const body = streamBody(upstream, controller, () => closeUpstream(upstream, () => controller.abort()));
-        return new NextResponse(body ?? null, { status: upstream.status, headers });
-      } catch {
-        if (signal.aborted) break;
+    try {
+      const upstream = await fetch(resolved.url, {
+        signal,
+        headers: { Range: request.headers.get('Range') ?? '' },
+      });
+      if (!upstream.ok) {
+        closeUpstream(upstream, () => undefined);
+        return NextResponse.json(
+          { error: `Upstream stream responded ${upstream.status}` },
+          { status: 502, headers: { 'Cache-Control': 'private, no-store' } },
+        );
       }
-    }
 
-    return NextResponse.json({ error: 'No audio stream available from any instance' }, { status: 502 });
+      const headers = new Headers();
+      const contentType = mediaContentType(upstream.headers.get('Content-Type')) ?? resolved.mimeType;
+      headers.set('Content-Type', contentType);
+      const contentLength = upstream.headers.get('Content-Length');
+      if (contentLength) headers.set('Content-Length', contentLength);
+      const contentRange = upstream.headers.get('Content-Range');
+      if (contentRange && validContentRange(contentRange)) headers.set('Content-Range', contentRange);
+      headers.set('Accept-Ranges', 'bytes');
+      headers.set('Vary', 'Range');
+      // Probe-resolved URLs carry IP/time binding; never cache at the edge.
+      headers.set('Cache-Control', 'private, no-store');
+
+      const controller = new AbortController();
+      const body = streamBody(upstream, controller, () => closeUpstream(upstream, () => controller.abort()));
+      return new NextResponse(body ?? null, { status: upstream.status, headers });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Invidious stream fetch failed' },
+        { status: 502, headers: { 'Cache-Control': 'private, no-store' } },
+      );
+    }
   }
 
   return NextResponse.json({ error: 'Unknown path' }, { status: 400 });

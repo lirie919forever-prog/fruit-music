@@ -387,25 +387,23 @@ async function findFullTrackCandidates(
     ),
   ].slice(0, Math.max(1, Math.min(options.queryLimit ?? 3, 3)));
   const primarySources: FullTrackSearchSource[] = [];
-  if (options.excludeProvider !== 'Kuwo') {
-    primarySources.push((query, sourceSignal) =>
-      kuwoProvider.search(query, sourceSignal, options.softResolverSearch ? { soft: true } : undefined),
-    );
+  if (options.excludeProvider !== 'Kugou') {
+    primarySources.push((query, sourceSignal) => kugouProvider.search(query, sourceSignal));
   }
   if (options.excludeProvider !== 'QQ Music') {
     primarySources.push((query, sourceSignal) => qqMusicProvider.search(query, sourceSignal));
+  }
+  if (options.excludeProvider !== 'Netease') {
+    primarySources.push((query, sourceSignal) => neteaseProvider.search(query, sourceSignal));
+  }
+  if (options.excludeProvider !== 'Kuwo') {
+    primarySources.push((query, sourceSignal) => kuwoProvider.search(query, sourceSignal, options.softResolverSearch ? { soft: true } : undefined));
   }
   if (options.excludeProvider !== 'Bilibili') {
     primarySources.push((query, sourceSignal) => bilibiliProvider.search(query, sourceSignal));
   }
   if (options.excludeProvider !== 'Invidious') {
     primarySources.push((query, sourceSignal) => invidiousProvider.search(query, sourceSignal));
-  }
-  if (options.excludeProvider !== 'Netease') {
-    primarySources.push((query, sourceSignal) => neteaseProvider.search(query, sourceSignal));
-  }
-  if (options.excludeProvider !== 'Kugou') {
-    primarySources.push((query, sourceSignal) => kugouProvider.search(query, sourceSignal));
   }
   if (
     options.includeLx === true &&
