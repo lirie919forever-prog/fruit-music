@@ -1,13 +1,13 @@
-'use client';
+﻿'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMusicCatalog } from '@/lib/musicCatalog';
 import { isFullTrack } from './newViewModel';
 import { isPreviewSource } from '@/lib/sourceRegistry';
 import type { Song } from '@/types/music';
 
-const RESOLUTION_WORKERS = 12;
-const RESOLUTION_TIMEOUT_MS = 50_000;
+const RESOLUTION_WORKERS = 8;
+const RESOLUTION_TIMEOUT_MS = 35_000;
 
 /**
  * Progressive chart hydration hook. The server-side chart fetch returns raw
@@ -32,34 +32,6 @@ export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
     setResolvedMap(new Map());
   }, [songs]);
 
-  // Coalesce a burst of successful resolutions into a single state update so
-  // the parallel probe race (which can resolve several chart rows within the
-  // same microtask) does not trip React's maximum update depth guard or
-  // schedule one render per row. The queue is flushed at most once per
-  // microtask; each flush replaces the state with a single new Map snapshot
-  // carrying all of the rows that resolved since the last flush.
-  const pendingRef = useRef<Map<string, Song>>(new Map());
-  const flushScheduledRef = useRef(false);
-  const flushPending = () => {
-    if (flushScheduledRef.current) return;
-    flushScheduledRef.current = true;
-    queueMicrotask(() => {
-      flushScheduledRef.current = false;
-      const batch = pendingRef.current;
-      if (batch.size === 0) return;
-      pendingRef.current = new Map();
-      setResolvedMap((prev) => {
-        const next = prev.size === 0 ? new Map<string, Song>() : new Map(prev);
-        for (const [k, v] of batch) next.set(k, v);
-        return next;
-      });
-    });
-  };
-  const upsertResolved = (id: string, song: Song) => {
-    pendingRef.current.set(id, song);
-    flushPending();
-  };
-
   useEffect(() => {
     if (!enabled || songs.length === 0) return;
     const controller = new AbortController();
@@ -79,7 +51,11 @@ export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
           try {
             const full = await catalog.resolveChartTrack(original, signal);
             if (full && !signal.aborted) {
-              upsertResolved(original.id, full);
+              setResolvedMap((prev) => {
+                const next = new Map(prev);
+                next.set(original.id, full);
+                return next;
+              });
             }
           } catch {
             // A single track that fails to resolve should not stop the rest.

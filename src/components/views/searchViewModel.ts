@@ -23,6 +23,7 @@ const PROVIDER_RELEVANCE: Record<MusicProviderName, number> = {
   Bilibili: 70,
   Invidious: 70,
   Netease: 74,
+  Kugou: 73,
   SomaFM: 12,
   'NTS Radio': 14,
   'Radio Paradise': 16,

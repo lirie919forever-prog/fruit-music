@@ -40,6 +40,7 @@ export type MusicProviderName =
   | 'Radio Browser'
   | 'Invidious'
   | 'Netease'
+  | 'Kugou'
   | 'Local file';
 
 export interface Song {
