@@ -88,12 +88,16 @@ function extractVideoId(url: string | undefined): string | null {
   return match ? match[1] : null;
 }
 
-async function searchPiped(query: string, signal: AbortSignal): Promise<InvidiousSearchItem[] | null> {
+async function searchPiped(
+  query: string,
+  signal: AbortSignal,
+  filter: 'videos' | 'music_songs' = 'videos',
+): Promise<InvidiousSearchItem[] | null> {
   for (const instance of PIPED_INSTANCES) {
     try {
       const url = new URL('/search', instance);
       url.searchParams.set('q', query);
-      url.searchParams.set('filter', 'videos');
+      url.searchParams.set('filter', filter);
       const response = await fetch(url, { signal, headers: { 'User-Agent': 'Marea/1.0' } });
       if (!response.ok) continue;
       const data: PipedSearchResponse = await response.json();
@@ -199,8 +203,13 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
     const limit = Math.min(Math.max(Number(searchParams.get('limit') ?? '40'), 1), 50);
 
-    // Try Piped first (more reliable metadata), then Invidious as fallback
-    let results = await searchPiped(query, signal);
+    // YouTube Music official full tracks first (filter=music_songs); these
+    // stream at full length rather than 30s clips. Fall back to generic
+    // video search, then Invidious.
+    let results = await searchPiped(query, signal, 'music_songs');
+    if (!results || results.length === 0) {
+      results = await searchPiped(query, signal, 'videos');
+    }
     if (!results || results.length === 0) {
       results = await searchInvidious(query, signal);
     }
