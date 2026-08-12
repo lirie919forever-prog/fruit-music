@@ -294,6 +294,8 @@ interface FullTrackSearchOptions {
   excludeProvider?: MusicProviderName;
   /** Chart hydration may accept a record that names the target artist in its title. */
   allowExplicitArtistTitleMatch?: boolean;
+  /** Additional providers to exclude from search (e.g. unreliable streaming). */
+  extraExcludedProviders?: MusicProviderName[];
 }
 
 async function searchFullTrackSources(
@@ -390,33 +392,35 @@ async function findFullTrackCandidates(
         .filter(Boolean),
     ),
   ].slice(0, Math.max(1, Math.min(options.queryLimit ?? 3, 3)));
+  const excludedSet = options.extraExcludedProviders ?? [];
+  const isExcluded = (name: MusicProviderName) => options.excludeProvider === name || excludedSet.includes(name);
   const primarySources: FullTrackSearchSource[] = [];
-  if (options.excludeProvider !== 'Kugou') {
+  if (!isExcluded('Kugou')) {
     primarySources.push((query, sourceSignal) => kugouProvider.search(query, sourceSignal));
   }
-  if (options.excludeProvider !== 'QQ Music') {
+  if (!isExcluded('QQ Music')) {
     primarySources.push((query, sourceSignal) => qqMusicProvider.search(query, sourceSignal));
   }
-  if (options.excludeProvider !== 'Netease') {
+  if (!isExcluded('Netease')) {
     primarySources.push((query, sourceSignal) => neteaseProvider.search(query, sourceSignal));
   }
-  if (options.excludeProvider !== 'Kuwo') {
+  if (!isExcluded('Kuwo')) {
     primarySources.push((query, sourceSignal) => kuwoProvider.search(query, sourceSignal, options.softResolverSearch ? { soft: true } : undefined));
   }
-  if (options.excludeProvider !== 'Bilibili') {
+  if (!isExcluded('Bilibili')) {
     primarySources.push((query, sourceSignal) => bilibiliProvider.search(query, sourceSignal));
   }
-  if (options.excludeProvider !== 'Invidious') {
+  if (!isExcluded('Invidious')) {
     primarySources.push((query, sourceSignal) => invidiousProvider.search(query, sourceSignal));
   }
   if (
     options.includeLx === true &&
-    options.excludeProvider !== 'LX Music' &&
+    !isExcluded('LX Music') &&
     process.env.NEXT_PUBLIC_LX_ENABLED === 'true'
   ) {
     primarySources.push((query, sourceSignal) => lxmusicProvider.search(query, sourceSignal));
   }
-  if (options.includeAudius !== false && options.excludeProvider !== 'Audius') {
+  if (options.includeAudius !== false && !isExcluded('Audius')) {
     primarySources.push((query, sourceSignal) => audiusProvider.search(query, sourceSignal));
   }
 
@@ -820,7 +824,12 @@ const CHART_FULL_TRACK_SEARCH_OPTIONS: FullTrackSearchOptions = {
   // Bilibili's search endpoint returns HTTP 412 (anti-bot) from Vercel's edge
   // IPs, surfaced as a 502, which only wastes worker time on doomed requests.
   // In development (where Bilibili works), it stays as a primary source.
+  // Invidious/Piped search returns real YT Music tracks but Piped stream
+  // extraction is broken (0 audioStreams on every public instance probed).
+  // Excluding Invidious from chart hydration lets Kugou/QQ/Netease win the
+  // race with playable streams. Bilibili 412s from server IPs everywhere.
   excludeProvider: process.env.NODE_ENV === 'production' ? 'Bilibili' : undefined,
+  extraExcludedProviders: ['Invidious', 'Bilibili'],
 };
 
 async function resolveChartFullTracks(
