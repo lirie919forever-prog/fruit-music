@@ -1,4 +1,5 @@
 import type { Album, Artist, MusicProviderName, Song } from '@/types/music';
+import { normalizeCJK } from '@/lib/cjkNormalize';
 import {
   archiveProvider,
   audiusProvider,
@@ -106,12 +107,14 @@ function throwIfAborted(signal?: AbortSignal): void {
 }
 
 function normalizePlaybackText(value: string): string {
-  return value
+  return normalizeCJK(
+    value
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
     .toLocaleLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
+    .trim(),
+  );
 }
 
 function isPreviewSong(song: Song): boolean {
