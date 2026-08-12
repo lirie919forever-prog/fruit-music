@@ -13,6 +13,7 @@ export const runtime = 'nodejs';
 
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const REQUEST_TIMEOUT_MS = 15_000;
+const PIPED_ATTEMPT_TIMEOUT_MS = 5_000;
 const CATALOG_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=600';
 
 const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 240, maxEntries: 8_000 });
@@ -25,9 +26,9 @@ const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 240, maxEnt
 // instance falls behind YouTube's signature changes. We try them in order and
 // keep the pool broad so a single instance outage does not take the path down.
 const PIPED_INSTANCES = [
+  'https://api.piped.private.coffee', // confirmed live (music_songs + /streams)
   'https://pipedapi.kavin.rocks',
   'https://pipedapi.adminforge.de',
-  'https://api.piped.private.coffee',
   'https://pipedapi.leptons.xyz',
   'https://pipedapi.r4fo.com',
   'https://pipedapi.reallyaweso.me',
@@ -82,6 +83,19 @@ function pruneAudioCache(): void {
   }
 }
 
+/** Per-attempt timeout that also respects the caller's abort signal. */
+function attemptSignal(parentSignal: AbortSignal, timeoutMs: number): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => controller.abort();
+  if (parentSignal.aborted) controller.abort();
+  else parentSignal.addEventListener('abort', onAbort, { once: true });
+  return {
+    signal: controller.signal,
+    cleanup: () => { clearTimeout(timer); parentSignal.removeEventListener('abort', onAbort); },
+  };
+}
+
 function extractVideoId(url: string | undefined): string | null {
   if (!url) return null;
   const match = url.match(/[?&]v=([A-Za-z0-9_-]{11})/) || url.match(/([A-Za-z0-9_-]{11})$/);
@@ -93,30 +107,41 @@ async function searchPiped(
   signal: AbortSignal,
   filter: 'videos' | 'music_songs' = 'videos',
 ): Promise<InvidiousSearchItem[] | null> {
-  for (const instance of PIPED_INSTANCES) {
-    try {
-      const url = new URL('/search', instance);
-      url.searchParams.set('q', query);
-      url.searchParams.set('filter', filter);
-      const response = await fetch(url, { signal, headers: { 'User-Agent': 'Marea/1.0' } });
-      if (!response.ok) continue;
-      const data: PipedSearchResponse = await response.json();
-      if (!data.items) continue;
-      return data.items
-        .filter((item) => item.url && item.duration && item.duration >= 45)
-        .map((item) => ({
-          videoId: extractVideoId(item.url) || '',
-          title: item.title,
-          author: item.uploader,
-          lengthSeconds: item.duration,
-          videoThumbnails: item.thumbnail ? [{ url: item.thumbnail }] : undefined,
-        }))
-        .filter((item) => item.videoId);
-    } catch {
-      if (signal.aborted) return null;
-    }
+  return Promise.any(
+    PIPED_INSTANCES.map((instance) => pipedSearchOne(instance, query, signal, filter)),
+  ).catch(() => null);
+}
+
+async function pipedSearchOne(
+  instance: string,
+  query: string,
+  parentSignal: AbortSignal,
+  filter: 'videos' | 'music_songs',
+): Promise<InvidiousSearchItem[]> {
+  const { signal, cleanup } = attemptSignal(parentSignal, PIPED_ATTEMPT_TIMEOUT_MS);
+  try {
+    const url = new URL('/search', instance);
+    url.searchParams.set('q', query);
+    url.searchParams.set('filter', filter);
+    const response = await fetch(url, { signal, headers: { 'User-Agent': 'Marea/1.0' } });
+    if (!response.ok) throw new Error(`${response.status}`);
+    const data: PipedSearchResponse = await response.json();
+    if (!data.items) throw new Error('no items');
+    const results = data.items
+      .filter((item) => item.url && item.duration && item.duration >= 45)
+      .map((item) => ({
+        videoId: extractVideoId(item.url) || '',
+        title: item.title,
+        author: item.uploader,
+        lengthSeconds: item.duration,
+        videoThumbnails: item.thumbnail ? [{ url: item.thumbnail }] : undefined,
+      }))
+      .filter((item) => item.videoId);
+    if (results.length === 0) throw new Error('no matches');
+    return results;
+  } finally {
+    cleanup();
   }
-  return null;
 }
 
 async function searchInvidious(query: string, signal: AbortSignal): Promise<InvidiousSearchItem[] | null> {
@@ -140,11 +165,11 @@ async function searchInvidious(query: string, signal: AbortSignal): Promise<Invi
 }
 
 /**
- * Resolves a usable Piped audio stream URL for a video id. Returns null when
- * every instance either refuses, serves no audioStreams, or yields a stream
- * with no real URL. The honest probe relies on this: it reports availability
- * only when a real, fetchable audio URL exists, so a chart entry that promotes
- * an Invidious match can actually be played instead of 502-ing at click time.
+ * Resolves a usable Piped audio stream URL for a video id. Races all
+ * instances in parallel (Promise.any); the first to return a real audio URL
+ * wins. Dead instances simply lose the race and abort quickly via the
+ * per-attempt timeout. Previously this iterated sequentially, wasting up to
+ * several timeouts on dead instances before reaching a live one.
  */
 async function resolvePipedAudio(
   videoId: string,
@@ -154,30 +179,41 @@ async function resolvePipedAudio(
   if (cached && cached.expires > Date.now()) {
     return { url: cached.url, mimeType: cached.mimeType };
   }
-  for (const instance of PIPED_INSTANCES) {
-    try {
-      const url = new URL(`/streams/${videoId}`, instance);
-      const response = await fetch(url, { signal, headers: { 'User-Agent': 'Marea/1.0' } });
-      if (!response.ok) continue;
-      const data: PipedStreamsResponse = await response.json();
-      const audioStreams = Array.isArray(data?.audioStreams) ? data.audioStreams : [];
-      const preferred =
-        audioStreams.find((stream) => stream.url && /opus/i.test(stream.mimeType ?? '')) ||
-        audioStreams.find((stream) => stream.url && /m4a|mp4/i.test(stream.mimeType ?? '')) ||
-        audioStreams.find((stream) => typeof stream.url === 'string' && stream.url.length > 0);
-      if (!preferred?.url) continue;
-      pruneAudioCache();
-      resolvedAudioCache.set(videoId, {
-        url: preferred.url,
-        mimeType: mediaContentType(preferred.mimeType ?? null) ?? 'audio/webm',
-        expires: Date.now() + RESOLVED_AUDIO_TTL_MS,
-      });
-      return { url: preferred.url, mimeType: mediaContentType(preferred.mimeType ?? null) ?? 'audio/webm' };
-    } catch {
-      if (signal.aborted) return null;
-    }
+  const result = await Promise.any(
+    PIPED_INSTANCES.map((instance) => resolvePipedAudioOne(instance, videoId, signal)),
+  ).catch(() => null);
+  if (result) {
+    pruneAudioCache();
+    resolvedAudioCache.set(videoId, {
+      url: result.url,
+      mimeType: result.mimeType,
+      expires: Date.now() + RESOLVED_AUDIO_TTL_MS,
+    });
   }
-  return null;
+  return result;
+}
+
+async function resolvePipedAudioOne(
+  instance: string,
+  videoId: string,
+  parentSignal: AbortSignal,
+): Promise<{ url: string; mimeType: string }> {
+  const { signal, cleanup } = attemptSignal(parentSignal, PIPED_ATTEMPT_TIMEOUT_MS);
+  try {
+    const url = new URL(`/streams/${videoId}`, instance);
+    const response = await fetch(url, { signal, headers: { 'User-Agent': 'Marea/1.0' } });
+    if (!response.ok) throw new Error(`${response.status}`);
+    const data: PipedStreamsResponse = await response.json();
+    const audioStreams = Array.isArray(data?.audioStreams) ? data.audioStreams : [];
+    const preferred =
+      audioStreams.find((stream) => stream.url && /opus/i.test(stream.mimeType ?? '')) ||
+      audioStreams.find((stream) => stream.url && /m4a|mp4/i.test(stream.mimeType ?? '')) ||
+      audioStreams.find((stream) => typeof stream.url === 'string' && stream.url.length > 0);
+    if (!preferred?.url) throw new Error('no audio');
+    return { url: preferred.url, mimeType: mediaContentType(preferred.mimeType ?? null) ?? 'audio/webm' };
+  } finally {
+    cleanup();
+  }
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
