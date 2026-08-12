@@ -679,6 +679,7 @@ function MainContent({
                 : 'pb-[var(--player-bar-clearance)] md:pb-[var(--player-bar-desktop-clearance)]'
             }`}
           >
+            <div aria-hidden className="marea-scroll-fade-top" />
             <div className="mx-auto w-full max-w-[1400px]">
               {showDetailOverlay && pendingItem?.kind === 'album' && (
                 <ProviderDetailView
@@ -707,6 +708,7 @@ function MainContent({
                   onNavigate: navigateToView,
                 })}
             </div>
+            <div aria-hidden className="marea-scroll-fade-bottom md:hidden" />
           </div>
         </main>
         {currentView !== 'now-playing' && (

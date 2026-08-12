@@ -853,3 +853,172 @@ html[data-marea-reduced-motion='true'] *::after {
     0 0 0 2px color-mix(in srgb, var(--glass-border-active) 92%, transparent),
     0 0 22px rgba(13, 111, 168, 0.22);
 }
+
+
+/* ============================================================
+ * Enhanced glassmorphism + mobile UX (v2)
+ * ============================================================ */
+
+/* Song row glass hover: instead of a flat background swap, rows now get a
+ * subtle frosted glass sheen + inner highlight that deepens on active. */
+.marea-glass-card:hover:not(.marea-now-playing-card) {
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.88),
+    rgba(226, 246, 255, 0.72)
+  );
+  -webkit-backdrop-filter: blur(20px) saturate(175%);
+  backdrop-filter: blur(20px) saturate(175%);
+}
+
+/* Active/now-playing row gets a more pronounced glass + cyan-tinted glow */
+.marea-glass-card.marea-now-playing-card {
+  background: linear-gradient(
+    135deg,
+    rgba(210, 240, 255, 0.82),
+    rgba(196, 233, 250, 0.62)
+  );
+  -webkit-backdrop-filter: blur(22px) saturate(190%);
+  backdrop-filter: blur(22px) saturate(190%);
+  border-color: color-mix(in srgb, var(--salt-primary) 24%, var(--glass-border));
+  box-shadow:
+    0 6px 20px rgba(13, 111, 168, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 0 0 1px rgba(13, 111, 168, 0.08);
+}
+
+/* Touch-feedback press for mobile: a flattening glass press state */
+@media (hover: none) {
+  .marea-glass-card:active {
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    transform: scale(0.985);
+    transition: transform 80ms ease-out, backdrop-filter 80ms ease-out;
+  }
+  .marea-glass-control:active {
+    -webkit-backdrop-filter: blur(10px) saturate(130%);
+    backdrop-filter: blur(10px) saturate(130%);
+    transform: scale(0.94);
+  }
+}
+
+/* iOS-style top scroll fade: a translucent gradient that masks content
+ * scrolling under the header on mobile, giving depth without a hard line. */
+.marea-scroll-fade-top {
+  position: sticky;
+  top: 0;
+  height: 24px;
+  z-index: 5;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--glass-surface-strong),
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent);
+  mask-image: linear-gradient(to bottom, black, transparent);
+}
+
+/* Mobile bottom fade: content fades into the player bar area */
+.marea-scroll-fade-bottom {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  z-index: 4;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    rgba(225, 244, 254, 0.5),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* Enhanced glass panel depth for modals/drawers on mobile */
+@media (max-width: 768px) {
+  .marea-glass-panel {
+    -webkit-backdrop-filter: blur(32px) saturate(200%);
+    backdrop-filter: blur(32px) saturate(200%);
+  }
+  .marea-glass-sidebar {
+    -webkit-backdrop-filter: blur(36px) saturate(200%);
+    backdrop-filter: blur(36px) saturate(200%);
+  }
+  .marea-player-surface {
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 12px)) saturate(200%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 12px)) saturate(200%);
+  }
+}
+
+/* Subtle aurora glow on the primary play button for mobile */
+.marea-primary-action {
+  position: relative;
+  overflow: hidden;
+}
+.marea-primary-action::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    120deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.marea-primary-action:hover:not(:disabled)::after {
+  opacity: 1;
+}
+@media (hover: none) {
+  .marea-primary-action:active::after {
+    opacity: 0.6;
+  }
+}
+
+/* Glass reflection sweep on cards (mobile: triggered on tap) */
+@media (hover: none) and (prefers-reduced-motion: no-preference) {
+  .marea-glass-card:active::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(
+      120deg,
+      transparent,
+      rgba(255, 255, 255, 0.3),
+      transparent
+    );
+    animation: marea-glass-shimmer 0.6s ease-out;
+    pointer-events: none;
+  }
+}
+
+/* Smooth scrolling with momentum on touch devices */
+@supports (-webkit-overflow-scrolling: touch) {
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Reduced glass blur for users who prefer less transparency */
+@media (prefers-reduced-transparency: reduce) {
+  .marea-glass-surface,
+  .marea-glass-panel,
+  .marea-glass-sidebar,
+  .marea-glass-control,
+  .marea-glass-card,
+  .marea-glass-hero,
+  .marea-player-surface {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--glass-surface-strong);
+  }
+}
