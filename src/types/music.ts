@@ -38,6 +38,7 @@ export type MusicProviderName =
   | 'The Current'
   | 'Radio France'
   | 'Asia Dream Radio'
+  | 'Japan Music Radio'
   | 'Radio Browser'
   | 'Invidious'
   | 'Netease'

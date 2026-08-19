@@ -16,6 +16,7 @@ import {
   getMusicProviderForSongId,
   itunesProvider,
   jamendoProvider,
+  japanMusicRadioProvider,
   kexpProvider,
   kuwoProvider,
   lxmusicProvider,
@@ -174,6 +175,10 @@ beforeEach(() => {
   vi.spyOn(radioFranceProvider, 'getTrending').mockResolvedValue([]);
   vi.spyOn(radioFranceProvider, 'getAlbums').mockResolvedValue([]);
   vi.spyOn(radioFranceProvider, 'getArtists').mockResolvedValue([]);
+  vi.spyOn(asiaDreamRadioProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(asiaDreamRadioProvider, 'getTrending').mockResolvedValue([]);
+  vi.spyOn(japanMusicRadioProvider, 'search').mockResolvedValue([]);
+  vi.spyOn(japanMusicRadioProvider, 'getTrending').mockResolvedValue([]);
   vi.spyOn(jamendoProvider, 'search').mockResolvedValue([]);
   vi.spyOn(ccmixterProvider, 'search').mockResolvedValue([]);
   vi.spyOn(archiveProvider, 'search').mockResolvedValue([]);
@@ -220,7 +225,7 @@ describe('provider federation', () => {
 
     const defaultResults = await searchFederated('YOASOBI', undefined, 'all');
     expect(defaultResults.results).toEqual([lxResult]);
-    expect(defaultResults.providerCount).toBe(23);
+    expect(defaultResults.providerCount).toBe(25);
     expect(lxmusicProvider.search).toHaveBeenCalledTimes(1);
 
     await expect(searchFederated('YOASOBI', undefined, 'LX Music')).resolves.toEqual({
@@ -240,7 +245,7 @@ describe('provider federation', () => {
 
     expect(state.results.map((result) => result.id)).toEqual(['ccmixter-1']);
     expect(state.failedProviders).toEqual(['Jamendo']);
-    expect(state.providerCount).toBe(22);
+    expect(state.providerCount).toBe(24);
   });
 
   it('distinguishes true empty results from total provider failure', async () => {
@@ -260,7 +265,7 @@ describe('provider federation', () => {
     await expect(searchFederated('missing')).resolves.toMatchObject({
       results: [],
       failedProviders: ['Jamendo', 'ccMixter', 'Archive'],
-      providerCount: 22,
+      providerCount: 24,
     });
   });
 
@@ -276,7 +281,7 @@ describe('provider federation', () => {
       results: [song('ccmixter-1')],
       failedProviders: [],
       degradedProviders: ['ccMixter'],
-      providerCount: 22,
+      providerCount: 24,
     });
   });
 
@@ -409,7 +414,7 @@ describe('provider federation', () => {
       'radiofrance-1',
       'asiadream-1',
     ]);
-    expect(state.providerCount).toBe(10);
+    expect(state.providerCount).toBe(11);
   });
 
   it('prefers a direct Japan station over its Radio Browser display alias', async () => {
@@ -449,6 +454,7 @@ describe('provider federation', () => {
       isLive: true,
     };
     vi.spyOn(asiaDreamRadioProvider, 'getTrending').mockResolvedValue([directStation]);
+    vi.spyOn(japanMusicRadioProvider, 'getTrending').mockResolvedValue([]);
     vi.mocked(radioBrowserProvider.getSongsByTag).mockResolvedValue([aliasStation, catalogStation]);
     vi.mocked(radioBrowserProvider.getCountryStations).mockResolvedValue([countryStation]);
 
@@ -459,6 +465,51 @@ describe('provider federation', () => {
       'radio-jpop-discovery',
       'radio-japan-fm',
     ]);
+  });
+
+  it('removes a Radio Browser duplicate when it shares a direct station stream', async () => {
+    const directStation = {
+      ...song('japanradio-japan-city-pop'),
+      title: 'Japan City Pop',
+      artist: 'BOX Japan City Pop',
+      path: 'https://play.streamafrica.net/japancitypop',
+      genre: 'City Pop / J-Pop',
+      provider: 'Japan Music Radio' as const,
+      isLive: true,
+    };
+    const browserDuplicate = {
+      ...song('radio-box-city-pop'),
+      title: 'BOX: Japan City Pop - Japanese City Pop',
+      artist: 'JP live radio',
+      artistId: 'radio-artist-JP',
+      path: directStation.path,
+      genre: 'City Pop',
+      provider: 'Radio Browser' as const,
+      isLive: true,
+    };
+    vi.spyOn(japanMusicRadioProvider, 'getTrending').mockResolvedValue([directStation]);
+    vi.mocked(radioBrowserProvider.getCountryStations).mockResolvedValue([browserDuplicate]);
+
+    const state = await api.getJapanLiveStations(9);
+
+    expect(state.results.map(({ id }) => id)).toEqual(['japanradio-japan-city-pop']);
+  });
+
+  it('searches direct Japanese radio stations through the federated source picker', async () => {
+    const station = {
+      ...song('japanradio-j1-hits'),
+      title: 'J1 HITS',
+      artist: 'J1 HITS',
+      provider: 'Japan Music Radio' as const,
+      isLive: true,
+    };
+    vi.spyOn(japanMusicRadioProvider, 'search').mockResolvedValue([station]);
+
+    await expect(searchFederated('J1 HITS', undefined, 'Japan Music Radio')).resolves.toEqual({
+      results: [station],
+      failedProviders: [],
+      providerCount: 1,
+    });
   });
 
   it('preserves degradation for dedicated ccMixter categories', async () => {
@@ -885,6 +936,40 @@ describe('album federation', () => {
       streamUrl: fullTrack.path,
     });
     expect(vi.mocked(kuwoProvider.search)).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps unstable video searches out of automatic full-track resolution', async () => {
+    const preview = {
+      ...song('itunes-stable-resolver-preview'),
+      title: 'Stable resolver match',
+      artist: 'Artist',
+      duration: 30,
+      recordingDuration: 224,
+      provider: 'Apple Preview' as const,
+    };
+    const qqMatch = {
+      ...song('qq-stable-resolver'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 224,
+      provider: 'QQ Music' as const,
+    };
+    const neteaseMatch = {
+      ...song('netease-stable-resolver'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 224,
+      provider: 'Netease' as const,
+    };
+    vi.mocked(qqMusicProvider.search).mockResolvedValue([qqMatch]);
+    vi.mocked(neteaseProvider.search).mockResolvedValue([neteaseMatch]);
+    vi.spyOn(neteaseProvider, 'getStreamUrl').mockImplementation(async (track) => track.path);
+
+    const source = await api.getPlaybackSource(preview);
+    expect([qqMatch.id, neteaseMatch.id]).toContain(source.song.id);
+
+    expect(bilibiliProvider.search).not.toHaveBeenCalled();
+    expect(invidiousProvider.search).not.toHaveBeenCalled();
   });
 
   it('tries a title fallback query when a provider ranks the combined query poorly', async () => {

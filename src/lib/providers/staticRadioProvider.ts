@@ -5,6 +5,8 @@ import type { Album, Artist, MusicProviderName, Song } from '@/types/music';
 export interface StaticRadioStation {
   readonly id: string;
   readonly title: string;
+  /** Station operator shown to listeners when a curated provider has multiple broadcasters. */
+  readonly artist?: string;
   readonly description: string;
   readonly genre: string;
   readonly streamUrl: string;
@@ -44,7 +46,7 @@ export function createStaticRadioProvider(config: StaticRadioProviderConfig): St
     return {
       id: `${config.idPrefix}-${station.id}`,
       title: station.title,
-      artist: config.artist,
+      artist: station.artist ?? config.artist,
       artistId: `${config.idPrefix}-artist-${station.id}`,
       album: station.description,
       albumId: `${config.idPrefix}-album-${station.id}`,
@@ -94,7 +96,9 @@ export function createStaticRadioProvider(config: StaticRadioProviderConfig): St
       if (!needle) return [];
       return config.stations
         .filter((station) =>
-          `${station.title} ${station.description} ${station.genre}`.toLocaleLowerCase().includes(needle),
+          `${station.title} ${station.artist ?? config.artist} ${station.description} ${station.genre}`
+            .toLocaleLowerCase()
+            .includes(needle),
         )
         .map(songFor);
     },

@@ -32,6 +32,7 @@ const PROVIDER_RELEVANCE: Record<MusicProviderName, number> = {
   'The Current': 15,
   'Radio France': 15,
   'Asia Dream Radio': 16,
+  'Japan Music Radio': 16,
   'Radio Browser': 10,
   'Local file': 100,
 };

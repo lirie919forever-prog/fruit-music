@@ -24,6 +24,15 @@ export const asiaDreamRadioProvider = createStaticRadioProvider({
       sourceUrl: 'https://asiadreamradio.com/genres/j-pop/',
     },
     {
+      id: 'japan-hits',
+      title: 'Japan Hits',
+      description: 'A direct Asia Dream Radio stream for current Japanese pop and idol music.',
+      genre: 'J-Pop',
+      streamUrl: 'https://quincy.torontocast.com:2020/stream.mp3',
+      bitRate: 128,
+      sourceUrl: 'https://asiadreamradio.com/genres/j-pop/',
+    },
+    {
       id: 'jpop-powerplay',
       title: 'J-Pop Powerplay',
       description: 'A continuous Japanese pop station focused on current hits.',

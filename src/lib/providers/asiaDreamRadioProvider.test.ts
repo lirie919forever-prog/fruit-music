@@ -12,6 +12,11 @@ describe('Asia Dream Radio provider', () => {
         path: 'https://quincy.torontocast.com:2070/stream.mp3',
       },
       {
+        id: 'asiadream-japan-hits',
+        title: 'Japan Hits',
+        path: 'https://quincy.torontocast.com:2020/stream.mp3',
+      },
+      {
         id: 'asiadream-jpop-powerplay',
         title: 'J-Pop Powerplay',
         path: 'https://kathy.torontocast.com:3560/stream/1/',

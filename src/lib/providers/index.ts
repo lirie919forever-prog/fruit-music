@@ -23,6 +23,7 @@ import { fipProvider } from './fipProvider';
 import { theCurrentProvider } from './theCurrentProvider';
 import { radioFranceProvider } from './radioFranceProvider';
 import { asiaDreamRadioProvider } from './asiaDreamRadioProvider';
+import { japanMusicRadioProvider } from './japanMusicRadioProvider';
 import { radioBrowserProvider } from './radioBrowserProvider';
 import { localProvider } from './localProvider';
 
@@ -203,6 +204,13 @@ export const MUSIC_PROVIDER_ADAPTERS: readonly ProviderRegistration[] = [
     artistPrefixes: ['asiadream-artist-'],
   },
   {
+    name: 'Japan Music Radio',
+    adapter: japanMusicRadioProvider,
+    songPrefixes: ['japanradio-'],
+    albumPrefixes: ['japanradio-album-'],
+    artistPrefixes: ['japanradio-artist-'],
+  },
+  {
     name: 'Radio Browser',
     adapter: radioBrowserProvider,
     songPrefixes: ['radio-'],
@@ -262,6 +270,7 @@ export {
   theCurrentProvider,
   radioFranceProvider,
   asiaDreamRadioProvider,
+  japanMusicRadioProvider,
   radioBrowserProvider,
   localProvider,
 };

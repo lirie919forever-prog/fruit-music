@@ -17,6 +17,7 @@ import {
   getMusicProviderForSongId,
   itunesProvider,
   jamendoProvider,
+  japanMusicRadioProvider,
   kexpProvider,
   kuwoProvider,
   lxmusicProvider,
@@ -292,6 +293,8 @@ interface FullTrackSearchOptions {
   cacheCandidates?: boolean;
   includeOpenSources?: boolean;
   includeAudius?: boolean;
+  /** Public video searches remain available explicitly, but are too volatile for automatic playback fallback. */
+  includeVideoSources?: boolean;
   /** Background chart hydration should degrade quietly when Kuwo is unavailable. */
   softResolverSearch?: boolean;
   /** Optional resolver search is opt-in; implicit recovery must stay reliable. */
@@ -416,10 +419,10 @@ async function findFullTrackCandidates(
       kuwoProvider.search(query, sourceSignal, options.softResolverSearch ? { soft: true } : undefined),
     );
   }
-  if (!isExcluded('Bilibili')) {
+  if (options.includeVideoSources === true && !isExcluded('Bilibili')) {
     primarySources.push((query, sourceSignal) => bilibiliProvider.search(query, sourceSignal));
   }
-  if (!isExcluded('Invidious')) {
+  if (options.includeVideoSources === true && !isExcluded('Invidious')) {
     primarySources.push((query, sourceSignal) => invidiousProvider.search(query, sourceSignal));
   }
   if (options.includeLx === true && !isExcluded('LX Music') && process.env.NEXT_PUBLIC_LX_ENABLED === 'true') {
@@ -1045,6 +1048,8 @@ export async function searchFederated(
     { name: 'FIP', get: async (sig) => ({ results: await fipProvider.search(query, sig) }) },
     { name: 'The Current', get: async (sig) => ({ results: await theCurrentProvider.search(query, sig) }) },
     { name: 'Radio France', get: async (sig) => ({ results: await radioFranceProvider.search(query, sig) }) },
+    { name: 'Asia Dream Radio', get: async (sig) => ({ results: await asiaDreamRadioProvider.search(query, sig) }) },
+    { name: 'Japan Music Radio', get: async (sig) => ({ results: await japanMusicRadioProvider.search(query, sig) }) },
     { name: 'Radio Browser', get: async (sig) => ({ results: await radioBrowserProvider.search(query, sig) }) },
     { name: 'Apple Preview', get: async (sig) => ({ results: await itunesProvider.search(query, sig) }) },
     { name: 'Deezer Preview', get: async (sig) => ({ results: await deezerProvider.search(query, sig) }) },
@@ -1135,7 +1140,10 @@ function canonicalStationTitle(title: string): string {
 
 function withoutRadioBrowserAliases(stations: Song[], directStations: Song[]): Song[] {
   const directNames = new Set(directStations.map((station) => canonicalStationTitle(station.title)).filter(Boolean));
-  return stations.filter((station) => !directNames.has(canonicalStationTitle(station.title)));
+  const directStreams = new Set(directStations.map((station) => station.path.trim()).filter(Boolean));
+  return stations.filter(
+    (station) => !directNames.has(canonicalStationTitle(station.title)) && !directStreams.has(station.path.trim()),
+  );
 }
 
 export async function getLiveStations(limit = 12, signal?: AbortSignal): Promise<FederatedResult<Song>> {
@@ -1161,6 +1169,10 @@ export async function getLiveStations(limit = 12, signal?: AbortSignal): Promise
     {
       name: 'Asia Dream Radio',
       get: async (sig) => ({ results: await asiaDreamRadioProvider.getTrending(perProviderLimit, sig) }),
+    },
+    {
+      name: 'Japan Music Radio',
+      get: async (sig) => ({ results: await japanMusicRadioProvider.getTrending(perProviderLimit, sig) }),
     },
     {
       name: 'Radio Browser',
@@ -1212,6 +1224,10 @@ export async function getJapanLiveStations(limit = 18, signal?: AbortSignal): Pr
       get: async (sig) => ({ results: await asiaDreamRadioProvider.getTrending(perProviderLimit, sig) }),
     },
     {
+      name: 'Japan Music Radio',
+      get: async (sig) => ({ results: await japanMusicRadioProvider.getTrending(perProviderLimit, sig) }),
+    },
+    {
       name: 'Radio Browser',
       get: async (sig) => ({ results: await radioBrowserProvider.getSongsByTag('j-pop', perProviderLimit, sig) }),
     },
@@ -1223,20 +1239,25 @@ export async function getJapanLiveStations(limit = 18, signal?: AbortSignal): Pr
   const perProviderLimit = Math.min(20, Math.max(4, Math.ceil(cappedLimit / providers.length)));
   const catalog = await federateCatalog(providers, signal);
   const asiaDreamStations = catalog.results.filter((song) => song.provider === 'Asia Dream Radio');
+  const japanMusicStations = catalog.results.filter((song) => song.provider === 'Japan Music Radio');
+  const directJapanStations = [...asiaDreamStations, ...japanMusicStations];
   const radioBrowserJpopStations = withoutRadioBrowserAliases(
     catalog.results.filter(
       (song) => song.provider === 'Radio Browser' && song.genre.toLocaleLowerCase().includes('j-pop'),
     ),
-    asiaDreamStations,
+    directJapanStations,
   );
   const japanRadio = catalog.results.filter(
     (song) => song.provider === 'Radio Browser' && song.artistId === 'radio-artist-JP',
   );
-  const japanRadioStations = withoutRadioBrowserAliases(japanRadio, asiaDreamStations);
+  const japanRadioStations = withoutRadioBrowserAliases(japanRadio, directJapanStations);
 
   return {
     ...catalog,
-    results: interleaveEntities([asiaDreamStations, radioBrowserJpopStations, japanRadioStations], cappedLimit),
+    results: interleaveEntities(
+      [asiaDreamStations, japanMusicStations, radioBrowserJpopStations, japanRadioStations],
+      cappedLimit,
+    ),
   };
 }
 

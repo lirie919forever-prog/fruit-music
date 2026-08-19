@@ -135,7 +135,7 @@ export function CategoryGrid({
       <div className="pb-3">
         <p className="text-[13px] text-[var(--salt-mist)]">
           {isShowingPreviews && fullCount > 0
-            ? `${fullCount} verified full-stream match${fullCount === 1 ? '' : 'es'} + ${previewCount} preview — press any preview song and Marea will try to find a full recording.`
+            ? `${fullCount} full-length match${fullCount === 1 ? '' : 'es'} + ${previewCount} preview — press any preview song and Marea will try to find a full recording.`
             : isShowingPreviews
               ? `${previewCount} preview ${previewCount === 1 ? 'track' : 'tracks'} — press any song and Marea will try to find a full recording.`
               : `${fullCount} ${fullCount === 1 ? 'track' : 'tracks'} — ${config.description}`}

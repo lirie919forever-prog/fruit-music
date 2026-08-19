@@ -152,6 +152,15 @@ export const MUSIC_SOURCE_REGISTRY: readonly MusicSourceDefinition[] = [
     searchable: true,
   },
   {
+    name: 'Japan Music Radio',
+    description: 'Curated direct streams from public Japanese music and city-pop radio stations.',
+    homepage: 'https://j1fm.tokyo/',
+    capabilities: ['live'],
+    integration: 'active',
+    note: 'Direct J-pop, city-pop, and Japanese music live streams',
+    searchable: true,
+  },
+  {
     name: 'Radio Browser',
     description: 'A worldwide index of public internet radio stations, including a dedicated Japan FM discovery lane.',
     homepage: 'https://www.radio-browser.info/',
