@@ -96,6 +96,14 @@ function rawId(song: Song): string | null {
   return SONG_ID_PATTERN.test(value) ? value : null;
 }
 
+function pathWithExpectedDuration(path: string, duration: number): string {
+  if (!Number.isFinite(duration) || duration <= 45) return path;
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const url = new URL(path, origin);
+  url.searchParams.set('expected', String(Math.round(duration)));
+  return `${url.pathname}${url.search}`;
+}
+
 export const neteaseProvider: MusicProvider = {
   async getAlbums(): Promise<never[]> {
     return [];
@@ -140,7 +148,7 @@ export const neteaseProvider: MusicProvider = {
       { timeoutMs: 12_000 },
     );
     if (probe.available !== true) throw new Error('Netease stream is unavailable');
-    return song.path;
+    return pathWithExpectedDuration(song.path, song.duration);
   },
 
   async getSongsByTag(tag: string, limit = 40, signal?: AbortSignal): Promise<Song[]> {

@@ -12,6 +12,7 @@ import {
 const SONG_ID_PATTERN = /^\d{1,20}$/;
 const REQUEST_TIMEOUT_MS = 12_000;
 const CATALOG_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=600';
+const FULL_TRACK_EXPECTATION_THRESHOLD_SECONDS = 45;
 const NETEASE_HEADERS: Record<string, string> = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   Referer: 'https://music.163.com',
@@ -43,6 +44,62 @@ function isAudioLike(contentType: string, contentLength: string | null): boolean
 
 function upContentLength(resp: Response): string | null {
   return resp.headers.get('Content-Length') ?? resp.headers.get('content-length');
+}
+
+function totalResponseBytes(response: Response): number {
+  const contentRange = response.headers.get('content-range');
+  const total = contentRange?.match(/^bytes \d+-\d+\/(\d+)$/i)?.[1];
+  if (total) return Number(total);
+  const length = upContentLength(response);
+  return length ? Number(length) : 0;
+}
+
+function expectedMinimumBytes(expectedDuration: number): number {
+  // A 32 kbps full recording is already larger than this. The decoder remains
+  // the final authority, but this rejects a known 20-30 second sample before
+  // it ever reaches the player queue.
+  return Math.ceil(expectedDuration * 4_000);
+}
+
+function isExpectedFullRecording(response: Response, expectedDuration: number): boolean {
+  if (expectedDuration <= FULL_TRACK_EXPECTATION_THRESHOLD_SECONDS) return true;
+  const totalBytes = totalResponseBytes(response);
+  return totalBytes === 0 || totalBytes >= expectedMinimumBytes(expectedDuration);
+}
+
+function releaseResponse(response: Response): void {
+  void response.body?.cancel().catch(() => undefined);
+}
+
+async function fetchUsableStream(
+  url: string,
+  signal: AbortSignal,
+  headers: HeadersInit,
+  expectedDuration: number,
+): Promise<Response | null> {
+  const response = await fetch(url, { signal, headers });
+  const contentType = response.headers.get('Content-Type') ?? '';
+  if (
+    !response.ok ||
+    !isAudioLike(contentType, upContentLength(response)) ||
+    !isExpectedFullRecording(response, expectedDuration)
+  ) {
+    releaseResponse(response);
+    return null;
+  }
+  return response;
+}
+
+async function probeNeteaseStream(url: string, signal: AbortSignal, expectedDuration: number): Promise<boolean> {
+  const response = await fetchUsableStream(
+    url,
+    signal,
+    { 'User-Agent': NETEASE_HEADERS['User-Agent'], Range: 'bytes=0-1' },
+    expectedDuration,
+  );
+  if (!response) return false;
+  releaseResponse(response);
+  return true;
 }
 
 interface NeteaseSearchSong {
@@ -121,23 +178,20 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
 
     const rangeHeader = request.headers.get('Range') ?? undefined;
+    const expectedDuration = Number(new URL(request.url).searchParams.get('expected'));
+    const fullTrackExpected =
+      Number.isFinite(expectedDuration) && expectedDuration > FULL_TRACK_EXPECTATION_THRESHOLD_SECONDS
+        ? expectedDuration
+        : 0;
 
-    // Probe: check if any Netease source returns an audio stream.
+    // Probe both approved sources with a tiny range. A media content type by
+    // itself is not enough: some IDs return a 20-30 second trial clip with an
+    // otherwise valid MP3 response.
     if (new URL(request.url).searchParams.get('probe') === '1') {
       try {
-        const meting = await fetch(metingStreamUrl(songId), {
-          signal,
-          headers: { 'User-Agent': NETEASE_HEADERS['User-Agent'] },
-        });
-        if (isAudioLike(meting.headers.get('Content-Type') ?? '', upContentLength(meting))) {
-          return NextResponse.json({ available: true });
-        }
-        // Fallback: Netease outer URL serves non-VIP tracks from server IPs.
-        const outer = await fetch(neteaseOuterUrl(songId), {
-          signal,
-          headers: { 'User-Agent': NETEASE_HEADERS['User-Agent'] },
-        });
-        const outerAvailable = outer.ok && isAudioLike(outer.headers.get('Content-Type') ?? '', upContentLength(outer));
+        const metingAvailable = await probeNeteaseStream(metingStreamUrl(songId), signal, fullTrackExpected);
+        if (metingAvailable) return NextResponse.json({ available: true });
+        const outerAvailable = await probeNeteaseStream(neteaseOuterUrl(songId), signal, fullTrackExpected);
         return NextResponse.json({ available: outerAvailable });
       } catch {
         return NextResponse.json({ available: false });
@@ -151,20 +205,17 @@ export async function GET(request: Request): Promise<NextResponse> {
       };
       if (rangeHeader) streamHeaders['Range'] = rangeHeader;
 
-      let upstream = await fetch(metingStreamUrl(songId), { signal, headers: streamHeaders });
-      let contentType = upstream.headers.get('Content-Type') ?? '';
-      if (!isAudioLike(contentType, upContentLength(upstream))) {
-        await upstream.body?.cancel().catch(() => {});
-        upstream = await fetch(neteaseOuterUrl(songId), { signal, headers: streamHeaders });
-        contentType = upstream.headers.get('Content-Type') ?? '';
+      let upstream = await fetchUsableStream(metingStreamUrl(songId), signal, streamHeaders, fullTrackExpected);
+      if (!upstream) {
+        upstream = await fetchUsableStream(neteaseOuterUrl(songId), signal, streamHeaders, fullTrackExpected);
       }
-
-      const contentLength = upContentLength(upstream);
-      if (!isAudioLike(contentType, contentLength)) {
+      if (!upstream) {
         return NextResponse.json({ error: 'Netease stream is unavailable for this song' }, { status: 502 });
       }
 
       const headers = new Headers();
+      const contentType = upstream.headers.get('Content-Type') ?? '';
+      const contentLength = upContentLength(upstream);
       const ct = mediaContentType(contentType) ?? 'audio/mpeg';
       headers.set('Content-Type', ct);
       if (contentLength) headers.set('Content-Length', contentLength);

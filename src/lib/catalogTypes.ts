@@ -62,6 +62,7 @@ export interface MusicCatalog {
   getCcmixterSongsByTag(tag: string, limit?: number, signal?: AbortSignal): Promise<FederatedResult<Song>>;
   getGenreSongs(tag: string, limit?: number, signal?: AbortSignal): Promise<FederatedResult<Song>>;
   getLiveStations(limit?: number, signal?: AbortSignal): Promise<FederatedResult<Song>>;
+  getJapanLiveStations(limit?: number, signal?: AbortSignal): Promise<FederatedResult<Song>>;
   getRecentReleases(limit?: number, signal?: AbortSignal): Promise<Song[]>;
   getTrending(limit?: number, signal?: AbortSignal): Promise<FederatedResult<Song>>;
   getChartSongs(chart: ChartKey, signal?: AbortSignal, options?: ChartFetchOptions): Promise<Song[]>;

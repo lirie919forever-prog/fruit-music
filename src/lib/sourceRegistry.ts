@@ -143,6 +143,15 @@ export const MUSIC_SOURCE_REGISTRY: readonly MusicSourceDefinition[] = [
     searchable: true,
   },
   {
+    name: 'Asia Dream Radio',
+    description: 'Dedicated public J-pop stations with continuously playable MP3 streams.',
+    homepage: 'https://asiadreamradio.com/',
+    capabilities: ['live'],
+    integration: 'active',
+    note: 'Official J-pop live radio, 128 kbps',
+    searchable: true,
+  },
+  {
     name: 'Radio Browser',
     description: 'A worldwide index of public internet radio stations, including a dedicated Japan FM discovery lane.',
     homepage: 'https://www.radio-browser.info/',

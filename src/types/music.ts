@@ -37,6 +37,7 @@ export type MusicProviderName =
   | 'FIP'
   | 'The Current'
   | 'Radio France'
+  | 'Asia Dream Radio'
   | 'Radio Browser'
   | 'Invidious'
   | 'Netease'

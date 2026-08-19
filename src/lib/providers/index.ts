@@ -22,6 +22,7 @@ import { kexpProvider } from './kexpProvider';
 import { fipProvider } from './fipProvider';
 import { theCurrentProvider } from './theCurrentProvider';
 import { radioFranceProvider } from './radioFranceProvider';
+import { asiaDreamRadioProvider } from './asiaDreamRadioProvider';
 import { radioBrowserProvider } from './radioBrowserProvider';
 import { localProvider } from './localProvider';
 
@@ -195,6 +196,13 @@ export const MUSIC_PROVIDER_ADAPTERS: readonly ProviderRegistration[] = [
     artistPrefixes: ['radiofrance-artist-'],
   },
   {
+    name: 'Asia Dream Radio',
+    adapter: asiaDreamRadioProvider,
+    songPrefixes: ['asiadream-'],
+    albumPrefixes: ['asiadream-album-'],
+    artistPrefixes: ['asiadream-artist-'],
+  },
+  {
     name: 'Radio Browser',
     adapter: radioBrowserProvider,
     songPrefixes: ['radio-'],
@@ -253,6 +261,7 @@ export {
   fipProvider,
   theCurrentProvider,
   radioFranceProvider,
+  asiaDreamRadioProvider,
   radioBrowserProvider,
   localProvider,
 };

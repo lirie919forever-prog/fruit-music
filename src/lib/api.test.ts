@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Artist, Song } from '@/types/music';
 import {
   archiveProvider,
+  asiaDreamRadioProvider,
   audiusProvider,
   bilibiliProvider,
   invidiousProvider,
@@ -391,6 +392,10 @@ describe('provider federation', () => {
       { ...song('radiofrance-1'), provider: 'Radio France', isLive: true },
       { ...song('radiofrance-2'), provider: 'Radio France', isLive: true },
     ]);
+    vi.spyOn(asiaDreamRadioProvider, 'getTrending').mockResolvedValue([
+      { ...song('asiadream-1'), provider: 'Asia Dream Radio', isLive: true },
+      { ...song('asiadream-2'), provider: 'Asia Dream Radio', isLive: true },
+    ]);
 
     const state = await api.getLiveStations(8);
 
@@ -402,9 +407,58 @@ describe('provider federation', () => {
       'fip-1',
       'thecurrent-1',
       'radiofrance-1',
-      'radio-1',
+      'asiadream-1',
     ]);
-    expect(state.providerCount).toBe(9);
+    expect(state.providerCount).toBe(10);
+  });
+
+  it('prefers a direct Japan station over its Radio Browser display alias', async () => {
+    const directStation = {
+      ...song('asiadream-jpop-sakura'),
+      title: 'J-Pop Sakura',
+      artist: 'Asia Dream Radio',
+      genre: 'J-Pop',
+      provider: 'Asia Dream Radio' as const,
+      isLive: true,
+    };
+    const aliasStation = {
+      ...song('radio-jpop-sakura-alias'),
+      title: 'J-Pop Sakura (Asia Dream Radio)',
+      artist: 'JP live radio',
+      artistId: 'radio-artist-global',
+      genre: 'J-Pop',
+      provider: 'Radio Browser' as const,
+      isLive: true,
+    };
+    const catalogStation = {
+      ...song('radio-jpop-discovery'),
+      title: 'Stereo Anime',
+      artist: 'JP live radio',
+      artistId: 'radio-artist-global',
+      genre: 'J-Pop',
+      provider: 'Radio Browser' as const,
+      isLive: true,
+    };
+    const countryStation = {
+      ...song('radio-japan-fm'),
+      title: 'Japan City Pop',
+      artist: 'JP live radio',
+      artistId: 'radio-artist-JP',
+      genre: 'City Pop',
+      provider: 'Radio Browser' as const,
+      isLive: true,
+    };
+    vi.spyOn(asiaDreamRadioProvider, 'getTrending').mockResolvedValue([directStation]);
+    vi.mocked(radioBrowserProvider.getSongsByTag).mockResolvedValue([aliasStation, catalogStation]);
+    vi.mocked(radioBrowserProvider.getCountryStations).mockResolvedValue([countryStation]);
+
+    const state = await api.getJapanLiveStations(9);
+
+    expect(state.results.map(({ id }) => id)).toEqual([
+      'asiadream-jpop-sakura',
+      'radio-jpop-discovery',
+      'radio-japan-fm',
+    ]);
   });
 
   it('preserves degradation for dedicated ccMixter categories', async () => {
@@ -788,6 +842,49 @@ describe('album federation', () => {
     expect(result.streamUrl).toBe(candidates[1].path);
     expect(result.candidates?.map((candidate) => candidate.song.id)).toEqual(['kuwo-second', 'kuwo-third']);
     expect(maxActiveProbes).toBe(3);
+  });
+
+  it('does not cache a failed background candidate before a user playback fallback is tried', async () => {
+    const preview = {
+      ...song('itunes-background-fallback-preview'),
+      title: 'Background fallback match',
+      artist: 'Artist',
+      duration: 30,
+      recordingDuration: 216,
+      provider: 'Apple Preview' as const,
+    };
+    const unavailable = {
+      ...song('jamendo-background-fallback'),
+      id: 'netease-background-fallback',
+      title: preview.title,
+      artist: preview.artist,
+      duration: 216,
+      provider: 'Netease' as const,
+    };
+    const fullTrack = {
+      ...song('kuwo-background-fallback'),
+      title: preview.title,
+      artist: preview.artist,
+      duration: 216,
+      provider: 'Kuwo' as const,
+    };
+    vi.mocked(neteaseProvider.search).mockResolvedValue([unavailable]);
+    vi.spyOn(neteaseProvider, 'getStreamUrl').mockRejectedValue(new Error('short clip'));
+    vi.mocked(kuwoProvider.search)
+      .mockImplementationOnce(
+        async () =>
+          await new Promise<Song[]>((resolve) => {
+            setTimeout(() => resolve([fullTrack]), 15);
+          }),
+      )
+      .mockResolvedValue([fullTrack]);
+
+    await expect(api.resolveChartTrack(preview)).resolves.toBeNull();
+    await expect(api.getPlaybackSource(preview)).resolves.toMatchObject({
+      song: fullTrack,
+      streamUrl: fullTrack.path,
+    });
+    expect(vi.mocked(kuwoProvider.search)).toHaveBeenCalledTimes(2);
   });
 
   it('tries a title fallback query when a provider ranks the combined query poorly', async () => {

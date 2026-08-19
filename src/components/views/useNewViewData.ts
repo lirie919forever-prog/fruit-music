@@ -46,7 +46,7 @@ function useMainstreamChart(catalog: MusicCatalog, enabled = true) {
     // quickly enough for the first paint.
     queryKey: ['new', 'chart', 'billboard', 'shelf'],
     queryFn: ({ signal }): Promise<Song[]> =>
-      catalog.getChartSongs('billboard', signal, { resolveFullTracks: true, rowLimit: 18 }),
+      catalog.getChartSongs('billboard', signal, { resolveFullTracks: true, rowLimit: 8 }),
     enabled,
     ...shared,
   });

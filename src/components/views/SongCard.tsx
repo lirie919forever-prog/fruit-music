@@ -146,6 +146,7 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const isActive = currentSong?.id === song.id;
   const playbackUnavailable = song.playbackUnavailable === true;
+  const showProviderCredit = song.artist.trim().toLocaleLowerCase() !== song.provider.trim().toLocaleLowerCase();
   // A known-unplayable sibling must never enter the queue: it would only
   // stall playback when its turn comes around.
   const playableTracks = playableSongs(tracks);
@@ -184,10 +185,14 @@ export function SongCard({ song, index, tracks, showIndex = true, trailing, onNa
         </button>
         <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-tight text-[var(--salt-mist)]">
           <ArtistLink song={song} onNavigateWithItem={onNavigateWithItem} className="text-xs" />
-          <span aria-hidden className="shrink-0">
-            ·
-          </span>
-          <span className="shrink-0 truncate">{song.provider}</span>
+          {showProviderCredit && (
+            <>
+              <span aria-hidden className="shrink-0">
+                ·
+              </span>
+              <span className="shrink-0 truncate">{song.provider}</span>
+            </>
+          )}
           <AudioAccessBadge song={song} />
         </span>
       </div>

@@ -23,10 +23,6 @@ function matchesStation(song: Song, query: string): boolean {
     .includes(needle);
 }
 
-function matchesRegion(song: Song, region: RadioRegion): boolean {
-  return region === 'all' || song.artistId === 'radio-artist-JP';
-}
-
 export function RadioView({
   onNavigateWithItem,
 }: {
@@ -37,16 +33,17 @@ export function RadioView({
   const [query, setQuery] = useState('');
   const [region, setRegion] = useState<RadioRegion>('all');
   const { data, isPending, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ['radio', 'stations'],
-    queryFn: ({ signal }) => catalog.getLiveStations(64, signal),
+    queryKey: ['radio', 'stations', region],
+    queryFn: ({ signal }) =>
+      region === 'jp' ? catalog.getJapanLiveStations(36, signal) : catalog.getLiveStations(64, signal),
     staleTime: catalogStaleTime(countFederatedResults),
     retry: 1,
   });
 
   const stations = data?.results ?? EMPTY_STATIONS;
   const visibleStations = useMemo(
-    () => stations.filter((station) => matchesRegion(station, region) && matchesStation(station, query)),
-    [region, stations, query],
+    () => stations.filter((station) => matchesStation(station, query)),
+    [stations, query],
   );
   const playableStations = visibleStations.filter((station) => station.playbackUnavailable !== true);
   const unavailableProviders = [...new Set([...(data?.failedProviders ?? []), ...(data?.degradedProviders ?? [])])];
@@ -70,7 +67,7 @@ export function RadioView({
         <div>
           <p className="text-[13px] leading-relaxed text-[var(--salt-mist)]">
             {region === 'jp'
-              ? `${visibleStations.length} checked Japan FM and J-pop stations.`
+              ? `${visibleStations.length} checked Japan and J-pop stations, including direct Asia Dream Radio streams.`
               : `${stations.length} live stations from ${availableNetworkCount} radio networks.`}
           </p>
           <div
@@ -92,7 +89,7 @@ export function RadioView({
               onClick={() => setRegion('jp')}
               className={`min-h-8 rounded-md px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--salt-primary)] ${region === 'jp' ? 'bg-white text-[var(--salt-primary)] shadow-sm' : 'text-[var(--salt-mist)] hover:text-[var(--salt-primary)]'}`}
             >
-              Japan FM
+              Japan & J-Pop
             </button>
           </div>
           {unavailableProviders.length > 0 && (

@@ -2,6 +2,7 @@ import type { Album, Artist, MusicProviderName, Song } from '@/types/music';
 import { normalizeCJK } from '@/lib/cjkNormalize';
 import {
   archiveProvider,
+  asiaDreamRadioProvider,
   audiusProvider,
   bilibiliProvider,
   invidiousProvider,
@@ -285,6 +286,10 @@ type FullTrackSearchSource = (query: string, signal?: AbortSignal) => Promise<So
 
 interface FullTrackSearchOptions {
   queryLimit?: number;
+  /** Keep a small fallback set instead of trusting the first catalog hit alone. */
+  maxCandidateProviders?: number;
+  /** Background resolution must not leave an unverified candidate sticky for a later Play action. */
+  cacheCandidates?: boolean;
   includeOpenSources?: boolean;
   includeAudius?: boolean;
   /** Background chart hydration should degrade quietly when Kuwo is unavailable. */
@@ -307,16 +312,18 @@ async function searchFullTrackSources(
   signal?: AbortSignal,
   excludedIds: ReadonlySet<string> = new Set(),
   allowExplicitArtistTitleMatch = false,
+  maxCandidateProviders = 2,
 ): Promise<Song[]> {
   if (sources.length === 0) return [];
 
-  // A per-search AbortController cancels slow source HTTP requests
-  // as soon as a fast source finds matches. Without this, abandoned fetch
-  // requests (e.g., Invidious at 12s) would saturate the browser's fetch
-  // connection pool and delay later chart rows.
+  // A catalog match is not stream proof. Keep a tiny independent-provider
+  // fallback set for an explicit Play action, then cancel the rest so failed
+  // sources cannot saturate the browser connection pool.
+  const targetProviderCount = Math.max(1, Math.min(maxCandidateProviders, 3));
   const linked = createLinkedAbortController(signal);
   const searchSignal = linked.controller.signal;
   const allMatches: Song[] = [];
+  const matchedProviders = new Set<MusicProviderName>();
   let earlyResolve!: () => void;
   const matchedOrAllDone = new Promise<void>((resolve) => {
     earlyResolve = resolve;
@@ -326,7 +333,7 @@ async function searchFullTrackSources(
     try {
       for (const query of queries) {
         throwIfAborted(searchSignal);
-        if (allMatches.length > 0) return;
+        if (matchedProviders.size >= targetProviderCount) return;
         const matches = matchingFullTracks(
           await search(query, searchSignal),
           title,
@@ -337,11 +344,14 @@ async function searchFullTrackSources(
         ).filter((candidate) => !excludedIds.has(candidate.id));
         if (matches.length > 0) {
           allMatches.push(...matches);
-          earlyResolve();
-          // Cancel remaining in-flight source HTTP requests so they stop
-          // occupying the browser's fetch connection pool.
-          if (!searchSignal.aborted) {
-            linked.controller.abort(new DOMException('Search matched early', 'AbortError'));
+          for (const candidate of matches) matchedProviders.add(candidate.provider);
+          if (matchedProviders.size >= targetProviderCount) {
+            earlyResolve();
+            // Cancel remaining in-flight source HTTP requests so they stop
+            // occupying the browser's fetch connection pool.
+            if (!searchSignal.aborted) {
+              linked.controller.abort(new DOMException('Enough playback matches found', 'AbortError'));
+            }
           }
           return;
         }
@@ -353,8 +363,8 @@ async function searchFullTrackSources(
     }
   });
 
-  // Resolve as soon as either (a) any source finds matches, or (b) all
-  // sources have settled without finding anything.
+  // Resolve as soon as either (a) enough independent providers match, or (b)
+  // all sources have settled with the smaller fallback set they found.
   await Promise.race([matchedOrAllDone, Promise.allSettled(sourcePromises).then(() => earlyResolve())]);
   linked.dispose();
   return allMatches;
@@ -428,6 +438,7 @@ async function findFullTrackCandidates(
     signal,
     excludedIds,
     options.allowExplicitArtistTitleMatch,
+    options.maxCandidateProviders,
   );
   if (candidates.length === 0 && options.includeOpenSources !== false) {
     // A mainstream resolver is not the only useful recovery path. These
@@ -450,6 +461,7 @@ async function findFullTrackCandidates(
       signal,
       excludedIds,
       options.allowExplicitArtistTitleMatch,
+      options.maxCandidateProviders,
     );
   }
 
@@ -461,7 +473,9 @@ async function findFullTrackCandidates(
       return true;
     })
     .slice(0, MAX_PLAYBACK_CANDIDATES);
-  if (uniqueCandidates.length > 0) setPlaybackResolution(song, { candidates: uniqueCandidates });
+  if (uniqueCandidates.length > 0 && options.cacheCandidates !== false) {
+    setPlaybackResolution(song, { candidates: uniqueCandidates });
+  }
   return uniqueCandidates;
 }
 
@@ -799,9 +813,9 @@ async function findFullTrackFallback(
 // exists, but the resolver must have had a chance to inspect every ranked row
 // before the UI presents it as playable.
 const CHART_FULL_TRACK_LIMIT = 50;
-const CHART_SHELF_TRACK_LIMIT = 18;
-const CHART_FULL_TRACK_WORKERS = 8;
-const CHART_SHELF_WORKERS = 2;
+const CHART_SHELF_TRACK_LIMIT = 8;
+const CHART_FULL_TRACK_WORKERS = 3;
+const CHART_SHELF_WORKERS = 1;
 const CHART_FULL_TRACK_TIMEOUT_MS = PLAYBACK_RESOLUTION_TIMEOUT_MS + 20_000;
 const CHART_SHELF_TIMEOUT_MS = PLAYBACK_RESOLUTION_TIMEOUT_MS + 5_000;
 
@@ -809,10 +823,12 @@ const CHART_SHELF_TIMEOUT_MS = PLAYBACK_RESOLUTION_TIMEOUT_MS + 5_000;
 // Disabling it for chart hydration eliminates the most common resolver
 // noise source while keeping it available for user-initiated playback.
 const CHART_FULL_TRACK_SEARCH_OPTIONS: FullTrackSearchOptions = {
-  // Use the same query ladder as an explicit Play action. The matcher still
-  // requires title, artist, duration, and version compatibility, so this does
-  // not promote a merely similar cover to a chart recording.
-  queryLimit: 3,
+  // Background hydration should establish a useful first signal, not compete
+  // with the listener's foreground playback request. A full query ladder and
+  // extra provider fallbacks remain available when the user presses Play.
+  queryLimit: 1,
+  maxCandidateProviders: 1,
+  cacheCandidates: false,
   includeOpenSources: false,
   includeAudius: false,
   includeLx: true,
@@ -1110,6 +1126,18 @@ export async function getGenreSongs(tag: string, limit = 50, signal?: AbortSigna
  * continuous audio, so this can be a listener's fastest route into playback
  * while the on-demand catalog is still loading.
  */
+function canonicalStationTitle(title: string): string {
+  // Radio Browser often appends the broadcaster in parentheses to the same
+  // station name supplied by its first-class provider. Keep the listener's
+  // direct stream and remove only that high-confidence alias.
+  return normalizePlaybackText(title.replace(/\s*[([][^)\]]{1,80}[)\]]\s*$/u, ''));
+}
+
+function withoutRadioBrowserAliases(stations: Song[], directStations: Song[]): Song[] {
+  const directNames = new Set(directStations.map((station) => canonicalStationTitle(station.title)).filter(Boolean));
+  return stations.filter((station) => !directNames.has(canonicalStationTitle(station.title)));
+}
+
 export async function getLiveStations(limit = 12, signal?: AbortSignal): Promise<FederatedResult<Song>> {
   const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 12;
   const cappedLimit = Math.max(1, Math.min(normalizedLimit, 64));
@@ -1131,6 +1159,10 @@ export async function getLiveStations(limit = 12, signal?: AbortSignal): Promise
       get: async (sig) => ({ results: await radioFranceProvider.getTrending(perProviderLimit, sig) }),
     },
     {
+      name: 'Asia Dream Radio',
+      get: async (sig) => ({ results: await asiaDreamRadioProvider.getTrending(perProviderLimit, sig) }),
+    },
+    {
       name: 'Radio Browser',
       get: async (sig) => ({ results: await radioBrowserProvider.getTrending(perProviderLimit, sig) }),
     },
@@ -1141,17 +1173,70 @@ export async function getLiveStations(limit = 12, signal?: AbortSignal): Promise
   ];
   const perProviderLimit = Math.min(20, Math.max(4, Math.ceil(cappedLimit / providers.length)));
   const catalog = await federateCatalog(providers, signal);
+  const directStations = catalog.results.filter((song) => song.provider !== 'Radio Browser');
+  const radioBrowserStations = withoutRadioBrowserAliases(
+    catalog.results.filter((song) => song.provider === 'Radio Browser' && song.artistId !== 'radio-artist-JP'),
+    directStations,
+  );
+  const japanFmStations = withoutRadioBrowserAliases(
+    catalog.results.filter((song) => song.provider === 'Radio Browser' && song.artistId === 'radio-artist-JP'),
+    directStations,
+  );
 
   return {
     ...catalog,
     results: interleaveEntities(
       providers.map(({ name }) =>
         name === 'Japan FM'
-          ? catalog.results.filter((song) => song.provider === 'Radio Browser' && song.artistId === 'radio-artist-JP')
-          : catalog.results.filter((song) => song.provider === name),
+          ? japanFmStations
+          : name === 'Radio Browser'
+            ? radioBrowserStations
+            : catalog.results.filter((song) => song.provider === name),
       ),
       cappedLimit,
     ),
+  };
+}
+
+/**
+ * A focused Japan listening lane for the mobile Radio view. It combines
+ * stable direct J-pop stations with the current public-radio index rather
+ * than hoping the broad all-network feed happens to include Japanese music.
+ */
+export async function getJapanLiveStations(limit = 18, signal?: AbortSignal): Promise<FederatedResult<Song>> {
+  const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 18;
+  const cappedLimit = Math.max(1, Math.min(normalizedLimit, 48));
+  const providers: Array<CatalogProvider<Song>> = [
+    {
+      name: 'Asia Dream Radio',
+      get: async (sig) => ({ results: await asiaDreamRadioProvider.getTrending(perProviderLimit, sig) }),
+    },
+    {
+      name: 'Radio Browser',
+      get: async (sig) => ({ results: await radioBrowserProvider.getSongsByTag('j-pop', perProviderLimit, sig) }),
+    },
+    {
+      name: 'Japan FM',
+      get: async (sig) => ({ results: await radioBrowserProvider.getCountryStations('JP', perProviderLimit, sig) }),
+    },
+  ];
+  const perProviderLimit = Math.min(20, Math.max(4, Math.ceil(cappedLimit / providers.length)));
+  const catalog = await federateCatalog(providers, signal);
+  const asiaDreamStations = catalog.results.filter((song) => song.provider === 'Asia Dream Radio');
+  const radioBrowserJpopStations = withoutRadioBrowserAliases(
+    catalog.results.filter(
+      (song) => song.provider === 'Radio Browser' && song.genre.toLocaleLowerCase().includes('j-pop'),
+    ),
+    asiaDreamStations,
+  );
+  const japanRadio = catalog.results.filter(
+    (song) => song.provider === 'Radio Browser' && song.artistId === 'radio-artist-JP',
+  );
+  const japanRadioStations = withoutRadioBrowserAliases(japanRadio, asiaDreamStations);
+
+  return {
+    ...catalog,
+    results: interleaveEntities([asiaDreamStations, radioBrowserJpopStations, japanRadioStations], cappedLimit),
   };
 }
 
@@ -1285,6 +1370,8 @@ export const api = {
   getGenreSongs,
 
   getLiveStations,
+
+  getJapanLiveStations,
 
   async getRecentReleases(limit = 20, signal?: AbortSignal): Promise<Song[]> {
     return itunesProvider.getRecentReleases(limit, signal);

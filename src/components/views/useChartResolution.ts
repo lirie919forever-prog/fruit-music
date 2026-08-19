@@ -5,8 +5,9 @@ import { useMusicCatalog } from '@/lib/musicCatalog';
 import { isFullTrack } from './newViewModel';
 import type { Song } from '@/types/music';
 
-const RESOLUTION_WORKERS = 8;
-const RESOLUTION_TIMEOUT_MS = 35_000;
+const RESOLUTION_WORKERS = 2;
+const BACKGROUND_RESOLUTION_LIMIT = 16;
+const RESOLUTION_TIMEOUT_MS = 24_000;
 const EMPTY_RESOLVED_TRACKS: ReadonlyMap<string, Song> = new Map();
 
 /**
@@ -16,6 +17,8 @@ const EMPTY_RESOLVED_TRACKS: ReadonlyMap<string, Song> = new Map();
  * slots to verified full-length matches, replacing each preview at its chart
  * position as the resolver finds a match. This is non-blocking: rendered
  * tracks never leave the screen, only become "full" as they upgrade.
+ * The background pass is deliberately limited to the leading chart window;
+ * any later preview still receives the full resolver path when it is played.
  *
  * Tracks are keyed by their original Apple-preview ID so the merged list
  * keeps the chart ranking intact (the same list of slots, each replaced in
@@ -92,11 +95,12 @@ export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
       );
     };
 
+    const backgroundTracks = songsRef.current.slice(0, BACKGROUND_RESOLUTION_LIMIT);
     void Promise.all(
-      Array.from({ length: Math.min(RESOLUTION_WORKERS, songsRef.current.length) }, async () => {
-        while (nextIndex < songsRef.current.length) {
+      Array.from({ length: Math.min(RESOLUTION_WORKERS, backgroundTracks.length) }, async () => {
+        while (nextIndex < backgroundTracks.length) {
           if (signal.aborted) return;
-          const original = songsRef.current[nextIndex++];
+          const original = backgroundTracks[nextIndex++];
           // Skip tracks that are already full-length. Even with the chart
           // preview response, a stale React Query cache can contain mixed
           // preview + full rows from a previous progressive upgrade; we

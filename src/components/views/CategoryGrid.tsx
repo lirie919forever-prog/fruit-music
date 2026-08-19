@@ -115,7 +115,11 @@ export function CategoryGrid({
     return (
       <StatusPanel
         eyebrow={config.title}
-        title="No verified tracks are available for this category."
+        title={
+          config.requiresFullLength
+            ? 'No current chart tracks are available right now.'
+            : 'No tracks are available for this category right now.'
+        }
         note={
           unavailableProviders.length > 0 ? `Unavailable or degraded: ${unavailableProviders.join(', ')}` : undefined
         }
@@ -131,7 +135,7 @@ export function CategoryGrid({
       <div className="pb-3">
         <p className="text-[13px] text-[var(--salt-mist)]">
           {isShowingPreviews && fullCount > 0
-            ? `${fullCount} full + ${previewCount} preview — press any preview song and Marea will try to find a full recording.`
+            ? `${fullCount} verified full-stream match${fullCount === 1 ? '' : 'es'} + ${previewCount} preview — press any preview song and Marea will try to find a full recording.`
             : isShowingPreviews
               ? `${previewCount} preview ${previewCount === 1 ? 'track' : 'tracks'} — press any song and Marea will try to find a full recording.`
               : `${fullCount} ${fullCount === 1 ? 'track' : 'tracks'} — ${config.description}`}
