@@ -29,6 +29,7 @@ const eslintConfig = defineConfig([
     '.edge-profile/**',
     '.edge-profile-2/**',
     '.edge-profile-3/**',
+    'output/**',
   ]),
 ]);
 

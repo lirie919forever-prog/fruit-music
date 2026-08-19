@@ -92,7 +92,10 @@ function attemptSignal(parentSignal: AbortSignal, timeoutMs: number): { signal: 
   else parentSignal.addEventListener('abort', onAbort, { once: true });
   return {
     signal: controller.signal,
-    cleanup: () => { clearTimeout(timer); parentSignal.removeEventListener('abort', onAbort); },
+    cleanup: () => {
+      clearTimeout(timer);
+      parentSignal.removeEventListener('abort', onAbort);
+    },
   };
 }
 
@@ -107,9 +110,9 @@ async function searchPiped(
   signal: AbortSignal,
   filter: 'videos' | 'music_songs' = 'videos',
 ): Promise<InvidiousSearchItem[] | null> {
-  return Promise.any(
-    PIPED_INSTANCES.map((instance) => pipedSearchOne(instance, query, signal, filter)),
-  ).catch(() => null);
+  return Promise.any(PIPED_INSTANCES.map((instance) => pipedSearchOne(instance, query, signal, filter))).catch(
+    () => null,
+  );
 }
 
 async function pipedSearchOne(

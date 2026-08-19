@@ -918,8 +918,7 @@ function ChartPreview({
     // both the home shelf and the dedicated chart page, so a slow upstream
     // chart cannot freeze this shelf indefinitely.
     queryKey: ['new', 'chart', selected.key, 'preview-shelf'],
-    queryFn: ({ signal }) =>
-      catalog.getChartSongs(selected.key, signal, { resolveFullTracks: true, rowLimit: 18 }),
+    queryFn: ({ signal }) => catalog.getChartSongs(selected.key, signal, { resolveFullTracks: true, rowLimit: 18 }),
     staleTime: catalogStaleTime(countListResults),
     retry: 1,
     enabled: isVisible,

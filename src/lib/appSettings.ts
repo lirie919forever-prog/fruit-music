@@ -177,7 +177,7 @@ export function fontScaleValue(scale: FontScale): string {
 
 export function fontFamilyValue(family: FontFamily): string {
   if (family === 'system') return 'ui-sans-serif, system-ui, sans-serif';
-  if (family === 'display') return 'var(--font-display, Georgia, serif)';
+  if (family === 'display') return 'var(--font-heading, Georgia, serif)';
   return 'var(--font-body, var(--font-ui, ui-sans-serif, sans-serif))';
 }
 

@@ -302,13 +302,8 @@ export function NowPlayingBar({
   );
 
   return (
-    <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50">
-      <div
-        className="marea-player-surface marea-player-bar relative pointer-events-auto grid min-h-[calc(var(--player-bar-height)_+_env(safe-area-inset-bottom))] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t px-3 md:min-h-[calc(var(--player-bar-desktop-height)_+_env(safe-area-inset-bottom))] md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5"
-        style={{
-          paddingBottom: 'env(safe-area-inset-bottom)',
-        }}
-      >
+    <div className="marea-player-docked pointer-events-none fixed left-0 right-0 z-50">
+      <div className="marea-player-surface marea-player-bar relative pointer-events-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t px-3 md:grid-cols-[minmax(0,260px)_1fr_minmax(0,220px)] md:gap-4 md:px-5">
         <div className="marea-aurora-layer" aria-hidden="true" />
         <div aria-live="polite" className="sr-only">
           {currentSong

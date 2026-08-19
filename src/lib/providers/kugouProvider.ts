@@ -57,9 +57,7 @@ export function kugouSongToSong(item: KugouSong, index = 0): Song | null {
   const album = text(item.album_name) || title;
   const rawAlbumId = item.album_id;
   const albumId =
-    rawAlbumId != null && String(rawAlbumId).trim() !== ''
-      ? `kugou-album-${rawAlbumId}`
-      : `kugou-album-${hash}`;
+    rawAlbumId != null && String(rawAlbumId).trim() !== '' ? `kugou-album-${rawAlbumId}` : `kugou-album-${hash}`;
   const detailUrl = `https://www.kugou.com/song/#hash=${hash}`;
   const suffix = text(item.extname) || 'mp3';
   const size = Number(item.filesize) || 0;

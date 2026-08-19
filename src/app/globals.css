@@ -3,14 +3,8 @@
 @theme inline {
   --color-background: var(--sea-abyss);
   --color-foreground: var(--salt-white);
-  --font-sans: var(
-    --font-body,
-    var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif)
-  );
-  --font-display: var(
-    --font-display,
-    var(--font-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif)
-  );
+  --font-sans: var(--font-body);
+  --font-display: var(--font-heading);
   --font-mono: var(--font-mono-var, 'JetBrains Mono', ui-monospace, monospace);
 }
 
@@ -58,14 +52,21 @@
      and a hard-coded 88px of padding in MareaApp — so changing the bar meant
      remembering to change a number somewhere else or clipping the last row. */
   --player-bar-height: 72px;
-  --player-bar-clearance: calc(var(--player-bar-height) + 16px + env(safe-area-inset-bottom));
+  --mobile-tab-bar-height: 58px;
+  --mobile-tab-bar-border-width: 1px;
+  --mobile-tab-bar-total-height: calc(
+    var(--mobile-tab-bar-height) + var(--mobile-tab-bar-border-width) + env(safe-area-inset-bottom)
+  );
+  --mobile-player-stack-height: calc(var(--player-bar-height) + var(--mobile-tab-bar-total-height));
+  --player-bar-clearance: calc(var(--mobile-player-stack-height) + 16px);
   --player-bar-desktop-height: 92px;
   --player-bar-desktop-clearance: calc(var(--player-bar-desktop-height) + 16px + env(safe-area-inset-bottom));
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --font-body: var(--font-body, var(--font-ui));
-  --font-headline: var(--font-display, var(--font-ui));
+  --font-body: 'Geist Variable', var(--font-ui);
+  --font-heading: 'Fraunces Variable', Georgia, serif;
+  --font-headline: var(--font-heading);
   --marea-font-family: var(--font-body, var(--font-ui));
   --marea-font-weight: 500;
   --marea-font-scale: 1;
@@ -448,7 +449,6 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
   }
 }
 
-
 /* === Mobile UX optimizations === */
 
 /* Scroll snap for horizontal rails — cards align cleanly as you flick */
@@ -481,7 +481,9 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
   background: linear-gradient(135deg, var(--glass-surface-strong), var(--glass-surface));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(170%);
   backdrop-filter: blur(calc(var(--glass-blur) + 4px)) saturate(170%);
-  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.48);
 }
 
 /* Prevent text selection on touch UI controls */
@@ -498,7 +500,7 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
 /* Mobile: enlarge touch targets for station/track name buttons */
 @media (max-width: 768px) {
   .marea-rail-scroll button,
-  .marea-rail-scroll [role="button"] {
+  .marea-rail-scroll [role='button'] {
     min-height: 44px;
   }
   /* Ensure the scroll container has room below the player bar */
@@ -516,8 +518,9 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
 /* Glass glow on hover for track cards — adds depth on desktop */
 @media (hover: hover) {
   .marea-glass-card {
-    transition: box-shadow 280ms cubic-bezier(0.22, 1, 0.36, 1),
-                border-color 280ms ease;
+    transition:
+      box-shadow 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 280ms ease;
   }
   .marea-glass-card:hover {
     border-color: var(--glass-border-active);
@@ -536,11 +539,14 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
   }
 }
 
-
 /* Glass shimmer keyframe: a soft diagonal light sweep on hover */
 @keyframes marea-glass-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 /* Shimmer overlay on glass cards when hovered — adds a light sweep effect */
@@ -572,8 +578,17 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
 
 /* Mobile: subtle pulse-glow on the player bar when playing */
 @keyframes marea-playing-glow {
-  0%, 100% { box-shadow: 0 -8px 24px rgba(13, 111, 168, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
-  50% { box-shadow: 0 -8px 28px rgba(13, 111, 168, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.56); }
+  0%,
+  100% {
+    box-shadow:
+      0 -8px 24px rgba(13, 111, 168, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  }
+  50% {
+    box-shadow:
+      0 -8px 28px rgba(13, 111, 168, 0.16),
+      inset 0 1px 0 rgba(255, 255, 255, 0.56);
+  }
 }
 
 .marea-playing-glow {
@@ -581,8 +596,12 @@ html[data-marea-theme='midnight'] .marea-player-overlay {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .marea-playing-glow { animation: none; }
-  .marea-glass-card:hover::after { display: none; }
+  .marea-playing-glow {
+    animation: none;
+  }
+  .marea-glass-card:hover::after {
+    display: none;
+  }
 }
 
 /* The ocean palette is the product identity. Midnight is an optional low-light
@@ -673,7 +692,7 @@ html[data-marea-reduced-motion='true'] *::after {
     backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(180%);
   }
   /* Spring animation for nav items on tap */
-  [class*="marea-nav-item"]:active {
+  [class*='marea-nav-item']:active {
     transform: scale(0.97);
     transition: transform 120ms cubic-bezier(0.34, 1.56, 0.64, 1);
   }
@@ -697,8 +716,13 @@ html[data-marea-reduced-motion='true'] *::after {
 
 /* Soft floating animation on the cover art of the playing track */
 @keyframes marea-floating-cover {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
 }
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
@@ -709,7 +733,7 @@ html[data-marea-reduced-motion='true'] *::after {
 
 /* Status pills transition smoothly on mobile */
 @media (pointer: coarse) {
-  [class*="rounded-full"][class*="bg-"] {
+  [class*='rounded-full'][class*='bg-'] {
     transition: background-color 240ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 }
@@ -723,7 +747,6 @@ html[data-marea-reduced-motion='true'] *::after {
     transition: none;
   }
 }
-
 
 /* ============================================================
  * Enhanced liquid-glass polish: aurora light, sheen ripple,
@@ -744,7 +767,9 @@ html[data-marea-reduced-motion='true'] *::after {
     background: linear-gradient(115deg, transparent 36%, rgba(255, 255, 255, 0.18) 50%, transparent 64%);
     opacity: 0;
     transform: translateX(-12%);
-    transition: opacity 320ms ease, transform 720ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition:
+      opacity 320ms ease,
+      transform 720ms cubic-bezier(0.22, 1, 0.36, 1);
     pointer-events: none;
     mix-blend-mode: screen;
   }
@@ -770,14 +795,32 @@ html[data-marea-reduced-motion='true'] *::after {
  * shapes that drift independently and give the "blue-white ocean" feel
  * during playback without distracting from the cover art above. */
 @keyframes marea-aurora-a {
-  0%   { transform: translate3d(-22%, -10%, 0) scale(1); opacity: 0.55; }
-  50%  { transform: translate3d(14%,   6%, 0) scale(1.18); opacity: 0.78; }
-  100% { transform: translate3d(-22%, -10%, 0) scale(1); opacity: 0.55; }
+  0% {
+    transform: translate3d(-22%, -10%, 0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(14%, 6%, 0) scale(1.18);
+    opacity: 0.78;
+  }
+  100% {
+    transform: translate3d(-22%, -10%, 0) scale(1);
+    opacity: 0.55;
+  }
 }
 @keyframes marea-aurora-b {
-  0%   { transform: translate3d(18%,  8%, 0) scale(1.1); opacity: 0.42; }
-  50%  { transform: translate3d(-16%, -4%, 0) scale(0.9); opacity: 0.7; }
-  100% { transform: translate3d(18%,  8%, 0) scale(1.1); opacity: 0.42; }
+  0% {
+    transform: translate3d(18%, 8%, 0) scale(1.1);
+    opacity: 0.42;
+  }
+  50% {
+    transform: translate3d(-16%, -4%, 0) scale(0.9);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate3d(18%, 8%, 0) scale(1.1);
+    opacity: 0.42;
+  }
 }
 .marea-aurora-layer {
   position: absolute;
@@ -810,13 +853,16 @@ html[data-marea-reduced-motion='true'] *::after {
 }
 @media (prefers-reduced-motion: reduce) {
   .marea-aurora-layer::before,
-  .marea-aurora-layer::after { animation: none; opacity: 0.5; }
+  .marea-aurora-layer::after {
+    animation: none;
+    opacity: 0.5;
+  }
 }
 
 /* Stronger deep-glass blur for the mobile player bar so the aurora reads
  * as a frosted light column rising behind the controls. */
 @media (max-width: 768px) {
-  .marea-player-bar .marea-aurora-layer ~ * {
+  .marea-player-bar > .marea-aurora-layer ~ :not(.sr-only):not(.absolute) {
     position: relative;
     z-index: 1;
   }
@@ -830,8 +876,13 @@ html[data-marea-reduced-motion='true'] *::after {
  * a soft cyan ring that intensifies on the row the user has actually played.
  * Plays well with the marea-playing-glow pulse above. */
 @keyframes marea-verified-ember {
-  0%, 100% { box-shadow: 0 0 18px rgba(80, 200, 240, 0.18); }
-  50%      { box-shadow: 0 0 28px rgba(80, 200, 240, 0.3); }
+  0%,
+  100% {
+    box-shadow: 0 0 18px rgba(80, 200, 240, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(80, 200, 240, 0.3);
+  }
 }
 .marea-glass-card.marea-verified-track {
   border-color: color-mix(in srgb, var(--glass-border-active) 86%, transparent);
@@ -854,7 +905,6 @@ html[data-marea-reduced-motion='true'] *::after {
     0 0 22px rgba(13, 111, 168, 0.22);
 }
 
-
 /* ============================================================
  * Enhanced glassmorphism + mobile UX (v2)
  * ============================================================ */
@@ -862,22 +912,54 @@ html[data-marea-reduced-motion='true'] *::after {
 /* Song row glass hover: instead of a flat background swap, rows now get a
  * subtle frosted glass sheen + inner highlight that deepens on active. */
 .marea-glass-card:hover:not(.marea-now-playing-card) {
-  background: linear-gradient(
-    145deg,
-    rgba(255, 255, 255, 0.88),
-    rgba(226, 246, 255, 0.72)
-  );
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(226, 246, 255, 0.72));
   -webkit-backdrop-filter: blur(20px) saturate(175%);
   backdrop-filter: blur(20px) saturate(175%);
 }
 
+.marea-player-docked {
+  bottom: var(--mobile-tab-bar-total-height);
+}
+
+.marea-player-bar {
+  min-height: var(--player-bar-height);
+}
+
+.marea-mobile-tab-bar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  min-height: var(--mobile-tab-bar-total-height);
+  padding: 0 max(3px, env(safe-area-inset-left)) env(safe-area-inset-bottom) max(3px, env(safe-area-inset-right));
+  border-top: var(--mobile-tab-bar-border-width) solid var(--glass-border);
+  background: linear-gradient(180deg, rgba(252, 254, 255, 0.86), rgba(239, 249, 255, 0.78));
+  box-shadow:
+    0 -10px 30px rgba(25, 93, 129, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+}
+
+@media (min-width: 768px) {
+  .marea-mobile-tab-bar {
+    display: none;
+  }
+
+  .marea-player-docked {
+    bottom: 0;
+  }
+
+  .marea-player-bar {
+    min-height: calc(var(--player-bar-desktop-height) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
 /* Active/now-playing row gets a more pronounced glass + cyan-tinted glow */
 .marea-glass-card.marea-now-playing-card {
-  background: linear-gradient(
-    135deg,
-    rgba(210, 240, 255, 0.82),
-    rgba(196, 233, 250, 0.62)
-  );
+  background: linear-gradient(135deg, rgba(210, 240, 255, 0.82), rgba(196, 233, 250, 0.62));
   -webkit-backdrop-filter: blur(22px) saturate(190%);
   backdrop-filter: blur(22px) saturate(190%);
   border-color: color-mix(in srgb, var(--salt-primary) 24%, var(--glass-border));
@@ -893,7 +975,9 @@ html[data-marea-reduced-motion='true'] *::after {
     -webkit-backdrop-filter: blur(14px) saturate(140%);
     backdrop-filter: blur(14px) saturate(140%);
     transform: scale(0.985);
-    transition: transform 80ms ease-out, backdrop-filter 80ms ease-out;
+    transition:
+      transform 80ms ease-out,
+      backdrop-filter 80ms ease-out;
   }
   .marea-glass-control:active {
     -webkit-backdrop-filter: blur(10px) saturate(130%);
@@ -910,11 +994,7 @@ html[data-marea-reduced-motion='true'] *::after {
   height: 24px;
   z-index: 5;
   pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    var(--glass-surface-strong),
-    transparent
-  );
+  background: linear-gradient(to bottom, var(--glass-surface-strong), transparent);
   -webkit-mask-image: linear-gradient(to bottom, black, transparent);
   mask-image: linear-gradient(to bottom, black, transparent);
 }
@@ -922,17 +1002,13 @@ html[data-marea-reduced-motion='true'] *::after {
 /* Mobile bottom fade: content fades into the player bar area */
 .marea-scroll-fade-bottom {
   position: fixed;
-  bottom: 0;
+  bottom: var(--mobile-player-stack-height);
   left: 0;
   right: 0;
   height: 8px;
   z-index: 4;
   pointer-events: none;
-  background: linear-gradient(
-    to top,
-    rgba(225, 244, 254, 0.5),
-    transparent
-  );
+  background: linear-gradient(to top, rgba(225, 244, 254, 0.5), transparent);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
@@ -963,12 +1039,7 @@ html[data-marea-reduced-motion='true'] *::after {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(
-    120deg,
-    transparent 30%,
-    rgba(255, 255, 255, 0.25) 50%,
-    transparent 70%
-  );
+  background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.25) 50%, transparent 70%);
   opacity: 0;
   transition: opacity 200ms ease;
 }
@@ -990,12 +1061,7 @@ html[data-marea-reduced-motion='true'] *::after {
     left: -100%;
     width: 60%;
     height: 100%;
-    background: linear-gradient(
-      120deg,
-      transparent,
-      rgba(255, 255, 255, 0.3),
-      transparent
-    );
+    background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.3), transparent);
     animation: marea-glass-shimmer 0.6s ease-out;
     pointer-events: none;
   }

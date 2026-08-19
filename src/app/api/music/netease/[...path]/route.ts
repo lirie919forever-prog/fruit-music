@@ -14,8 +14,8 @@ const REQUEST_TIMEOUT_MS = 12_000;
 const CATALOG_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=600';
 const NETEASE_HEADERS: Record<string, string> = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  'Referer': 'https://music.163.com',
-  'Accept': 'application/json',
+  Referer: 'https://music.163.com',
+  Accept: 'application/json',
 };
 
 const rateLimit = createRateLimiter({ windowMs: 60_000, maxRequests: 600, maxEntries: 8_000 });
@@ -93,9 +93,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       }
 
       const data: NeteaseSearchPayload = await response.json();
-      const songs = (data.result?.songs ?? []).filter(
-        (s) => s.id && s.name && (s.duration ?? 0) >= 30000,
-      );
+      const songs = (data.result?.songs ?? []).filter((s) => s.id && s.name && (s.duration ?? 0) >= 30000);
 
       const resp = NextResponse.json({
         result: {
@@ -139,8 +137,7 @@ export async function GET(request: Request): Promise<NextResponse> {
           signal,
           headers: { 'User-Agent': NETEASE_HEADERS['User-Agent'] },
         });
-        const outerAvailable =
-          outer.ok && isAudioLike(outer.headers.get('Content-Type') ?? '', upContentLength(outer));
+        const outerAvailable = outer.ok && isAudioLike(outer.headers.get('Content-Type') ?? '', upContentLength(outer));
         return NextResponse.json({ available: outerAvailable });
       } catch {
         return NextResponse.json({ available: false });

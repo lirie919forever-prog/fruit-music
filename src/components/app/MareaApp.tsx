@@ -7,7 +7,7 @@ import { Providers } from '@/app/providers';
 import { NowPlayingBar } from '@/components/player/NowPlayingBar';
 import { QueueRail } from '@/components/player/QueueRail';
 import { CoverArt } from '@/components/ui/CoverArt';
-import { Sidebar, MobileNavigation } from '@/components/layout/Sidebar';
+import { Sidebar, MobileNavigation, MobileTabBar } from '@/components/layout/Sidebar';
 import type { CategoryConfig } from '@/components/views/CategoryGrid';
 import { NewView } from '@/components/views/NewView';
 import { useToast } from '@/components/ui/Toast';
@@ -635,7 +635,11 @@ function MainContent({
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 {currentView !== 'search' && <GlobalSearch onSubmit={navigateToSearch} />}
                 {currentView !== 'search' && (
-                  <HeaderIconButton label="Search music" onClick={() => navigateToSearch('')} className="lg:hidden">
+                  <HeaderIconButton
+                    label="Search music"
+                    onClick={() => navigateToSearch('')}
+                    className="hidden md:flex lg:hidden"
+                  >
                     <Search className="h-4 w-4" aria-hidden />
                   </HeaderIconButton>
                 )}
@@ -720,6 +724,7 @@ function MainContent({
         )}
       </div>
       {currentView !== 'now-playing' && <NowPlayingBar onNavigateWithItem={navigateWithItem} onOpenQueue={openQueue} />}
+      {currentView !== 'now-playing' && <MobileTabBar onNavigate={navigateToView} />}
       {queueOpen && <QueueDrawer open onClose={closeQueue} onOpenFullPlayer={openFullPlayer} />}
       <input
         ref={localFileInputRef}

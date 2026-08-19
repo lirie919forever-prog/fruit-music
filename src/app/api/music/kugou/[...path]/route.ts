@@ -65,7 +65,9 @@ function text(value: unknown): string {
 }
 
 function resolveKey(hash: string): string {
-  return createHash('md5').update(hash + KUGOU_KEY_SALT).digest('hex');
+  return createHash('md5')
+    .update(hash + KUGOU_KEY_SALT)
+    .digest('hex');
 }
 
 async function handleSearch(request: Request): Promise<NextResponse> {
@@ -89,7 +91,7 @@ async function handleSearch(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: `Kugou upstream error (status ${response.status})` }, { status: 502 });
     }
     const payload = (await response.json()) as KugouSearchPayload;
-    const info = Array.isArray(payload.data?.info) ? payload.data?.info ?? [] : [];
+    const info = Array.isArray(payload.data?.info) ? (payload.data?.info ?? []) : [];
     const results = info
       .filter((item) => HASH_RE.test(text(item.hash)))
       .map((item) => ({
@@ -260,8 +262,7 @@ async function handleStream(request: Request, hash: string): Promise<NextRespons
   const searchParams = new URL(request.url).searchParams;
   const isProbe = searchParams.get('probe') === '1';
   const expectedDuration = Number(searchParams.get('expected'));
-  const normalizedExpectedDuration =
-    Number.isFinite(expectedDuration) && expectedDuration > 45 ? expectedDuration : 0;
+  const normalizedExpectedDuration = Number.isFinite(expectedDuration) && expectedDuration > 45 ? expectedDuration : 0;
   if (!HASH_RE.test(hash)) return NextResponse.json({ error: 'Invalid Kugou hash' }, { status: 400 });
 
   try {
@@ -271,8 +272,7 @@ async function handleStream(request: Request, hash: string): Promise<NextRespons
         ? unavailableProbe(resolved.code)
         : NextResponse.json(
             { error: 'Kugou stream unavailable', code: resolved.code },
-            { status: 502,
-              headers: { 'Cache-Control': 'private, no-store' } },
+            { status: 502, headers: { 'Cache-Control': 'private, no-store' } },
           );
     }
     if (isProbe) {

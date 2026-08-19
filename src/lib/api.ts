@@ -109,11 +109,11 @@ function throwIfAborted(signal?: AbortSignal): void {
 function normalizePlaybackText(value: string): string {
   return normalizeCJK(
     value
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim(),
+      .normalize('NFKD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLocaleLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim(),
   );
 }
 
@@ -355,10 +355,7 @@ async function searchFullTrackSources(
 
   // Resolve as soon as either (a) any source finds matches, or (b) all
   // sources have settled without finding anything.
-  await Promise.race([
-    matchedOrAllDone,
-    Promise.allSettled(sourcePromises).then(() => earlyResolve()),
-  ]);
+  await Promise.race([matchedOrAllDone, Promise.allSettled(sourcePromises).then(() => earlyResolve())]);
   linked.dispose();
   return allMatches;
 }
@@ -405,7 +402,9 @@ async function findFullTrackCandidates(
     primarySources.push((query, sourceSignal) => neteaseProvider.search(query, sourceSignal));
   }
   if (!isExcluded('Kuwo')) {
-    primarySources.push((query, sourceSignal) => kuwoProvider.search(query, sourceSignal, options.softResolverSearch ? { soft: true } : undefined));
+    primarySources.push((query, sourceSignal) =>
+      kuwoProvider.search(query, sourceSignal, options.softResolverSearch ? { soft: true } : undefined),
+    );
   }
   if (!isExcluded('Bilibili')) {
     primarySources.push((query, sourceSignal) => bilibiliProvider.search(query, sourceSignal));
@@ -413,11 +412,7 @@ async function findFullTrackCandidates(
   if (!isExcluded('Invidious')) {
     primarySources.push((query, sourceSignal) => invidiousProvider.search(query, sourceSignal));
   }
-  if (
-    options.includeLx === true &&
-    !isExcluded('LX Music') &&
-    process.env.NEXT_PUBLIC_LX_ENABLED === 'true'
-  ) {
+  if (options.includeLx === true && !isExcluded('LX Music') && process.env.NEXT_PUBLIC_LX_ENABLED === 'true') {
     primarySources.push((query, sourceSignal) => lxmusicProvider.search(query, sourceSignal));
   }
   if (options.includeAudius !== false && !isExcluded('Audius')) {
@@ -738,9 +733,10 @@ async function findFullTrackFallback(
   options: FullTrackSearchOptions = {},
 ): Promise<Song | null> {
   try {
-    const candidates = (
-      await findFullTrackCandidates(song, signal, new Set(), options)
-    ).slice(0, MAX_PLAYBACK_CANDIDATES);
+    const candidates = (await findFullTrackCandidates(song, signal, new Set(), options)).slice(
+      0,
+      MAX_PLAYBACK_CANDIDATES,
+    );
     if (candidates.length === 0) return null;
 
     // Race probe candidates concurrently rather than awaiting them one at a
@@ -820,7 +816,7 @@ const CHART_FULL_TRACK_SEARCH_OPTIONS: FullTrackSearchOptions = {
   includeOpenSources: false,
   includeAudius: false,
   includeLx: true,
-    softResolverSearch: true,
+  softResolverSearch: true,
   // Bilibili's search endpoint returns HTTP 412 (anti-bot) from Vercel's edge
   // IPs, surfaced as a 502, which only wastes worker time on doomed requests.
   // In development (where Bilibili works), it stays as a primary source.
@@ -857,16 +853,15 @@ async function resolveChartFullTracks(
         const index = nextIndex;
         nextIndex += 1;
         try {
-          const fullTrack = await findFullTrackFallback(
-            chartCandidates[index],
-            resolutionSignal,
-            searchOptions,
-          );
+          const fullTrack = await findFullTrackFallback(chartCandidates[index], resolutionSignal, searchOptions);
           if (fullTrack) {
             resolved[index] =
               fullTrack.duration > 0
                 ? withCatalogArtwork(fullTrack, chartCandidates[index])
-                : withCatalogArtwork({ ...fullTrack, duration: chartCandidates[index].duration }, chartCandidates[index]);
+                : withCatalogArtwork(
+                    { ...fullTrack, duration: chartCandidates[index].duration },
+                    chartCandidates[index],
+                  );
           }
         } catch {
           // A chart row remains usable as Apple's official preview when the

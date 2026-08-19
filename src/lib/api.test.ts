@@ -1246,9 +1246,9 @@ describe('album federation', () => {
     );
 
     await expect(api.getChartSongs('billboard')).resolves.toEqual(previews);
-    expect(
-      vi.mocked(kuwoProvider.search).mock.calls.some(([query]) => query.includes('Visible chart song 13')),
-    ).toBe(true);
+    expect(vi.mocked(kuwoProvider.search).mock.calls.some(([query]) => query.includes('Visible chart song 13'))).toBe(
+      true,
+    );
   });
 
   it('keeps a chart preview when the resolver only names the target artist in its title', async () => {

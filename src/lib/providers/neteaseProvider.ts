@@ -39,7 +39,12 @@ interface NeteaseStreamResponse {
 
 function resolveArtists(artists: NeteaseArtist[] | undefined): string {
   if (!Array.isArray(artists) || artists.length === 0) return 'Unknown artist';
-  return artists.map((a) => a.name || '').filter(Boolean).join(', ') || 'Unknown artist';
+  return (
+    artists
+      .map((a) => a.name || '')
+      .filter(Boolean)
+      .join(', ') || 'Unknown artist'
+  );
 }
 
 function safeNeteaseArtwork(picUrl: string | undefined, seed: string): string {

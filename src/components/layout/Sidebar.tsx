@@ -314,3 +314,80 @@ export function MobileNavigation({ onNavigate }: { onNavigate?: (view: ViewType)
     </>
   );
 }
+
+const mobilePrimaryTabs: Array<{
+  view: ViewType;
+  label: string;
+  icon: ReactNode;
+  activeViews?: ViewType[];
+}> = [
+  { view: 'new', label: 'New', icon: <Sparkles className="h-[19px] w-[19px]" /> },
+  { view: 'search', label: 'Search', icon: <Search className="h-[19px] w-[19px]" /> },
+  { view: 'radio', label: 'Radio', icon: <Radio className="h-[19px] w-[19px]" /> },
+  {
+    view: 'jp',
+    label: 'Charts',
+    icon: <BarChart3 className="h-[19px] w-[19px]" />,
+    activeViews: ['jp', 'billboard', 'uk'],
+  },
+  {
+    view: 'favorites',
+    label: 'Library',
+    icon: <Heart className="h-[19px] w-[19px]" />,
+    activeViews: ['favorites', 'albums', 'artists', 'playlist', 'history'],
+  },
+];
+
+/**
+ * Persistent mobile destinations. The slide-out menu still exposes every
+ * specialist view, while the dock keeps the five repeated listening flows one
+ * tap away and leaves the header enough room for long page titles.
+ */
+export function MobileTabBar({ onNavigate }: { onNavigate?: (view: ViewType) => void }) {
+  const currentView = usePlayerStore((state) => state.currentView);
+  const setCurrentView = usePlayerStore((state) => state.setCurrentView);
+
+  const navigate = useCallback(
+    (view: ViewType) => {
+      if (onNavigate) {
+        onNavigate(view);
+        return;
+      }
+      setCurrentView(view);
+      window.history.pushState(null, '', buildNavigationUrl(window.location, view));
+    },
+    [onNavigate, setCurrentView],
+  );
+
+  return (
+    <nav aria-label="Mobile primary navigation" className="marea-mobile-tab-bar md:hidden">
+      {mobilePrimaryTabs.map((tab) => {
+        const active = (tab.activeViews ?? [tab.view]).includes(currentView);
+        return (
+          <motion.button
+            key={tab.view}
+            type="button"
+            whileTap={{ scale: 0.92 }}
+            onClick={() => navigate(tab.view)}
+            aria-current={active ? 'page' : undefined}
+            aria-label={tab.view === 'jp' ? 'Charts, opens Japan Charts' : tab.label}
+            className={`group flex h-[var(--mobile-tab-bar-height)] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 transition-colors ${
+              active ? 'text-[var(--salt-primary)]' : 'text-[var(--salt-mist)]'
+            }`}
+          >
+            <span
+              className={`relative flex h-7 w-10 items-center justify-center rounded-full transition-colors ${
+                active ? 'bg-[color-mix(in_srgb,var(--salt-primary)_12%,white)]' : 'group-active:bg-[var(--salt-ghost)]'
+              }`}
+              aria-hidden
+            >
+              {tab.icon}
+              {active && <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-[var(--salt-primary)]" />}
+            </span>
+            <span className="max-w-full truncate text-[10px] font-semibold leading-none">{tab.label}</span>
+          </motion.button>
+        );
+      })}
+    </nav>
+  );
+}

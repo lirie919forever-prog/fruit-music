@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMusicCatalog } from '@/lib/musicCatalog';
 import { isFullTrack } from './newViewModel';
-import { isPreviewSource } from '@/lib/sourceRegistry';
 import type { Song } from '@/types/music';
 
 const RESOLUTION_WORKERS = 8;
 const RESOLUTION_TIMEOUT_MS = 35_000;
+const EMPTY_RESOLVED_TRACKS: ReadonlyMap<string, Song> = new Map();
 
 /**
  * Progressive chart hydration hook. The server-side chart fetch returns raw
@@ -36,27 +36,26 @@ const RESOLUTION_TIMEOUT_MS = 35_000;
  */
 export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
   const catalog = useMusicCatalog();
-  const [resolvedMap, setResolvedMap] = useState<ReadonlyMap<string, Song>>(new Map());
 
   // Content fingerprint: stable across renders that hand in a new array
   // reference with the same ids. Only a real content change (different ids)
   // restarts hydration; a reference-only change is a no-op for the effects.
   const songsKey = useMemo(() => songs.map((song) => song.id).join('\n'), [songs]);
+  const [resolutionState, setResolutionState] = useState<{
+    songsKey: string;
+    tracks: ReadonlyMap<string, Song>;
+  }>(() => ({ songsKey, tracks: EMPTY_RESOLVED_TRACKS }));
+  const resolvedMap = resolutionState.songsKey === songsKey ? resolutionState.tracks : EMPTY_RESOLVED_TRACKS;
 
   // Latest snapshots in refs. The resolver effect reads these so it can
   // depend on the stable content key instead of the array/catalog objects,
   // which would otherwise respawn workers on every flush.
   const songsRef = useRef(songs);
-  songsRef.current = songs;
   const catalogRef = useRef(catalog);
-  catalogRef.current = catalog;
-
-  // Reset the merge map only when the chart content actually changes (a
-  // refetch that replaces the entire list). Keying on the content fingerprint
-  // means a reference-only change does NOT wipe the upgrades already made.
   useEffect(() => {
-    setResolvedMap(new Map());
-  }, [songsKey]);
+    songsRef.current = songs;
+    catalogRef.current = catalog;
+  }, [catalog, songs]);
 
   useEffect(() => {
     if (!enabled || songsKey === '') return;
@@ -76,10 +75,10 @@ export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
         const batch = buffer.pending;
         if (batch.size === 0) return;
         buffer.pending = new Map();
-        setResolvedMap((prev) => {
-          const next = new Map(prev);
+        setResolutionState((previous) => {
+          const next = new Map(previous.songsKey === songsKey ? previous.tracks : EMPTY_RESOLVED_TRACKS);
           for (const [id, full] of batch) next.set(id, full);
-          return next;
+          return { songsKey, tracks: next };
         });
       }, 0);
       // If the abort fires while a flush is pending, skip the empty flush.
@@ -130,27 +129,10 @@ export function useChartResolution(songs: Song[], enabled: boolean): Song[] {
     // catalogRef hold the latest snapshots; depending on the array or catalog
     // identities respawns the whole worker pool on every flush, which is the
     // max-depth loop we deliberately avoid here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songsKey, enabled]);
 
   return useMemo(() => {
     if (resolvedMap.size === 0) return songs;
     return songs.map((song) => resolvedMap.get(song.id) ?? song);
   }, [songs, resolvedMap]);
-}
-
-/**
- * Returns whether the chart songs still contain Apple/preview clips that
- * have not yet been upgraded. The CategoryGrid uses this to show a live
- * "X full + Y preview" message that increments as tracks upgrade.
- */
-export function countChartProvenance(songs: Song[]): { full: number; preview: number } {
-  let full = 0;
-  let preview = 0;
-  for (const song of songs) {
-    if (song.playbackUnavailable) continue;
-    if (isPreviewSource(song.provider)) preview += 1;
-    else if (isFullTrack(song)) full += 1;
-  }
-  return { full, preview };
 }

@@ -13,7 +13,7 @@ import type { FederatedResult, MusicCatalog } from '@/lib/catalogTypes';
 import type { Song, ViewType } from '@/types/music';
 import { VirtualList } from '@/components/ui/VirtualList';
 import { useMusicCatalog } from '@/lib/musicCatalog';
-import { useChartResolution, countChartProvenance } from './useChartResolution';
+import { useChartResolution } from './useChartResolution';
 
 export interface CategoryConfig {
   view: ViewType;
@@ -80,9 +80,7 @@ export function CategoryGrid({
   // chart order, which caused track misalignment.
   const displaySongs = useMemo(
     () =>
-      config.requiresFullLength || config.includePreviews === true
-        ? resolvedSongs
-        : allSongs.filter(isDirectFullTrack),
+      config.requiresFullLength || config.includePreviews === true ? resolvedSongs : allSongs.filter(isDirectFullTrack),
     [resolvedSongs, allSongs, config.requiresFullLength, config.includePreviews],
   );
   const fullCount = useMemo(
@@ -95,17 +93,12 @@ export function CategoryGrid({
   const previewCount = useMemo(
     () =>
       config.requiresFullLength
-        ? resolvedSongs.filter(
-            (song) => isPreviewSource(song.provider) && song.playbackUnavailable !== true,
-          ).length
+        ? resolvedSongs.filter((song) => isPreviewSource(song.provider) && song.playbackUnavailable !== true).length
         : 0,
     [resolvedSongs, config.requiresFullLength],
   );
   const isShowingPreviews = previewCount > 0 && config.requiresFullLength;
-  const hasUnavailableTracks = useMemo(
-    () => displaySongs.some((song) => song.playbackUnavailable),
-    [displaySongs],
-  );
+  const hasUnavailableTracks = useMemo(() => displaySongs.some((song) => song.playbackUnavailable), [displaySongs]);
 
   if (isLoading) return <TrackSkeleton />;
   if (isError || allProvidersFailed) {
